@@ -11,7 +11,7 @@ services:
       PLUGINS_DIR: /app/plugins
       FRONTEND_DIST: /app/frontend-dist
     ports:
-      - "${MEETFLOW_PORT:-8000}:8000"
+      - "${MEETFLOW_BIND:-127.0.0.1}:${MEETFLOW_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
       - ./plugins:/app/plugins:ro

@@ -48,7 +48,7 @@ docker compose ps
 curl http://127.0.0.1:8000/api/health
 ```
 
-默认映射到宿主机 `8000` 端口。可在 `.env` 中修改 `MEETFLOW_PORT`。数据库和附件位于宿主机 `data/`，插件目录以只读方式挂载到容器 `/app/plugins`。
+默认只映射到宿主机 `127.0.0.1:8000`。可在 `.env` 中修改 `MEETFLOW_PORT`；只有明确需要局域网裸 HTTP 直连时才设置 `MEETFLOW_BIND=0.0.0.0`。数据库和附件位于宿主机 `data/`，插件目录以只读方式挂载到容器 `/app/plugins`。
 
 停止服务：
 
@@ -117,13 +117,13 @@ docker compose up -d --no-build meetflow
 
 ## 备份与恢复
 
-备份脚本使用 SQLite 在线备份 API，因此不会产生只复制主数据库文件而漏掉 WAL 的问题。为了保证数据库与附件处于同一个业务时点，推荐在无人写入时执行，最稳妥的方式是短暂停止容器：
+备份脚本使用 SQLite 在线备份 API，因此不会产生只复制主数据库文件而漏掉 WAL 的问题。Docker 备份在运行中的应用容器内读取数据，再通过 Compose 导出，兼容 rootless Docker 和用户命名空间。为了保证数据库与附件处于同一个业务时点，应选择无人使用的时段，或先在反向代理处临时阻止用户访问，然后执行：
 
 ```bash
-docker compose stop meetflow
-python scripts/backup.py
-docker compose start meetflow
+./scripts/backup-container.sh
 ```
+
+备份期间不要上传、删除附件或编辑会议。备份完成后即可恢复反向代理访问。不使用 Docker 的本地部署可运行 `python scripts/backup.py`。
 
 备份默认写入 `backups/<UTC时间>/`，包含：
 
@@ -145,6 +145,8 @@ docker compose up -d
 ```
 
 恢复后应登录并检查会议、行动项和至少一个附件。`backups/` 和 `data/` 都已加入 `.gitignore`。
+
+备份目录不包含 `.env`。必须把生产环境配置单独保存在受控的密码管理器或加密离线备份中，尤其是原始 `APP_SECRET_KEY`。灾难恢复时应先恢复同一个 `APP_SECRET_KEY` 再启动应用，否则现有会话会失效，数据库中的插件 API Key 也无法解密。不要把 `.env` 放入普通共享备份或提交到 Git。
 
 ## 插件
 

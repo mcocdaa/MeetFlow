@@ -83,11 +83,13 @@ def main() -> int:
     )
     parser.add_argument("--uploads", type=Path, default=Path("data/uploads"))
     parser.add_argument("--output", type=Path, default=Path("backups"))
+    parser.add_argument("--name", help="explicit backup directory name")
     args = parser.parse_args()
     destination = create_backup(
         database=args.database,
         uploads=args.uploads,
         output_dir=args.output,
+        backup_name=args.name,
     )
     print(destination)
     return 0
