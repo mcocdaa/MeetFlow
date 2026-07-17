@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import current_user
@@ -53,10 +53,12 @@ def update_meeting(
 @router.delete("/{meeting_id}", status_code=204)
 def delete_meeting(
     meeting_id: str,
+    request: Request,
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> None:
     MeetingService(session).delete(meeting_id)
+    request.app.state.attachment_storage.remove_meeting(meeting_id)
 
 
 @router.post("/{meeting_id}/actions", status_code=201)

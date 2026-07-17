@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.attachments.router import router as attachments_router
+from app.attachments.storage import AttachmentStorage
 from app.auth.models import User  # noqa: F401 - registers SQLAlchemy metadata
 from app.auth.router import admin_router, router as auth_router
 from app.auth.service import AuthService
@@ -11,6 +13,7 @@ from app.database import Database
 from app.errors import install_error_handlers
 from app.meetings.models import (  # noqa: F401 - registers metadata
     ActionItem,
+    Attachment,
     Meeting,
     MeetingUpdate,
 )
@@ -21,11 +24,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or Settings()
     database = Database(resolved.database_url)
     auth_service = AuthService(resolved)
+    attachment_storage = AttachmentStorage(
+        resolved.data_dir, resolved.max_upload_bytes
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         resolved.data_dir.mkdir(parents=True, exist_ok=True)
         resolved.plugins_dir.mkdir(parents=True, exist_ok=True)
+        attachment_storage.initialize()
         database.create_schema()
         with database.session() as session:
             auth_service.bootstrap_admin(session)
@@ -36,11 +43,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.database = database
     app.state.auth_service = auth_service
+    app.state.attachment_storage = attachment_storage
     install_error_handlers(app)
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(meetings_router)
     app.include_router(actions_router)
+    app.include_router(attachments_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(

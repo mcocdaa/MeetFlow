@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.errors import AppError
-from app.meetings.models import ActionItem, Meeting, MeetingUpdate
+from app.meetings.models import ActionItem, Attachment, Meeting, MeetingUpdate
 from app.meetings.schemas import ActionWrite, MeetingWrite, UpdateWrite
 
 
@@ -99,13 +99,18 @@ class MeetingService:
                     ActionItem.status == "open",
                 )
             )
+            attachments = self.session.scalar(
+                select(func.count(Attachment.id)).where(
+                    Attachment.meeting_id == meeting.id
+                )
+            )
             item.update(
                 {
                     "conclusion_count": conclusion_count(
                         meeting.conclusions_markdown
                     ),
                     "open_action_count": open_actions or 0,
-                    "attachment_count": 0,
+                    "attachment_count": attachments or 0,
                 }
             )
             results.append(item)
@@ -123,14 +128,36 @@ class MeetingService:
             .where(MeetingUpdate.meeting_id == meeting_id)
             .order_by(MeetingUpdate.created_at.desc())
         )
+        attachments = self.session.scalars(
+            select(Attachment)
+            .where(Attachment.meeting_id == meeting_id)
+            .order_by(Attachment.created_at.desc())
+        )
         package.update(
             {
                 "actions": [self.serialize_action(item) for item in actions],
-                "attachments": [],
+                "attachments": [
+                    self.serialize_attachment(item) for item in attachments
+                ],
                 "updates": [self.serialize_update(item) for item in updates],
             }
         )
         return package
+
+    def serialize_attachment(self, item: Attachment) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "meeting_id": item.meeting_id,
+            "original_name": item.original_name,
+            "mime_type": item.mime_type,
+            "size": item.size,
+            "attachment_type": item.attachment_type,
+            "created_by": self._actor(item.created_by),
+            "created_at": item.created_at,
+            "download_url": (
+                f"/api/meetings/{item.meeting_id}/attachments/{item.id}"
+            ),
+        }
 
     def serialize_action(self, item: ActionItem) -> dict[str, Any]:
         meeting = self.require(item.meeting_id)

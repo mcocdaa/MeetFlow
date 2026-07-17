@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import Date, JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -68,6 +68,26 @@ class MeetingUpdate(Base):
         ForeignKey("meetings.id", ondelete="CASCADE"), index=True
     )
     content_markdown: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), index=True
+    )
+    original_name: Mapped[str] = mapped_column(String(255))
+    stored_name: Mapped[str] = mapped_column(String(255), unique=True)
+    mime_type: Mapped[str] = mapped_column(String(160))
+    size: Mapped[int] = mapped_column(Integer)
+    attachment_type: Mapped[str] = mapped_column(String(20))
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
