@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/meetflow.db"
     data_dir: Path = Path("data")
     plugins_dir: Path = Path("plugins")
+    frontend_dist: Path = Path("frontend/dist")
     admin_username: str = "admin"
     admin_password: str = "development-admin-password"
     app_secret_key: str = "development-secret-key-32-characters"
@@ -33,12 +34,20 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if (
                 len(self.admin_password) < 12
-                or self.admin_password == "development-admin-password"
+                or self.admin_password
+                in {
+                    "development-admin-password",
+                    "change-this-admin-password",
+                }
             ):
                 raise ValueError("ADMIN_PASSWORD must contain at least 12 characters")
             if (
                 len(self.app_secret_key) < 32
-                or self.app_secret_key == "development-secret-key-32-characters"
+                or self.app_secret_key
+                in {
+                    "development-secret-key-32-characters",
+                    "change-this-random-secret-before-use-0001",
+                }
             ):
                 raise ValueError("APP_SECRET_KEY must contain at least 32 characters")
             if not self.secure_cookies:

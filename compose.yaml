@@ -1,0 +1,34 @@
+services:
+  meetflow:
+    image: ${MEETFLOW_IMAGE:-meetflow:local}
+    build:
+      context: .
+    env_file:
+      - ${MEETFLOW_ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: sqlite:////app/data/meetflow.db
+      DATA_DIR: /app/data
+      PLUGINS_DIR: /app/plugins
+      FRONTEND_DIST: /app/frontend-dist
+    ports:
+      - "${MEETFLOW_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./plugins:/app/plugins:ro
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5

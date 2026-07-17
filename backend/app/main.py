@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.attachments.router import router as attachments_router
 from app.attachments.storage import AttachmentStorage
@@ -93,6 +94,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    frontend_dist = resolved.frontend_dist.resolve()
+    frontend_index = frontend_dist / "index.html"
+    frontend_assets = frontend_dist / "assets"
+    if frontend_index.is_file():
+        if frontend_assets.is_dir():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=frontend_assets),
+                name="frontend-assets",
+            )
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def serve_frontend(full_path: str):
+            if full_path == "api" or full_path.startswith("api/"):
+                raise HTTPException(status_code=404)
+            return FileResponse(frontend_index)
 
     return app
 
