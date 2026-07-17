@@ -18,6 +18,16 @@ from app.meetings.models import (  # noqa: F401 - registers metadata
     MeetingUpdate,
 )
 from app.meetings.router import actions_router, router as meetings_router
+from app.plugins.manager import PluginManager
+from app.plugins.models import (  # noqa: F401 - registers metadata
+    PluginConfig,
+    PluginState,
+)
+from app.plugins.router import (
+    actions_router as plugin_actions_router,
+    admin_router as plugin_admin_router,
+    meeting_actions_router,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -26,6 +36,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     auth_service = AuthService(resolved)
     attachment_storage = AttachmentStorage(
         resolved.data_dir, resolved.max_upload_bytes
+    )
+    plugin_manager = PluginManager(
+        resolved.plugins_dir, database, resolved.app_secret_key
     )
 
     @asynccontextmanager
@@ -36,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         database.create_schema()
         with database.session() as session:
             auth_service.bootstrap_admin(session)
+        plugin_manager.load_enabled()
         yield
         database.engine.dispose()
 
@@ -44,12 +58,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.auth_service = auth_service
     app.state.attachment_storage = attachment_storage
+    app.state.plugin_manager = plugin_manager
     install_error_handlers(app)
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(meetings_router)
     app.include_router(actions_router)
     app.include_router(attachments_router)
+    app.include_router(plugin_admin_router)
+    app.include_router(plugin_actions_router)
+    app.include_router(meeting_actions_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(

@@ -259,3 +259,29 @@ class MeetingService:
             raise AppError(404, "update_not_found", "补充记录不存在")
         self.session.delete(item)
         self.session.commit()
+
+    def plugin_context(self, meeting_id: str, user: User) -> dict[str, Any]:
+        package = self.package(meeting_id)
+        return {
+            "id": package["id"],
+            "title": package["title"],
+            "project": package["project"],
+            "meeting_type": package["meeting_type"],
+            "meeting_date": package["meeting_date"],
+            "participants": package["participants"],
+            "raw_notes_markdown": package["raw_notes_markdown"],
+            "conclusions_markdown": package["conclusions_markdown"],
+            "actions": package["actions"],
+            "updates": package["updates"],
+            "attachments": [
+                {
+                    "id": item["id"],
+                    "original_name": item["original_name"],
+                    "mime_type": item["mime_type"],
+                    "size": item["size"],
+                    "attachment_type": item["attachment_type"],
+                }
+                for item in package["attachments"]
+            ],
+            "current_user": actor_dict(user),
+        }
