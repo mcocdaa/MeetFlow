@@ -9,6 +9,12 @@ from app.auth.service import AuthService
 from app.config import Settings
 from app.database import Database
 from app.errors import install_error_handlers
+from app.meetings.models import (  # noqa: F401 - registers metadata
+    ActionItem,
+    Meeting,
+    MeetingUpdate,
+)
+from app.meetings.router import actions_router, router as meetings_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,6 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_error_handlers(app)
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(meetings_router)
+    app.include_router(actions_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(

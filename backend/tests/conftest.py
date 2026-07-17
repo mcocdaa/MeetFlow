@@ -27,3 +27,31 @@ def client(settings: Settings):
     app = create_app(settings)
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def authenticated_client(client):
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "correct-horse-battery"},
+    )
+    assert response.status_code == 200
+    return client
+
+
+@pytest.fixture
+def meeting_id(authenticated_client):
+    response = authenticated_client.post(
+        "/api/meetings",
+        json={
+            "title": "Fixture meeting",
+            "project": "MeetFlow",
+            "meeting_type": "technical",
+            "meeting_date": "2026-07-17T13:30:00Z",
+            "participants": ["Admin"],
+            "raw_notes_markdown": "Fixture notes",
+            "conclusions_markdown": "Fixture conclusion",
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
