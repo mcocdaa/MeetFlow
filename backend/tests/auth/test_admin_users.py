@@ -111,3 +111,15 @@ def test_admin_resets_member_password(client):
         "/api/auth/login",
         json={"username": "member", "password": "member-new-password"},
     ).status_code == 200
+
+
+def test_admin_cannot_reject_or_disable_self(client):
+    login_admin(client)
+    admin = client.get("/api/auth/me").json()
+
+    rejected = client.post(f"/api/admin/users/{admin['id']}/reject")
+    disabled = client.post(f"/api/admin/users/{admin['id']}/disable")
+
+    assert rejected.status_code == 400
+    assert rejected.json()["error"]["code"] == "cannot_modify_admin"
+    assert disabled.status_code == 400

@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.attachments.storage import INLINE_IMAGES, sniff_inline_image
+from app.attachments.storage import sniff_inline_image
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
@@ -46,8 +46,7 @@ async def upload_attachment(
     storage = request.app.state.attachment_storage
     stored_name, final_path, size = await storage.save(meeting_id, file)
     detected_image = sniff_inline_image(final_path)
-    client_mime = (file.content_type or "application/octet-stream")[:160]
-    mime_type = detected_image or client_mime
+    mime_type = detected_image or "application/octet-stream"
     attachment = Attachment(
         meeting_id=meeting_id,
         original_name=Path(file.filename or "file").name[:255],
@@ -82,14 +81,13 @@ def download_attachment(
     )
     if not path.is_file():
         raise AppError(404, "attachment_file_missing", "附件文件不存在")
-    disposition = (
-        "inline" if attachment.mime_type in INLINE_IMAGES else "attachment"
-    )
+    disposition = "inline" if attachment.attachment_type == "image" else "attachment"
     return FileResponse(
         path,
         media_type=attachment.mime_type,
         filename=attachment.original_name,
         content_disposition_type=disposition,
+        headers={"X-Content-Type-Options": "nosniff"},
     )
 
 

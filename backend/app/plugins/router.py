@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Request
@@ -20,6 +21,7 @@ from app.plugins.models import PluginState
 admin_router = APIRouter(prefix="/api/admin/plugins", tags=["admin/plugins"])
 actions_router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 meeting_actions_router = APIRouter(prefix="/api/meetings", tags=["plugins"])
+logger = logging.getLogger(__name__)
 
 
 class EnabledRequest(BaseModel):
@@ -138,15 +140,34 @@ async def run_action(
     context = MeetingService(session).plugin_context(meeting_id, user)
     try:
         return await asyncio.wait_for(
-            manager.invoke(action_id, context, payload, session), timeout=60
+            manager.invoke(action_id, context, payload, session),
+            timeout=request.app.state.settings.plugin_timeout_seconds,
         )
     except PluginInputError as exc:
         raise AppError(422, "invalid_action_payload", "插件输入无效") from exc
     except PluginConfigurationError as exc:
         raise AppError(409, "plugin_not_configured", "插件配置不完整") from exc
     except PluginOutputError as exc:
+        logger.error(
+            "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
+            action_id.split(".", 1)[0],
+            action_id,
+            type(exc).__name__,
+        )
         raise AppError(502, "plugin_invalid_output", "插件返回格式无效") from exc
     except TimeoutError as exc:
+        logger.error(
+            "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
+            action_id.split(".", 1)[0],
+            action_id,
+            type(exc).__name__,
+        )
         raise AppError(504, "plugin_timeout", "插件执行超时") from exc
     except Exception as exc:
+        logger.error(
+            "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
+            action_id.split(".", 1)[0],
+            action_id,
+            type(exc).__name__,
+        )
         raise AppError(502, "plugin_failed", "插件执行失败") from exc

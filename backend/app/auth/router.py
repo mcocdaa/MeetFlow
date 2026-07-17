@@ -181,8 +181,11 @@ def approve(
     admin: User = Depends(admin_user),
     session: Session = Depends(get_session),
 ) -> UserResponse:
+    target = target_user(user_id, session)
+    if target.role == UserRole.ADMIN or target.status != UserStatus.PENDING:
+        raise AppError(400, "invalid_user_transition", "只能批准待审批成员")
     user = request.app.state.auth_service.transition_user(
-        session, target_user(user_id, session), UserStatus.ACTIVE, admin
+        session, target, UserStatus.ACTIVE, admin
     )
     return public_user(user)
 
@@ -194,8 +197,13 @@ def reject(
     admin: User = Depends(admin_user),
     session: Session = Depends(get_session),
 ) -> UserResponse:
+    target = target_user(user_id, session)
+    if target.role == UserRole.ADMIN:
+        raise AppError(400, "cannot_modify_admin", "不能拒绝管理员账号")
+    if target.status != UserStatus.PENDING:
+        raise AppError(400, "invalid_user_transition", "只能拒绝待审批成员")
     user = request.app.state.auth_service.transition_user(
-        session, target_user(user_id, session), UserStatus.REJECTED, admin
+        session, target, UserStatus.REJECTED, admin
     )
     return public_user(user)
 

@@ -17,6 +17,9 @@ def test_actions_are_attributed_editable_and_aggregated(
     assert authenticated_client.get("/api/meetings").json()[0][
         "open_action_count"
     ] == 1
+    assert authenticated_client.get("/api/meetings").json()[0][
+        "action_count"
+    ] == 1
     assert len(authenticated_client.get("/api/actions?status=open").json()) == 1
 
     completed = authenticated_client.put(
@@ -31,6 +34,9 @@ def test_actions_are_attributed_editable_and_aggregated(
     assert completed.status_code == 200
     assert completed.json()["status"] == "done"
     assert authenticated_client.get("/api/actions?status=open").json() == []
+    summary = authenticated_client.get("/api/meetings").json()[0]
+    assert summary["action_count"] == 1
+    assert summary["open_action_count"] == 0
 
     assert authenticated_client.delete(
         f"/api/meetings/{meeting_id}/actions/{action_id}"
@@ -80,3 +86,10 @@ def test_child_id_must_belong_to_meeting(authenticated_client, meeting_id):
     )
 
     assert response.status_code == 404
+
+
+def test_invalid_global_action_status_is_rejected(authenticated_client):
+    response = authenticated_client.get("/api/actions?status=typo")
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"

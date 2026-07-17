@@ -47,6 +47,20 @@ def test_duplicate_username_is_rejected_case_insensitively(client):
     assert duplicate.json()["error"]["code"] == "username_taken"
 
 
+def test_registration_rejects_blank_normalized_identity(client):
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "username": "   ",
+            "display_name": "   ",
+            "password": "a-secure-member-pass",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_closed_registration_is_advertised_and_rejected(client, settings):
     settings.allow_registration = False
 

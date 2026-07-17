@@ -39,7 +39,7 @@ def test_untrusted_content_type_is_downloaded_not_rendered(
 ):
     uploaded = authenticated_client.post(
         f"/api/meetings/{meeting_id}/attachments",
-        files={"file": ("page.html", b"<script>alert(1)</script>", "text/html")},
+        files={"file": ("page.html", b"<script>alert(1)</script>", "image/png")},
     ).json()
 
     response = authenticated_client.get(
@@ -47,7 +47,9 @@ def test_untrusted_content_type_is_downloaded_not_rendered(
     )
 
     assert uploaded["attachment_type"] == "file"
+    assert uploaded["mime_type"] == "application/octet-stream"
     assert response.headers["content-disposition"].startswith("attachment;")
+    assert response.headers["x-content-type-options"] == "nosniff"
 
 
 def test_oversized_upload_leaves_no_database_or_file(

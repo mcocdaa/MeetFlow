@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     secure_cookies: bool = False
     trusted_origins: str = "http://localhost:8000,http://localhost:5173"
     max_upload_bytes: int = 20 * 1024 * 1024
+    plugin_timeout_seconds: float = 60.0
 
     @property
     def trusted_origin_set(self) -> set[str]:
@@ -40,4 +41,13 @@ class Settings(BaseSettings):
                 or self.app_secret_key == "development-secret-key-32-characters"
             ):
                 raise ValueError("APP_SECRET_KEY must contain at least 32 characters")
+            if not self.secure_cookies:
+                raise ValueError("SECURE_COOKIES must be enabled in production")
+            if not self.trusted_origin_set or any(
+                not origin.startswith("https://")
+                for origin in self.trusted_origin_set
+            ):
+                raise ValueError(
+                    "TRUSTED_ORIGINS must contain only HTTPS origins in production"
+                )
         return self

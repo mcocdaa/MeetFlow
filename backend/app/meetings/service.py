@@ -79,7 +79,33 @@ class MeetingService:
         self.session.commit()
 
     def list_meetings(self, query: str = "") -> list[dict[str, Any]]:
-        statement = select(Meeting).order_by(Meeting.meeting_date.desc())
+        total_action_count = (
+            select(func.count(ActionItem.id))
+            .where(ActionItem.meeting_id == Meeting.id)
+            .correlate(Meeting)
+            .scalar_subquery()
+        )
+        open_action_count = (
+            select(func.count(ActionItem.id))
+            .where(
+                ActionItem.meeting_id == Meeting.id,
+                ActionItem.status == "open",
+            )
+            .correlate(Meeting)
+            .scalar_subquery()
+        )
+        attachment_count = (
+            select(func.count(Attachment.id))
+            .where(Attachment.meeting_id == Meeting.id)
+            .correlate(Meeting)
+            .scalar_subquery()
+        )
+        statement = select(
+            Meeting,
+            total_action_count.label("action_count"),
+            open_action_count.label("open_action_count"),
+            attachment_count.label("attachment_count"),
+        ).order_by(Meeting.meeting_date.desc())
         normalized = query.strip().casefold()
         if normalized:
             pattern = f"%{normalized}%"
@@ -91,24 +117,16 @@ class MeetingService:
             )
 
         results = []
-        for meeting in self.session.scalars(statement):
+        for meeting, total_actions, open_actions, attachments in self.session.execute(
+            statement
+        ):
             item = self.serialize(meeting)
-            open_actions = self.session.scalar(
-                select(func.count(ActionItem.id)).where(
-                    ActionItem.meeting_id == meeting.id,
-                    ActionItem.status == "open",
-                )
-            )
-            attachments = self.session.scalar(
-                select(func.count(Attachment.id)).where(
-                    Attachment.meeting_id == meeting.id
-                )
-            )
             item.update(
                 {
                     "conclusion_count": conclusion_count(
                         meeting.conclusions_markdown
                     ),
+                    "action_count": total_actions or 0,
                     "open_action_count": open_actions or 0,
                     "attachment_count": attachments or 0,
                 }

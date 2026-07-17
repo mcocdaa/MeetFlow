@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -94,12 +94,10 @@ def delete_action(
 
 @actions_router.get("")
 def list_actions(
-    status: str = "open",
+    status: Literal["open", "done"] = "open",
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    if status not in {"", "open", "done"}:
-        return []
     return MeetingService(session).list_actions(status)
 
 

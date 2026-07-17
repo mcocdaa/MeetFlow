@@ -24,6 +24,20 @@ def test_meetings_require_authentication(client):
     assert response.status_code == 401
 
 
+def test_invalid_meeting_uses_uniform_error_envelope(authenticated_client):
+    response = authenticated_client.post(
+        "/api/meetings",
+        json={
+            "title": "   ",
+            "meeting_date": "2026-07-17T13:30:00Z",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert response.json()["error"]["fields"][0]["field"] == "title"
+
+
 def test_create_get_search_update_and_delete_meeting(client):
     login_admin(client)
     payload = meeting_payload()

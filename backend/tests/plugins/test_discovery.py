@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import yaml
 
 from app.main import create_app
 
@@ -52,3 +53,55 @@ def test_manifest_id_must_match_registry_id(plugin_factory, settings):
     with TestClient(app):
         errors = app.state.plugin_manager.errors()
         assert errors[0].error_type == "ManifestError"
+
+
+def test_incompatible_api_version_is_rejected(plugin_factory, settings):
+    plugin_factory(
+        "future",
+        manifest={
+            "id": "future",
+            "name": "Future",
+            "version": "0.1.0",
+            "api_version": 99,
+            "backend_entry": "backend.py",
+        },
+        backend="def register(registry): pass",
+        enabled=True,
+    )
+
+    app = create_app(settings)
+    with TestClient(app):
+        assert app.state.plugin_manager.loaded_actions() == []
+        assert app.state.plugin_manager.errors()[0].error_type == "ManifestError"
+
+
+def test_registry_path_cannot_escape_plugin_root(settings):
+    settings.plugins_dir.mkdir(parents=True, exist_ok=True)
+    outside = settings.plugins_dir.parent / "outside-plugin"
+    outside.mkdir()
+    (outside / "plugin.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "escape",
+                "name": "Escape",
+                "version": "0.1.0",
+                "api_version": 1,
+                "backend_entry": "backend.py",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (outside / "backend.py").write_text(
+        "def register(registry): pass", encoding="utf-8"
+    )
+    (settings.plugins_dir / "plugins.yaml").write_text(
+        yaml.safe_dump(
+            {"plugins": {"escape": {"path": "../outside-plugin", "enabled": True}}}
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(settings)
+    with TestClient(app):
+        assert app.state.plugin_manager.loaded_actions() == []
+        assert app.state.plugin_manager.errors()[0].error_type == "ManifestError"

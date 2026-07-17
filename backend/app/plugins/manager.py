@@ -50,6 +50,7 @@ class PluginManager:
         self.database = database
         self.secret_box = SecretBox(app_secret_key)
         self._descriptors: dict[str, PluginDescriptor] = {}
+        self._loaded_descriptors: dict[str, PluginDescriptor] = {}
         self._actions: dict[str, MeetingAction] = {}
         self._errors: list[PluginLoadError] = []
         self._modules: dict[str, ModuleType] = {}
@@ -170,6 +171,7 @@ class PluginManager:
         self._errors = []
         self._actions = {}
         self._modules = {}
+        self._loaded_descriptors = {}
         for descriptor in self.discover():
             if not descriptor.enabled:
                 continue
@@ -185,14 +187,21 @@ class PluginManager:
                         raise ValueError("duplicate global action id")
                     self._actions[action_id] = action
                 self._modules[descriptor.plugin_id] = module
+                self._loaded_descriptors[descriptor.plugin_id] = descriptor
             except Exception as exc:
                 self._record_error(descriptor.plugin_id, exc)
 
     def descriptor(self, plugin_id: str) -> PluginDescriptor | None:
         return self._descriptors.get(plugin_id)
 
-    def _declared_fields(self, plugin_id: str) -> dict[str, bool]:
-        descriptor = self.descriptor(plugin_id)
+    def _declared_fields(
+        self, plugin_id: str, *, runtime: bool = False
+    ) -> dict[str, bool]:
+        descriptor = (
+            self._loaded_descriptors.get(plugin_id)
+            if runtime
+            else self.descriptor(plugin_id)
+        )
         if not descriptor:
             raise KeyError(plugin_id)
         declared: dict[str, bool] = {}
@@ -213,6 +222,17 @@ class PluginManager:
         unknown = set(values) - set(declared)
         if unknown:
             raise ValueError(f"unknown plugin config: {sorted(unknown)}")
+
+        existing_rows = list(
+            session.scalars(
+                select(PluginConfig).where(
+                    PluginConfig.plugin_id == plugin_id
+                )
+            )
+        )
+        for row in existing_rows:
+            if row.config_key not in declared:
+                session.delete(row)
 
         for key, value in values.items():
             row = session.scalar(
@@ -265,14 +285,17 @@ class PluginManager:
         return result
 
     def runtime_config(self, plugin_id: str, session: Session) -> dict:
-        descriptor = self.descriptor(plugin_id)
+        descriptor = self._loaded_descriptors.get(plugin_id)
         if not descriptor:
             raise KeyError(plugin_id)
+        declared = self._declared_fields(plugin_id, runtime=True)
         rows = session.scalars(
             select(PluginConfig).where(PluginConfig.plugin_id == plugin_id)
         )
         values: dict = {}
         for row in rows:
+            if row.config_key not in declared:
+                continue
             stored = (
                 self.secret_box.decrypt(row.stored_value)
                 if row.is_secret

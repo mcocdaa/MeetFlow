@@ -1,0 +1,26 @@
+import pytest
+from pydantic import ValidationError
+
+from app.config import Settings
+
+
+def production_settings(**overrides):
+    values = {
+        "app_env": "production",
+        "admin_password": "strong-admin-password",
+        "app_secret_key": "a-production-secret-key-with-32-chars",
+        "secure_cookies": True,
+        "trusted_origins": "https://meetflow.example.com",
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_production_requires_secure_cookies():
+    with pytest.raises(ValidationError):
+        production_settings(secure_cookies=False)
+
+
+def test_production_requires_https_trusted_origin():
+    with pytest.raises(ValidationError):
+        production_settings(trusted_origins="http://meetflow.example.com")
