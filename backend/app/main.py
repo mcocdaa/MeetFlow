@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.auth.models import User  # noqa: F401 - registers SQLAlchemy metadata
+from app.auth.router import admin_router, router as auth_router
 from app.auth.service import AuthService
 from app.config import Settings
 from app.database import Database
@@ -30,6 +31,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.auth_service = auth_service
     install_error_handlers(app)
+    app.include_router(auth_router)
+    app.include_router(admin_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(
