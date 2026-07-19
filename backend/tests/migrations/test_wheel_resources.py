@@ -1,0 +1,95 @@
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from zipfile import ZipFile
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+MIGRATION_RESOURCES = {
+    "share/meetflow/alembic.ini",
+    "share/meetflow/migrations/env.py",
+    "share/meetflow/migrations/script.py.mako",
+    "share/meetflow/migrations/versions/0001_meetflow_1.py",
+}
+
+
+def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    shutil.copy2(PROJECT_ROOT / "pyproject.toml", source / "pyproject.toml")
+    shutil.copytree(PROJECT_ROOT / "backend", source / "backend")
+    wheelhouse = tmp_path / "wheelhouse"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            ".",
+            "--no-deps",
+            "--no-build-isolation",
+            "--wheel-dir",
+            str(wheelhouse),
+        ],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel = next(wheelhouse.glob("meetflow-*.whl"))
+    with ZipFile(wheel) as archive:
+        names = set(archive.namelist())
+    for resource in MIGRATION_RESOURCES:
+        assert any(name.endswith(resource) for name in names), resource
+
+    target = tmp_path / "target"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--target",
+            str(target),
+            str(wheel),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    database = tmp_path / "installed.db"
+    script = """
+from app.database import Database
+from sqlalchemy import inspect, text
+
+database = Database(%r)
+database.migrate()
+assert set(inspect(database.engine).get_table_names()) == %r
+with database.engine.connect() as connection:
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0001"
+""" % (
+        f"sqlite:///{database}",
+        {
+            "action_items",
+            "alembic_version",
+            "attachments",
+            "meeting_updates",
+            "meetings",
+            "plugin_configs",
+            "plugin_states",
+            "users",
+        },
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(target)
+    subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )

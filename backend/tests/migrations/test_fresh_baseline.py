@@ -1,10 +1,23 @@
+import os
 import sqlite3
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from app.database import Database
+from app import schema_guard
 from app.schema_guard import LegacyDatabaseError, reject_legacy_schema
+
+
+APPLICATION_TABLES = {
+    "action_items",
+    "attachments",
+    "meeting_updates",
+    "meetings",
+    "plugin_configs",
+    "plugin_states",
+    "users",
+}
 
 
 def test_fresh_database_upgrades_to_head(tmp_path):
@@ -13,7 +26,11 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     database.migrate()
 
     tables = set(inspect(database.engine).get_table_names())
-    assert {"alembic_version", "users", "meetings"} <= tables
+    assert tables == APPLICATION_TABLES | {"alembic_version"}
+    with database.engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0001"
+        )
 
 
 def test_v01_database_is_rejected_without_deletion(tmp_path):
@@ -76,5 +93,35 @@ def test_v01_database_in_wal_is_rejected_without_modification(tmp_path):
             if item.is_file()
         }
         assert current_files == original_files
+    finally:
+        connection.close()
+
+
+def test_wal_snapshot_change_fails_closed(tmp_path, monkeypatch):
+    path = tmp_path / "legacy.db"
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA wal_autocheckpoint=0")
+        connection.execute("CREATE TABLE meetings (id TEXT PRIMARY KEY, project TEXT)")
+        connection.commit()
+        real_copyfile = schema_guard.copyfile
+
+        def mutating_copyfile(source, destination):
+            result = real_copyfile(source, destination)
+            source_path = schema_guard.Path(source)
+            if source_path == path:
+                stat = source_path.stat()
+                os.utime(
+                    source_path,
+                    ns=(stat.st_atime_ns, stat.st_mtime_ns + 1),
+                )
+            return result
+
+        monkeypatch.setattr(schema_guard, "copyfile", mutating_copyfile)
+        database = Database(f"sqlite:///{path}")
+
+        with pytest.raises(LegacyDatabaseError, match="changed during inspection"):
+            reject_legacy_schema(database.engine)
     finally:
         connection.close()

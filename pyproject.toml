@@ -26,6 +26,16 @@ test = ["pytest>=8,<10", "httpx>=0.28,<1"]
 [tool.setuptools.packages.find]
 where = ["backend"]
 
+[tool.setuptools.data-files]
+"share/meetflow" = ["backend/alembic.ini"]
+"share/meetflow/migrations" = [
+  "backend/migrations/env.py",
+  "backend/migrations/script.py.mako",
+]
+"share/meetflow/migrations/versions" = [
+  "backend/migrations/versions/*.py",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
 testpaths = ["backend/tests"]

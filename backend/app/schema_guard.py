@@ -11,6 +11,11 @@ class LegacyDatabaseError(RuntimeError):
     pass
 
 
+def _fingerprint(path: Path) -> tuple[int, int, int, int]:
+    stat = path.stat()
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
 def _reject_legacy_schema(engine: Engine) -> None:
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
@@ -34,8 +39,20 @@ def _read_only_engine(path: Path) -> Engine:
 def _reject_sqlite_wal_schema(path: Path, wal: Path, shm: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="meetflow-schema-guard-") as directory:
         snapshot = Path(directory) / path.name
-        for source in (path, wal, shm):
-            copyfile(source, snapshot.with_name(source.name))
+        sources = (path, wal, shm)
+        try:
+            before = {source: _fingerprint(source) for source in sources}
+            for source in sources:
+                copyfile(source, snapshot.with_name(source.name))
+            after = {source: _fingerprint(source) for source in sources}
+        except OSError as exc:
+            raise LegacyDatabaseError(
+                "SQLite WAL changed during inspection; archive data/ and start fresh"
+            ) from exc
+        if before != after or not wal.is_file() or not shm.is_file():
+            raise LegacyDatabaseError(
+                "SQLite WAL changed during inspection; archive data/ and start fresh"
+            )
 
         read_only_engine = _read_only_engine(snapshot)
         try:

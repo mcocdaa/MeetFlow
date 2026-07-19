@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 from alembic import command
@@ -10,6 +11,23 @@ from sqlalchemy.orm import DeclarativeBase, Session
 
 class Base(DeclarativeBase):
     pass
+
+
+def migration_config_path() -> Path:
+    source_config = Path(__file__).resolve().parents[1] / "alembic.ini"
+    if source_config.is_file():
+        return source_config
+
+    try:
+        installed_config = Path(
+            distribution("meetflow").locate_file("share/meetflow/alembic.ini")
+        )
+    except PackageNotFoundError:
+        installed_config = Path()
+    if installed_config.is_file():
+        return installed_config
+
+    raise RuntimeError("MeetFlow migration resources are not installed")
 
 
 class Database:
@@ -35,8 +53,7 @@ class Database:
         Base.metadata.create_all(self.engine)
 
     def migrate(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "alembic.ini"
-        config = Config(config_path)
+        config = Config(migration_config_path())
         config.set_main_option(
             "sqlalchemy.url",
             self.engine.url.render_as_string(hide_password=False),
