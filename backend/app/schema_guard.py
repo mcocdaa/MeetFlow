@@ -1,7 +1,10 @@
 import sqlite3
+import tempfile
 from pathlib import Path
+from shutil import copyfile
 
 from sqlalchemy import Engine, create_engine, inspect
+from sqlalchemy.exc import SQLAlchemyError
 
 
 class LegacyDatabaseError(RuntimeError):
@@ -20,6 +23,31 @@ def _reject_legacy_schema(engine: Engine) -> None:
         )
 
 
+def _read_only_engine(path: Path) -> Engine:
+    uri = f"{path.resolve().as_uri()}?mode=ro"
+    return create_engine(
+        "sqlite://",
+        creator=lambda: sqlite3.connect(uri, uri=True),
+    )
+
+
+def _reject_sqlite_wal_schema(path: Path, wal: Path, shm: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="meetflow-schema-guard-") as directory:
+        snapshot = Path(directory) / path.name
+        for source in (path, wal, shm):
+            copyfile(source, snapshot.with_name(source.name))
+
+        read_only_engine = _read_only_engine(snapshot)
+        try:
+            _reject_legacy_schema(read_only_engine)
+        except SQLAlchemyError as exc:
+            raise LegacyDatabaseError(
+                "SQLite WAL could not be inspected safely; archive data/ and start fresh"
+            ) from exc
+        finally:
+            read_only_engine.dispose()
+
+
 def reject_legacy_schema(engine: Engine) -> None:
     database = engine.url.database
     if engine.dialect.name != "sqlite" or not database or database == ":memory:":
@@ -30,11 +58,17 @@ def reject_legacy_schema(engine: Engine) -> None:
     if not path.is_file():
         return
 
-    uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
-    read_only_engine = create_engine(
-        "sqlite://",
-        creator=lambda: sqlite3.connect(uri, uri=True),
-    )
+    wal = path.with_name(f"{path.name}-wal")
+    shm = path.with_name(f"{path.name}-shm")
+    if wal.exists() != shm.exists():
+        raise LegacyDatabaseError(
+            "SQLite WAL is incomplete; archive data/ and start fresh"
+        )
+    if wal.exists():
+        _reject_sqlite_wal_schema(path, wal, shm)
+        return
+
+    read_only_engine = _read_only_engine(path)
     try:
         _reject_legacy_schema(read_only_engine)
     finally:

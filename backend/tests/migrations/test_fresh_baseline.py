@@ -43,3 +43,38 @@ def test_v01_database_is_rejected_without_deletion(tmp_path):
         assert connection.execute("SELECT * FROM meetings").fetchall() == [
             ("meeting-1", "MeetFlow")
         ]
+
+
+def test_v01_database_in_wal_is_rejected_without_modification(tmp_path):
+    path = tmp_path / "legacy.db"
+    connection = sqlite3.connect(path)
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        connection.execute("PRAGMA wal_autocheckpoint=0")
+        connection.execute("CREATE TABLE meetings (id TEXT PRIMARY KEY, project TEXT)")
+        connection.execute("INSERT INTO meetings VALUES ('meeting-1', 'MeetFlow')")
+        connection.commit()
+
+        original_files = {
+            item.name: item.read_bytes()
+            for item in tmp_path.iterdir()
+            if item.is_file()
+        }
+        assert set(original_files) == {
+            "legacy.db",
+            "legacy.db-wal",
+            "legacy.db-shm",
+        }
+        database = Database(f"sqlite:///{path}")
+
+        with pytest.raises(LegacyDatabaseError, match="v0.1"):
+            reject_legacy_schema(database.engine)
+
+        current_files = {
+            item.name: item.read_bytes()
+            for item in tmp_path.iterdir()
+            if item.is_file()
+        }
+        assert current_files == original_files
+    finally:
+        connection.close()
