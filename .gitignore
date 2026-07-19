@@ -7,6 +7,7 @@ __pycache__/
 data/
 backups/
 .superpowers/
+.worktrees/
 .coverage
 htmlcov/
 frontend/node_modules/
