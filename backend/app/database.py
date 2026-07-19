@@ -1,5 +1,8 @@
 from collections.abc import Generator
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi import Request
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session
@@ -30,6 +33,15 @@ class Database:
 
     def create_schema(self) -> None:
         Base.metadata.create_all(self.engine)
+
+    def migrate(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "alembic.ini"
+        config = Config(config_path)
+        config.set_main_option(
+            "sqlalchemy.url",
+            self.engine.url.render_as_string(hide_password=False),
+        )
+        command.upgrade(config, "head")
 
     def session(self) -> Session:
         return Session(self.engine)

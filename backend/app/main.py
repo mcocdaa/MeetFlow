@@ -4,31 +4,22 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import models  # noqa: F401 - registers SQLAlchemy metadata
 from app.attachments.router import router as attachments_router
 from app.attachments.storage import AttachmentStorage
-from app.auth.models import User  # noqa: F401 - registers SQLAlchemy metadata
 from app.auth.router import admin_router, router as auth_router
 from app.auth.service import AuthService
 from app.config import Settings
 from app.database import Database
 from app.errors import install_error_handlers
-from app.meetings.models import (  # noqa: F401 - registers metadata
-    ActionItem,
-    Attachment,
-    Meeting,
-    MeetingUpdate,
-)
 from app.meetings.router import actions_router, router as meetings_router
 from app.plugins.manager import PluginManager
-from app.plugins.models import (  # noqa: F401 - registers metadata
-    PluginConfig,
-    PluginState,
-)
 from app.plugins.router import (
     actions_router as plugin_actions_router,
     admin_router as plugin_admin_router,
     meeting_actions_router,
 )
+from app.schema_guard import reject_legacy_schema
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -47,7 +38,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved.data_dir.mkdir(parents=True, exist_ok=True)
         resolved.plugins_dir.mkdir(parents=True, exist_ok=True)
         attachment_storage.initialize()
-        database.create_schema()
+        if resolved.app_env == "test":
+            database.create_schema()
+        else:
+            reject_legacy_schema(database.engine)
+            database.migrate()
         with database.session() as session:
             auth_service.bootstrap_admin(session)
         plugin_manager.load_enabled()
