@@ -13,21 +13,41 @@ class Base(DeclarativeBase):
     pass
 
 
+def _has_migration_resources(config_path: Path) -> bool:
+    migrations = config_path.parent / "migrations"
+    return all(
+        path.is_file()
+        for path in (
+            config_path,
+            migrations / "env.py",
+            migrations / "script.py.mako",
+            migrations / "versions" / "0001_meetflow_1.py",
+        )
+    )
+
+
 def migration_config_path() -> Path:
     source_config = Path(__file__).resolve().parents[1] / "alembic.ini"
-    if source_config.is_file():
+    if _has_migration_resources(source_config):
         return source_config
 
     try:
-        installed_config = Path(
-            distribution("meetflow").locate_file("share/meetflow/alembic.ini")
-        )
+        meetflow_distribution = distribution("meetflow")
     except PackageNotFoundError:
-        installed_config = Path()
-    if installed_config.is_file():
-        return installed_config
+        meetflow_distribution = None
 
-    raise RuntimeError("MeetFlow migration resources are not installed")
+    if meetflow_distribution is not None:
+        for package_path in meetflow_distribution.files or ():
+            if package_path.as_posix().endswith("share/meetflow/alembic.ini"):
+                installed_config = Path(
+                    meetflow_distribution.locate_file(package_path)
+                )
+                if _has_migration_resources(installed_config):
+                    return installed_config
+
+    raise RuntimeError(
+        "MeetFlow migration resources are missing from the installed distribution"
+    )
 
 
 class Database:

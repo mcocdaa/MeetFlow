@@ -44,18 +44,32 @@ def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
     for resource in MIGRATION_RESOURCES:
         assert any(name.endswith(resource) for name in names), resource
 
-    target = tmp_path / "target"
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    virtualenv = tmp_path / "venv"
     subprocess.run(
         [
             sys.executable,
             "-m",
+            "venv",
+            "--system-site-packages",
+            str(virtualenv),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    virtualenv_python = virtualenv / "bin" / "python"
+    subprocess.run(
+        [
+            str(virtualenv_python),
+            "-m",
             "pip",
             "install",
             "--no-deps",
-            "--target",
-            str(target),
             str(wheel),
         ],
+        env=environment,
         check=True,
         capture_output=True,
         text=True,
@@ -83,13 +97,15 @@ with database.engine.connect() as connection:
             "users",
         },
     )
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = str(target)
+    run_directory = tmp_path / "outside-source"
+    run_directory.mkdir()
     subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=tmp_path,
+        [str(virtualenv_python), "-c", script],
+        cwd=run_directory,
         env=environment,
         check=True,
         capture_output=True,
         text=True,
     )
+    assert not any(name.startswith("tests/") for name in names)
+    assert not any(name.startswith("migrations/") for name in names)
