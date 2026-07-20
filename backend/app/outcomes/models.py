@@ -11,10 +11,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
-    event,
-    select,
 )
-from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
@@ -163,11 +160,6 @@ class ActionItem(Base):
     owner_user: Mapped[User | None] = relationship(foreign_keys=[owner_user_id])
     creator: Mapped[User] = relationship(foreign_keys=[created_by])
 
-    # Temporary compatibility for the v0.1 serializer until Task 7 replaces it.
-    @hybrid_property
-    def owner(self) -> str:
-        return self.owner_user.display_name if self.owner_user is not None else ""
-
 
 class OpenQuestion(Base):
     __tablename__ = "open_questions"
@@ -251,14 +243,3 @@ class OutcomeMigrationRecord(Base):
     )
 
     creator: Mapped[User] = relationship(foreign_keys=[created_by])
-
-
-@event.listens_for(ActionItem, "before_insert")
-def _backfill_legacy_action_project(_mapper, connection, target: ActionItem) -> None:
-    """Bridge v0.1 plugin/test inserts until the legacy action API is removed."""
-    if not target.project_id and target.meeting_id:
-        from app.meetings.models import Meeting
-
-        target.project_id = connection.scalar(
-            select(Meeting.project_id).where(Meeting.id == target.meeting_id)
-        )

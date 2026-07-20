@@ -31,25 +31,29 @@ class AttachmentStorage:
     def initialize(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def meeting_dir(self, meeting_id: str) -> Path:
-        target = (self.root / meeting_id).resolve()
+    def target_dir(self, target_type: str, target_id: str) -> Path:
+        target = (self.root / target_type / target_id).resolve()
         if self.root not in target.parents:
             raise AppError(400, "invalid_path", "附件路径无效")
         return target
 
-    def attachment_path(self, meeting_id: str, stored_name: str) -> Path:
-        directory = self.meeting_dir(meeting_id)
+    def attachment_path(
+        self, target_type: str, target_id: str, stored_name: str
+    ) -> Path:
+        directory = self.target_dir(target_type, target_id)
         target = (directory / stored_name).resolve()
         if directory not in target.parents:
             raise AppError(400, "invalid_path", "附件路径无效")
         return target
 
-    async def save(self, meeting_id: str, upload) -> tuple[str, Path, int]:
-        target_dir = self.meeting_dir(meeting_id)
+    async def save(
+        self, target_type: str, target_id: str, upload
+    ) -> tuple[str, Path, int]:
+        target_dir = self.target_dir(target_type, target_id)
         target_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(upload.filename or "file").suffix[:16]
         stored_name = f"{uuid.uuid4()}{suffix}"
-        final_path = self.attachment_path(meeting_id, stored_name)
+        final_path = self.attachment_path(target_type, target_id, stored_name)
         size = 0
         fd, temp_name = tempfile.mkstemp(dir=target_dir, prefix=".upload-")
         try:
@@ -70,5 +74,5 @@ class AttachmentStorage:
             raise
         return stored_name, final_path, size
 
-    def remove_meeting(self, meeting_id: str) -> None:
-        shutil.rmtree(self.meeting_dir(meeting_id), ignore_errors=True)
+    def remove_target(self, target_type: str, target_id: str) -> None:
+        shutil.rmtree(self.target_dir(target_type, target_id), ignore_errors=True)

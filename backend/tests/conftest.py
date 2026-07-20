@@ -42,16 +42,26 @@ def authenticated_client(client):
 
 @pytest.fixture
 def meeting_id(authenticated_client):
+    user = authenticated_client.get("/api/auth/me").json()
+    project = authenticated_client.post(
+        "/api/projects",
+        json={
+            "name": "Fixture project",
+            "slug": "fixture-project",
+            "status": "active",
+            "lead_user_id": user["id"],
+            "member_ids": [user["id"]],
+        },
+    ).json()
     response = authenticated_client.post(
-        "/api/meetings",
+        f"/api/projects/{project['id']}/meetings",
         json={
             "title": "Fixture meeting",
-            "project": "MeetFlow",
-            "meeting_type": "technical",
-            "meeting_date": "2026-07-17T13:30:00Z",
-            "participants": ["Admin"],
+            "scheduled_start": "2026-07-17T13:30:00Z",
+            "scheduled_end": "2026-07-17T14:30:00Z",
+            "participants": [{"user_id": user["id"], "participation_role": "host"}],
             "raw_notes_markdown": "Fixture notes",
-            "conclusions_markdown": "Fixture conclusion",
+            "summary_markdown": "Fixture conclusion",
         },
     )
     assert response.status_code == 201
@@ -74,9 +84,7 @@ def plugin_factory(settings):
         (plugin_dir / "plugin.yaml").write_text(
             yaml.safe_dump(manifest), encoding="utf-8"
         )
-        (plugin_dir / manifest["backend_entry"]).write_text(
-            backend, encoding="utf-8"
-        )
+        (plugin_dir / manifest["backend_entry"]).write_text(backend, encoding="utf-8")
         registry["plugins"][plugin_id] = {
             "path": plugin_id,
             "enabled": enabled,
@@ -100,15 +108,11 @@ def plugin_client(settings, plugin_factory):
             "api_version": 1,
             "backend_entry": "backend.py",
             "config_schema": {
-                "fields": [
-                    {"key": "model", "type": "string", "required": True}
-                ],
-                "secrets": [
-                    {"key": "api_key", "type": "secret", "required": True}
-                ],
+                "fields": [{"key": "model", "type": "string", "required": True}],
+                "secrets": [{"key": "api_key", "type": "secret", "required": True}],
             },
         },
-        backend='''
+        backend="""
 from app.plugins.contracts import MeetingAction
 
 async def summarize(context, payload, config):
@@ -131,7 +135,7 @@ def register(registry):
         },
         handler=summarize,
     ))
-''',
+""",
         enabled=True,
     )
     app = create_app(settings)
@@ -149,16 +153,26 @@ def register(registry):
 
 @pytest.fixture
 def plugin_meeting_id(plugin_client):
+    user = plugin_client.get("/api/auth/me").json()
+    project = plugin_client.post(
+        "/api/projects",
+        json={
+            "name": "Plugin project",
+            "slug": "plugin-project",
+            "status": "active",
+            "lead_user_id": user["id"],
+            "member_ids": [user["id"]],
+        },
+    ).json()
     response = plugin_client.post(
-        "/api/meetings",
+        f"/api/projects/{project['id']}/meetings",
         json={
             "title": "Plugin meeting",
-            "project": "MeetFlow",
-            "meeting_type": "technical",
-            "meeting_date": "2026-07-17T13:30:00Z",
-            "participants": ["Admin"],
+            "scheduled_start": "2026-07-17T13:30:00Z",
+            "scheduled_end": "2026-07-17T14:30:00Z",
+            "participants": [{"user_id": user["id"], "participation_role": "host"}],
             "raw_notes_markdown": "Summarize this",
-            "conclusions_markdown": "",
+            "summary_markdown": "",
         },
     )
     assert response.status_code == 201

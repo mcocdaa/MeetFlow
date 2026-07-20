@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
@@ -13,18 +13,17 @@ from app.auth.models import User, UserStatus
 from app.domain.enums import AgendaStatus, MeetingStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
+from app.attachments.models import Attachment
 from app.meetings.models import (
-    Attachment,
     Meeting,
     MeetingAmendment,
     MeetingParticipant,
     MeetingSeries,
     MeetingSnapshot,
-    MeetingUpdate,
     SeriesParticipant,
     StandingAgendaItem,
 )
-from app.outcomes.models import ActionItem
+from app.outcomes.models import ActionItem, OpenQuestion
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -97,11 +96,21 @@ def meeting_relationship_options():
         joinedload(Meeting.updater),
         selectinload(Meeting.participants).joinedload(MeetingParticipant.user),
         selectinload(Meeting.snapshots),
+        joinedload(Meeting.current_snapshot),
         selectinload(Meeting.amendments),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.proposer),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.presenter),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.creator),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.updater),
+        selectinload(Meeting.agenda_items)
+        .selectinload(AgendaItem.decisions)
+        .selectinload(Decision.reviewers),
+        selectinload(Meeting.agenda_items)
+        .selectinload(AgendaItem.actions)
+        .joinedload(ActionItem.owner_user),
+        selectinload(Meeting.agenda_items)
+        .selectinload(AgendaItem.open_questions)
+        .joinedload(OpenQuestion.owner_user),
     )
 
 
@@ -835,6 +844,8 @@ class MeetingService:
         }
 
     def serialize_meeting(self, meeting: Meeting) -> dict[str, Any]:
+        from app.outcomes.service import OutcomeService
+
         return {
             "id": meeting.id,
             "project": project_ref(meeting.project),
@@ -853,6 +864,17 @@ class MeetingService:
             "summary_markdown": meeting.summary_markdown,
             "raw_notes_markdown": meeting.raw_notes_markdown,
             "current_snapshot_id": meeting.current_snapshot_id,
+            "current_snapshot": (
+                {
+                    "id": meeting.current_snapshot.id,
+                    "completion_number": meeting.current_snapshot.completion_number,
+                    "snapshot_json": meeting.current_snapshot.snapshot_json,
+                    "created_by": meeting.current_snapshot.created_by,
+                    "created_at": meeting.current_snapshot.created_at,
+                }
+                if meeting.current_snapshot is not None
+                else None
+            ),
             "snapshots": [
                 {
                     "id": row.id,
@@ -892,6 +914,13 @@ class MeetingService:
                     "updated_at": row.updated_at,
                     "started_at": row.started_at,
                     "completed_at": row.completed_at,
+                    "decisions": [
+                        OutcomeService.serialize(item) for item in row.decisions
+                    ],
+                    "actions": [OutcomeService.serialize(item) for item in row.actions],
+                    "open_questions": [
+                        OutcomeService.serialize(item) for item in row.open_questions
+                    ],
                 }
                 for row in meeting.agenda_items
             ],
@@ -994,7 +1023,36 @@ class MeetingService:
         )
         if meeting is None:
             raise AppError(404, "meeting_not_found", "会议不存在")
-        return self.serialize_meeting(meeting)
+        result = self.serialize_meeting(meeting)
+        target_ids = [meeting.id] + [row.id for row in meeting.agenda_items]
+        attachments = list(
+            self.session.scalars(
+                select(Attachment)
+                .where(
+                    or_(
+                        and_(
+                            Attachment.target_type == "meeting",
+                            Attachment.target_id == meeting.id,
+                        ),
+                        and_(
+                            Attachment.target_type == "agenda_item",
+                            Attachment.target_id.in_(target_ids[1:]),
+                        ),
+                    )
+                )
+                .options(joinedload(Attachment.creator))
+                .order_by(Attachment.created_at.desc(), Attachment.id.desc())
+            )
+        )
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for item in attachments:
+            grouped.setdefault((item.target_type, item.target_id), []).append(
+                self.serialize_attachment(item)
+            )
+        result["attachments"] = grouped.get(("meeting", meeting.id), [])
+        for agenda in result["agenda_items"]:
+            agenda["attachments"] = grouped.get(("agenda_item", agenda["id"]), [])
+        return result
 
     def _actor(self, user_id: str) -> dict[str, str]:
         user = self.session.get(User, user_id)
@@ -1005,14 +1063,15 @@ class MeetingService:
     def serialize_attachment(self, item: Attachment) -> dict[str, Any]:
         return {
             "id": item.id,
-            "meeting_id": item.meeting_id,
+            "target_type": item.target_type,
+            "target_id": item.target_id,
             "original_name": item.original_name,
             "mime_type": item.mime_type,
             "size": item.size,
             "attachment_type": item.attachment_type,
-            "created_by": self._actor(item.created_by),
+            "created_by": user_ref(item.creator),
             "created_at": item.created_at,
-            "download_url": f"/api/meetings/{item.meeting_id}/attachments/{item.id}",
+            "download_url": f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}",
         }
 
     def serialize_action(self, item: ActionItem) -> dict[str, Any]:
@@ -1022,7 +1081,11 @@ class MeetingService:
             "meeting_id": item.meeting_id,
             "meeting_title": meeting.title,
             "content": item.content,
-            "owner": item.owner,
+            "owner": (
+                item.owner_user.display_name or item.owner_user.username
+                if item.owner_user is not None
+                else ""
+            ),
             "due_date": item.due_date,
             "status": item.status.value,
             "created_by": self._actor(item.created_by),
@@ -1030,34 +1093,27 @@ class MeetingService:
             "updated_at": item.updated_at,
         }
 
-    def serialize_update(self, item: MeetingUpdate) -> dict[str, Any]:
-        return {
-            "id": item.id,
-            "meeting_id": item.meeting_id,
-            "content_markdown": item.content_markdown,
-            "created_by": self._actor(item.created_by),
-            "created_at": item.created_at,
-        }
-
     def package(self, meeting_id: str) -> dict[str, Any]:
         result = self.meeting_detail(meeting_id)
         actions = self.session.scalars(
             select(ActionItem)
             .where(ActionItem.meeting_id == meeting_id)
+            .options(joinedload(ActionItem.owner_user))
             .order_by(ActionItem.created_at, ActionItem.id)
-        )
-        updates = self.session.scalars(
-            select(MeetingUpdate)
-            .where(MeetingUpdate.meeting_id == meeting_id)
-            .order_by(MeetingUpdate.created_at.desc(), MeetingUpdate.id.desc())
         )
         attachments = self.session.scalars(
             select(Attachment)
-            .where(Attachment.meeting_id == meeting_id)
+            .where(
+                Attachment.target_type == "meeting", Attachment.target_id == meeting_id
+            )
+            .options(joinedload(Attachment.creator))
             .order_by(Attachment.created_at.desc(), Attachment.id.desc())
         )
         result["actions"] = [self.serialize_action(item) for item in actions]
-        result["updates"] = [self.serialize_update(item) for item in updates]
+        result["updates"] = [
+            {**item, "created_by": self._actor(item["created_by"])}
+            for item in result["amendments"]
+        ]
         result["attachments"] = [
             self.serialize_attachment(item) for item in attachments
         ]

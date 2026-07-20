@@ -27,7 +27,6 @@ APPLICATION_TABLES = {
     "meeting_participants",
     "meeting_series",
     "meeting_snapshots",
-    "meeting_updates",
     "meetings",
     "open_questions",
     "outcome_migration_records",
@@ -80,6 +79,23 @@ def test_fresh_database_upgrades_to_head(tmp_path):
 
     tables = set(inspect(database.engine).get_table_names())
     assert tables == APPLICATION_TABLES | {"alembic_version"}
+    inspector = inspect(database.engine)
+    assert {column["name"] for column in inspector.get_columns("attachments")} == {
+        "id",
+        "target_type",
+        "target_id",
+        "original_name",
+        "stored_name",
+        "mime_type",
+        "size",
+        "attachment_type",
+        "created_by",
+        "created_at",
+    }
+    assert any(
+        index["column_names"] == ["target_type", "target_id"]
+        for index in inspector.get_indexes("attachments")
+    )
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "0001"

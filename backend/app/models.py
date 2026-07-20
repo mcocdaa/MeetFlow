@@ -1,13 +1,12 @@
 from app.auth.models import User
+from app.attachments.models import Attachment
 from app.agendas.models import AgendaItem
 from app.meetings.models import (
-    Attachment,
     Meeting,
     MeetingAmendment,
     MeetingParticipant,
     MeetingSeries,
     MeetingSnapshot,
-    MeetingUpdate,
     SeriesParticipant,
     StandingAgendaItem,
 )
@@ -32,7 +31,6 @@ __all__ = [
     "MeetingParticipant",
     "MeetingSeries",
     "MeetingSnapshot",
-    "MeetingUpdate",
     "OpenQuestion",
     "OutcomeMigrationRecord",
     "PluginConfig",

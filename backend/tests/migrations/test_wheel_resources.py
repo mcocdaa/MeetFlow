@@ -107,7 +107,6 @@ with database.engine.connect() as connection:
             "meeting_participants",
             "meeting_series",
             "meeting_snapshots",
-            "meeting_updates",
             "meetings",
             "open_questions",
             "outcome_migration_records",

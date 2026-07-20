@@ -2,7 +2,7 @@
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-07-20 14:50:05.392782
+Create Date: 2026-07-20 15:57:10.062722
 
 """
 
@@ -47,6 +47,30 @@ def upgrade() -> None:
     with op.batch_alter_table("users", schema=None) as batch_op:
         batch_op.create_index(
             batch_op.f("ix_users_username"), ["username"], unique=True
+        )
+
+    op.create_table(
+        "attachments",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("target_type", sa.String(length=32), nullable=False),
+        sa.Column("target_id", sa.String(), nullable=False),
+        sa.Column("original_name", sa.String(length=255), nullable=False),
+        sa.Column("stored_name", sa.String(length=255), nullable=False),
+        sa.Column("mime_type", sa.String(length=160), nullable=False),
+        sa.Column("size", sa.Integer(), nullable=False),
+        sa.Column("attachment_type", sa.String(length=20), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("stored_name"),
+    )
+    with op.batch_alter_table("attachments", schema=None) as batch_op:
+        batch_op.create_index(
+            "ix_attachments_target", ["target_type", "target_id"], unique=False
         )
 
     op.create_table(
@@ -481,30 +505,6 @@ def upgrade() -> None:
         )
 
     op.create_table(
-        "attachments",
-        sa.Column("id", sa.String(), nullable=False),
-        sa.Column("meeting_id", sa.String(), nullable=False),
-        sa.Column("original_name", sa.String(length=255), nullable=False),
-        sa.Column("stored_name", sa.String(length=255), nullable=False),
-        sa.Column("mime_type", sa.String(length=160), nullable=False),
-        sa.Column("size", sa.Integer(), nullable=False),
-        sa.Column("attachment_type", sa.String(length=20), nullable=False),
-        sa.Column("created_by", sa.String(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["created_by"],
-            ["users.id"],
-        ),
-        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("stored_name"),
-    )
-    with op.batch_alter_table("attachments", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_attachments_meeting_id"), ["meeting_id"], unique=False
-        )
-
-    op.create_table(
         "meeting_amendments",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("meeting_id", sa.String(), nullable=False),
@@ -562,25 +562,6 @@ def upgrade() -> None:
     with op.batch_alter_table("meeting_snapshots", schema=None) as batch_op:
         batch_op.create_index(
             batch_op.f("ix_meeting_snapshots_meeting_id"), ["meeting_id"], unique=False
-        )
-
-    op.create_table(
-        "meeting_updates",
-        sa.Column("id", sa.String(), nullable=False),
-        sa.Column("meeting_id", sa.String(), nullable=False),
-        sa.Column("content_markdown", sa.Text(), nullable=False),
-        sa.Column("created_by", sa.String(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["created_by"],
-            ["users.id"],
-        ),
-        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    with op.batch_alter_table("meeting_updates", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_meeting_updates_meeting_id"), ["meeting_id"], unique=False
         )
 
     op.create_table(
@@ -817,26 +798,16 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f("ix_action_items_agenda_item_id"))
 
     op.drop_table("action_items")
-    with op.batch_alter_table("meeting_updates", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_meeting_updates_meeting_id"))
-
-    op.drop_table("meeting_updates")
     with op.batch_alter_table("meeting_snapshots", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_meeting_snapshots_meeting_id"))
 
-    # Meetings point back to their latest immutable history row. Clear that
-    # reverse pointer before dropping the history table under FK enforcement.
-    op.execute(sa.text("UPDATE meetings SET current_snapshot_id = NULL"))
+    op.execute("UPDATE meetings SET current_snapshot_id = NULL")
     op.drop_table("meeting_snapshots")
     op.drop_table("meeting_participants")
     with op.batch_alter_table("meeting_amendments", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_meeting_amendments_meeting_id"))
 
     op.drop_table("meeting_amendments")
-    with op.batch_alter_table("attachments", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_attachments_meeting_id"))
-
-    op.drop_table("attachments")
     with op.batch_alter_table("agenda_items", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_agenda_items_status"))
         batch_op.drop_index(batch_op.f("ix_agenda_items_meeting_id"))
@@ -887,6 +858,10 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f("ix_outcome_migration_records_source_agenda_id"))
 
     op.drop_table("outcome_migration_records")
+    with op.batch_alter_table("attachments", schema=None) as batch_op:
+        batch_op.drop_index("ix_attachments_target")
+
+    op.drop_table("attachments")
     with op.batch_alter_table("users", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_users_username"))
 

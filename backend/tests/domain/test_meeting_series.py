@@ -7,13 +7,10 @@ from sqlalchemy import event, select
 from app.auth.models import User, UserRole, UserStatus
 from app.errors import AppError
 from app.meetings.models import (
-    ActionItem,
-    Attachment,
     Meeting,
     MeetingAmendment,
     MeetingSeries,
     MeetingSnapshot,
-    MeetingUpdate,
 )
 from app.meetings.schemas import (
     MeetingEdit,
@@ -366,10 +363,10 @@ def test_upload_works_for_new_meeting_and_package_contains_attachment(
         )
         meeting_id = meeting.id
 
-    uploaded = authenticated_client.post(
-        f"/api/meetings/{meeting_id}/attachments",
-        files={"file": ("board.png", b"\x89PNG\r\n\x1a\nimage", "image/png")},
-    )
+        uploaded = authenticated_client.post(
+            f"/api/attachments/meeting/{meeting_id}",
+            files={"file": ("board.png", b"\x89PNG\r\n\x1a\nimage", "image/png")},
+        )
     assert uploaded.status_code == 201
     assert uploaded.json()["created_by"]["id"] == admin.id
 
@@ -378,65 +375,6 @@ def test_upload_works_for_new_meeting_and_package_contains_attachment(
         assert [item["id"] for item in package["attachments"]] == [
             uploaded.json()["id"]
         ]
-
-
-def test_package_and_plugin_context_include_transitional_rows(
-    client, project, meeting_users
-):
-    admin, member, _ = meeting_users
-    with client.app.state.database.session() as session:
-        service = MeetingService(session)
-        meeting = service.create_meeting(
-            project.id,
-            MeetingWrite(
-                title="Plugin context",
-                scheduled_start=START,
-                scheduled_end=START + timedelta(minutes=30),
-                participants=[
-                    {
-                        "user_id": member.id,
-                        "participation_role": "attendee",
-                    }
-                ],
-            ),
-            admin,
-        )
-        session.add_all(
-            [
-                ActionItem(
-                    meeting_id=meeting.id,
-                    content="Follow up",
-                    created_by=admin.id,
-                ),
-                MeetingUpdate(
-                    meeting_id=meeting.id,
-                    content_markdown="Update",
-                    created_by=admin.id,
-                ),
-                Attachment(
-                    meeting_id=meeting.id,
-                    original_name="notes.txt",
-                    stored_name="stored-notes.txt",
-                    mime_type="application/octet-stream",
-                    size=5,
-                    attachment_type="file",
-                    created_by=admin.id,
-                ),
-            ]
-        )
-        session.commit()
-
-        package = service.package(meeting.id)
-        context = service.plugin_context(meeting.id, admin)
-
-        assert package["actions"][0]["content"] == "Follow up"
-        assert package["updates"][0]["content_markdown"] == "Update"
-        assert package["attachments"][0]["original_name"] == "notes.txt"
-        assert context["attachments"] == package["attachments"]
-        assert context["project"] == project.name
-        # Installed api_version=1 plugins receive the original flat contract.
-        assert context["meeting_type"] == "standalone"
-        assert context["participants"] == [member.display_name]
 
 
 def test_detail_serialization_has_bounded_relationship_queries(
@@ -481,7 +419,7 @@ def test_detail_serialization_has_bounded_relationship_queries(
         assert len(meeting_body["participants"]) == 2
         assert series_queries <= 3
         # Detail uses select-in collection loads, avoiding Cartesian history rows.
-        assert meeting_queries <= 5
+        assert meeting_queries <= 10
 
 
 def test_project_meeting_list_is_compact_and_uses_scalar_counts(

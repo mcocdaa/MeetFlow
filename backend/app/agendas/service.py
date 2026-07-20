@@ -319,6 +319,18 @@ class AgendaService:
 
         if OutcomeService(self.session).count_for_agenda(item.id):
             raise AppError(409, "agenda_has_outcomes", "议题已有产出，不能直接删除")
+        from app.attachments.models import Attachment
+
+        has_attachment = self.session.scalar(
+            select(Attachment.id)
+            .where(
+                Attachment.target_type == "agenda_item",
+                Attachment.target_id == item.id,
+            )
+            .limit(1)
+        )
+        if has_attachment:
+            raise AppError(409, "agenda_has_attachments", "议题已有附件，不能直接删除")
         following = list(
             self.session.scalars(
                 select(AgendaItem).where(

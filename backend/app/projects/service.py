@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
@@ -11,6 +13,10 @@ from app.auth.models import User, UserRole, UserStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import Meeting
+from app.meetings.models import MeetingSeries
+from app.attachments.models import Attachment
+from app.outcomes.models import ActionItem, Decision
+from app.outcomes.service import OutcomeService
 from app.projects.models import Project, ProjectMember, ProjectUpdate
 from app.projects.schemas import ProjectEdit, ProjectUpdateWrite, ProjectWrite
 
@@ -110,9 +116,7 @@ class ProjectService:
         self.session.refresh(project)
         return project
 
-    def update(
-        self, project_id: str, payload: ProjectEdit, actor: User
-    ) -> Project:
+    def update(self, project_id: str, payload: ProjectEdit, actor: User) -> Project:
         self._require_active(actor)
         project = self.require(project_id)
         require_version(payload.expected_version, project.version)
@@ -231,6 +235,16 @@ class ProjectService:
                 "project_not_empty",
                 "项目下已有会议，不能删除",
             )
+        has_attachment = self.session.scalar(
+            select(Attachment.id)
+            .where(
+                Attachment.target_type == "project",
+                Attachment.target_id == project.id,
+            )
+            .limit(1)
+        )
+        if has_attachment:
+            raise AppError(409, "project_has_attachments", "项目已有附件，不能删除")
         self.session.delete(project)
         self.session.commit()
 
@@ -320,9 +334,96 @@ class ProjectService:
         project = self.session.scalar(statement)
         if project is None:
             raise AppError(404, "project_not_found", "项目不存在")
-        return self.serialize(
-            project, updates=self._updates(project_id, limit=20)
+        result = self.serialize(project, updates=self._updates(project_id, limit=20))
+        now = datetime.now(timezone.utc)
+        next_meeting = self.session.scalar(
+            select(Meeting)
+            .where(
+                Meeting.project_id == project_id,
+                Meeting.scheduled_start >= now,
+                Meeting.status.in_(["draft", "ready", "in_progress"]),
+            )
+            .order_by(Meeting.scheduled_start, Meeting.id)
+            .limit(1)
         )
+        recent_decisions = list(
+            self.session.scalars(
+                select(Decision)
+                .where(Decision.project_id == project_id)
+                .options(selectinload(Decision.reviewers))
+                .order_by(Decision.updated_at.desc(), Decision.id)
+                .limit(10)
+            )
+        )
+        series = list(
+            self.session.scalars(
+                select(MeetingSeries)
+                .where(MeetingSeries.project_id == project_id)
+                .order_by(MeetingSeries.title, MeetingSeries.id)
+            )
+        )
+        attachments = list(
+            self.session.scalars(
+                select(Attachment)
+                .where(
+                    Attachment.target_type == "project",
+                    Attachment.target_id == project_id,
+                )
+                .options(joinedload(Attachment.creator))
+                .order_by(Attachment.created_at.desc(), Attachment.id.desc())
+            )
+        )
+        result.update(
+            {
+                "next_meeting": (
+                    {
+                        "id": next_meeting.id,
+                        "title": next_meeting.title,
+                        "scheduled_start": next_meeting.scheduled_start,
+                        "status": next_meeting.status,
+                    }
+                    if next_meeting is not None
+                    else None
+                ),
+                "recent_decisions": [
+                    OutcomeService.serialize(item) for item in recent_decisions
+                ],
+                "open_action_count": self.session.scalar(
+                    select(func.count())
+                    .select_from(ActionItem)
+                    .where(
+                        ActionItem.project_id == project_id,
+                        ActionItem.status.in_(["open", "in_progress"]),
+                    )
+                )
+                or 0,
+                "series_summaries": [
+                    {
+                        "id": item.id,
+                        "title": item.title,
+                        "status": item.status,
+                        "recurrence_description": item.recurrence_description,
+                    }
+                    for item in series
+                ],
+                "attachments": [
+                    {
+                        "id": item.id,
+                        "target_type": item.target_type,
+                        "target_id": item.target_id,
+                        "original_name": item.original_name,
+                        "mime_type": item.mime_type,
+                        "size": item.size,
+                        "attachment_type": item.attachment_type,
+                        "created_by": user_ref(item.creator),
+                        "created_at": item.created_at,
+                        "download_url": f"/api/attachments/project/{project_id}/{item.id}",
+                    }
+                    for item in attachments
+                ],
+            }
+        )
+        return result
 
     def list_updates(
         self, project_id: str, *, limit: int = 50, offset: int = 0
