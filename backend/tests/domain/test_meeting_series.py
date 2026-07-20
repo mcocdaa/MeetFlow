@@ -162,6 +162,13 @@ def test_later_series_edits_never_rewrite_existing_occurrence(
                 participants=[
                     {"user_id": recorder.id, "participation_role": "recorder"}
                 ],
+                standing_items=[
+                    {
+                        "title": "Replacement item",
+                        "agenda_type": "decision",
+                        "default_owner_user_id": recorder.id,
+                    }
+                ],
             ),
             admin,
         )
@@ -170,9 +177,10 @@ def test_later_series_edits_never_rewrite_existing_occurrence(
         assert occurrence.purpose_markdown == "  # Keep exact markdown  \n"
         assert occurrence.host_user_id == admin.id
         assert [row.user_id for row in occurrence.participants] == [member.id, admin.id]
+        assert [row.title for row in occurrence.agenda_items] == ["Metrics", "Risks"]
 
 
-def test_standing_items_are_ordered_and_serialized_but_not_copied_yet(
+def test_standing_items_are_ordered_serialized_and_copied_to_occurrence(
     client, project, meeting_users
 ):
     admin, member, recorder = meeting_users
@@ -191,13 +199,19 @@ def test_standing_items_are_ordered_and_serialized_but_not_copied_yet(
         occurrence = service.create_occurrence(
             series.id,
             OccurrenceWrite(
-                title="No agenda copy yet",
+                title="Agenda copy",
                 scheduled_start=START,
                 scheduled_end=START + timedelta(minutes=45),
             ),
             admin,
         )
-        assert not hasattr(occurrence, "agenda_items")
+        assert [item.title for item in occurrence.agenda_items] == [
+            "Metrics",
+            "Risks",
+        ]
+        assert occurrence.agenda_items[0].presenter_user_id == member.id
+        assert occurrence.agenda_items[0].proposer_user_id is None
+        assert occurrence.agenda_items[0].notes_markdown == ""
 
 
 def test_standalone_meeting_has_no_series(client, project, meeting_users):
@@ -464,7 +478,8 @@ def test_detail_serialization_has_bounded_relationship_queries(
         assert len(series_body["standing_items"]) == 2
         assert len(meeting_body["participants"]) == 2
         assert series_queries <= 3
-        assert meeting_queries <= 2
+        # One base query plus bounded participant and agenda collection loads.
+        assert meeting_queries <= 3
 
 
 def test_series_atomic_two_session_conflict(client, project, meeting_users):

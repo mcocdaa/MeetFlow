@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
@@ -83,6 +84,10 @@ def meeting_relationship_options():
         joinedload(Meeting.creator),
         joinedload(Meeting.updater),
         selectinload(Meeting.participants).joinedload(MeetingParticipant.user),
+        selectinload(Meeting.agenda_items).joinedload(AgendaItem.proposer),
+        selectinload(Meeting.agenda_items).joinedload(AgendaItem.presenter),
+        selectinload(Meeting.agenda_items).joinedload(AgendaItem.creator),
+        selectinload(Meeting.agenda_items).joinedload(AgendaItem.updater),
     )
 
 
@@ -304,6 +309,24 @@ class MeetingService:
             participants=self._meeting_participants(participants),
         )
         self.session.add(meeting)
+        self.session.flush()
+        meeting.agenda_items = [
+            AgendaItem(
+                title=row.title,
+                agenda_type=row.agenda_type,
+                # Default ownership maps to the occurrence presenter; the
+                # proposer remains available for whoever raises it live.
+                proposer_user_id=None,
+                presenter_user_id=row.default_owner_user_id,
+                estimated_minutes=row.default_duration_minutes,
+                notes_markdown="",
+                position=position,
+                version=1,
+                created_by=actor.id,
+                updated_by=actor.id,
+            )
+            for position, row in enumerate(series.standing_items)
+        ]
         self.session.commit()
         self.session.refresh(meeting)
         return meeting
@@ -453,6 +476,29 @@ class MeetingService:
                     "position": row.position,
                 }
                 for row in meeting.participants
+            ],
+            "agenda_items": [
+                {
+                    "id": row.id,
+                    "meeting_id": row.meeting_id,
+                    "title": row.title,
+                    "agenda_type": row.agenda_type,
+                    "proposer": user_ref(row.proposer),
+                    "presenter": user_ref(row.presenter),
+                    "estimated_minutes": row.estimated_minutes,
+                    "notes_markdown": row.notes_markdown,
+                    "status": row.status,
+                    "position": row.position,
+                    "carry_from_open_question_id": row.carry_from_open_question_id,
+                    "version": row.version,
+                    "created_by": user_ref(row.creator),
+                    "updated_by": user_ref(row.updater),
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                    "started_at": row.started_at,
+                    "completed_at": row.completed_at,
+                }
+                for row in meeting.agenda_items
             ],
             "created_by": user_ref(meeting.creator),
             "updated_by": user_ref(meeting.updater),

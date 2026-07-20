@@ -1,4 +1,5 @@
 from app.auth.models import User
+from app.agendas.models import AgendaItem
 from app.meetings.models import (
     ActionItem,
     Attachment,
@@ -16,6 +17,7 @@ from app.projects.models import Project, ProjectMember, ProjectUpdate
 
 __all__ = [
     "ActionItem",
+    "AgendaItem",
     "Attachment",
     "Meeting",
     "MeetingAmendment",

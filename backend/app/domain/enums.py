@@ -50,3 +50,11 @@ class AgendaType(StrEnum):
     information = "information"
     discussion = "discussion"
     decision = "decision"
+
+
+class AgendaStatus(StrEnum):
+    planned = "planned"
+    in_progress = "in_progress"
+    completed = "completed"
+    skipped = "skipped"
+    canceled = "canceled"

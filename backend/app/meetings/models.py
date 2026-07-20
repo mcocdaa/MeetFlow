@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -18,6 +19,9 @@ from app.auth.models import User
 from app.database import Base
 from app.domain.enums import AgendaType, MeetingStatus, ParticipationRole, SeriesStatus
 from app.projects.models import Project
+
+if TYPE_CHECKING:
+    from app.agendas.models import AgendaItem
 
 
 def utcnow() -> datetime:
@@ -196,6 +200,11 @@ class Meeting(Base):
         back_populates="meeting",
         cascade="all, delete-orphan",
         order_by="MeetingAmendment.created_at",
+    )
+    agenda_items: Mapped[list["AgendaItem"]] = relationship(
+        back_populates="meeting",
+        cascade="all, delete-orphan",
+        order_by="(AgendaItem.position, AgendaItem.id)",
     )
 
 

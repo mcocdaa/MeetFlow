@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import models  # noqa: F401 - registers SQLAlchemy metadata
+from app.agendas.router import router as agendas_router
 from app.attachments.router import router as attachments_router
 from app.attachments.storage import AttachmentStorage
 from app.auth.router import admin_router, router as auth_router
@@ -27,9 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or Settings()
     database = Database(resolved.database_url)
     auth_service = AuthService(resolved)
-    attachment_storage = AttachmentStorage(
-        resolved.data_dir, resolved.max_upload_bytes
-    )
+    attachment_storage = AttachmentStorage(resolved.data_dir, resolved.max_upload_bytes)
     plugin_manager = PluginManager(
         resolved.plugins_dir, database, resolved.app_secret_key
     )
@@ -60,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(meetings_router)
+    app.include_router(agendas_router)
     app.include_router(actions_router)
     app.include_router(attachments_router)
     app.include_router(plugin_admin_router)
@@ -69,9 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(updates_router)
 
     @app.middleware("http")
-    async def reject_cross_origin_writes(
-        request: Request, call_next
-    ):
+    async def reject_cross_origin_writes(request: Request, call_next):
         origin = request.headers.get("origin", "").rstrip("/")
         if (
             request.method in {"POST", "PUT", "PATCH", "DELETE"}
