@@ -15,7 +15,6 @@ from app.meetings.schemas import (
 )
 from app.meetings.service import MeetingService
 
-
 router = APIRouter(tags=["meetings"])
 # Kept as an empty compatibility router while v0.1 action routes are retired.
 actions_router = APIRouter()
@@ -69,7 +68,9 @@ def create_occurrence(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = MeetingService(session)
-    return service.serialize_meeting(service.create_occurrence(series_id, payload, user))
+    return service.serialize_meeting(
+        service.create_occurrence(series_id, payload, user)
+    )
 
 
 @router.get("/api/projects/{project_id}/meetings")

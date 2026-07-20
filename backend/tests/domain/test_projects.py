@@ -6,7 +6,7 @@ from sqlalchemy import event, func, select
 from app.auth.models import User, UserRole, UserStatus
 from app.errors import AppError
 from app.meetings.models import Meeting
-from app.projects.models import Project, ProjectMember, ProjectUpdate
+from app.projects.models import Project
 from app.projects.schemas import ProjectEdit, ProjectUpdateWrite, ProjectWrite
 from app.projects.service import ProjectService
 
@@ -173,9 +173,7 @@ def test_empty_project_edit_is_a_noop(client, users):
         original_updated_at = project.updated_at
         original_updated_by = project.updated_by
 
-        unchanged = service.update(
-            project.id, ProjectEdit(expected_version=1), admin
-        )
+        unchanged = service.update(project.id, ProjectEdit(expected_version=1), admin)
 
         assert unchanged.version == 1
         assert unchanged.updated_at == original_updated_at
@@ -280,9 +278,7 @@ def test_membership_replacement_increments_version_once(client, users):
         assert [row.user_id for row in updated.memberships] == [outsider.id]
 
 
-def test_progress_update_requires_membership_but_admin_is_always_allowed(
-    client, users
-):
+def test_progress_update_requires_membership_but_admin_is_always_allowed(client, users):
     admin, member, outsider = users
     with client.app.state.database.session() as session:
         service = ProjectService(session)
@@ -354,10 +350,13 @@ def test_delete_requires_admin_or_lead_and_rejects_nonempty_project(client, user
 
 def test_project_routes_require_authentication(client):
     assert client.get("/api/projects").status_code == 401
-    assert client.put(
-        "/api/project-updates/missing",
-        json={"content_markdown": "No auth"},
-    ).status_code == 401
+    assert (
+        client.put(
+            "/api/project-updates/missing",
+            json={"content_markdown": "No auth"},
+        ).status_code
+        == 401
+    )
 
 
 def test_project_api_serializes_members_and_updates(authenticated_client, users):
