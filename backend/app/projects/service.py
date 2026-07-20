@@ -223,7 +223,7 @@ class ProjectService:
                 "只有管理员或项目负责人可以删除项目",
             )
         has_meeting = self.session.scalar(
-            select(Meeting.id).where(Meeting.project == project.name).limit(1)
+            select(Meeting.id).where(Meeting.project_id == project.id).limit(1)
         )
         if has_meeting:
             raise AppError(

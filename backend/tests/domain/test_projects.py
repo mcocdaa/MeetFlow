@@ -339,12 +339,9 @@ def test_delete_requires_admin_or_lead_and_rejects_nonempty_project(client, user
 
         meeting = Meeting(
             title="Existing meeting",
-            project=project.name,
-            meeting_type="technical",
-            meeting_date=datetime(2026, 7, 20, 10, tzinfo=timezone.utc),
-            participants=[],
-            raw_notes_markdown="",
-            conclusions_markdown="",
+            project_id=project.id,
+            scheduled_start=datetime(2026, 7, 20, 10, tzinfo=timezone.utc),
+            scheduled_end=datetime(2026, 7, 20, 11, tzinfo=timezone.utc),
             created_by=admin.id,
             updated_by=admin.id,
         )

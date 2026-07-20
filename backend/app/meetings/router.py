@@ -1,121 +1,112 @@
-from typing import Any, Literal
+from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
-from app.meetings.schemas import ActionWrite, MeetingWrite, UpdateWrite
+from app.meetings.schemas import (
+    MeetingEdit,
+    MeetingSeriesEdit,
+    MeetingSeriesWrite,
+    MeetingWrite,
+    OccurrenceWrite,
+)
 from app.meetings.service import MeetingService
 
-router = APIRouter(prefix="/api/meetings", tags=["meetings"])
-actions_router = APIRouter(prefix="/api/actions", tags=["actions"])
+
+router = APIRouter(tags=["meetings"])
+# Kept as an empty compatibility router while v0.1 action routes are retired.
+actions_router = APIRouter()
 
 
-@router.get("")
-def list_meetings(
-    q: str = "",
+@router.get("/api/projects/{project_id}/meeting-series")
+def list_series(
+    project_id: str,
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    return MeetingService(session).list_meetings(q)
+    return MeetingService(session).list_series(project_id)
 
 
-@router.post("", status_code=201)
+@router.post("/api/projects/{project_id}/meeting-series", status_code=201)
+def create_series(
+    project_id: str,
+    payload: MeetingSeriesWrite,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    service = MeetingService(session)
+    return service.serialize_series(service.create_series(project_id, payload, user))
+
+
+@router.get("/api/meeting-series/{series_id}")
+def get_series(
+    series_id: str,
+    _user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return MeetingService(session).series_detail(series_id)
+
+
+@router.put("/api/meeting-series/{series_id}")
+def update_series(
+    series_id: str,
+    payload: MeetingSeriesEdit,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    service = MeetingService(session)
+    return service.serialize_series(service.update_series(series_id, payload, user))
+
+
+@router.post("/api/meeting-series/{series_id}/occurrences", status_code=201)
+def create_occurrence(
+    series_id: str,
+    payload: OccurrenceWrite,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    service = MeetingService(session)
+    return service.serialize_meeting(service.create_occurrence(series_id, payload, user))
+
+
+@router.get("/api/projects/{project_id}/meetings")
+def list_meetings(
+    project_id: str,
+    _user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict[str, Any]]:
+    return MeetingService(session).list_meetings(project_id)
+
+
+@router.post("/api/projects/{project_id}/meetings", status_code=201)
 def create_meeting(
+    project_id: str,
     payload: MeetingWrite,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    return MeetingService(session).create(payload, user)
+    service = MeetingService(session)
+    return service.serialize_meeting(service.create_meeting(project_id, payload, user))
 
 
-@router.get("/{meeting_id}")
+@router.get("/api/meetings/{meeting_id}")
 def get_meeting(
     meeting_id: str,
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    return MeetingService(session).package(meeting_id)
+    return MeetingService(session).meeting_detail(meeting_id)
 
 
-@router.put("/{meeting_id}")
+@router.put("/api/meetings/{meeting_id}")
 def update_meeting(
     meeting_id: str,
-    payload: MeetingWrite,
+    payload: MeetingEdit,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    return MeetingService(session).update(meeting_id, payload, user)
-
-
-@router.delete("/{meeting_id}", status_code=204)
-def delete_meeting(
-    meeting_id: str,
-    request: Request,
-    _user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> None:
-    MeetingService(session).delete(meeting_id)
-    request.app.state.attachment_storage.remove_meeting(meeting_id)
-
-
-@router.post("/{meeting_id}/actions", status_code=201)
-def create_action(
-    meeting_id: str,
-    payload: ActionWrite,
-    user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> dict[str, Any]:
-    return MeetingService(session).create_action(meeting_id, payload, user)
-
-
-@router.put("/{meeting_id}/actions/{action_id}")
-def update_action(
-    meeting_id: str,
-    action_id: str,
-    payload: ActionWrite,
-    _user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> dict[str, Any]:
-    return MeetingService(session).update_action(meeting_id, action_id, payload)
-
-
-@router.delete("/{meeting_id}/actions/{action_id}", status_code=204)
-def delete_action(
-    meeting_id: str,
-    action_id: str,
-    _user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> None:
-    MeetingService(session).delete_action(meeting_id, action_id)
-
-
-@actions_router.get("")
-def list_actions(
-    status: Literal["open", "done"] = "open",
-    _user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> list[dict[str, Any]]:
-    return MeetingService(session).list_actions(status)
-
-
-@router.post("/{meeting_id}/updates", status_code=201)
-def create_update(
-    meeting_id: str,
-    payload: UpdateWrite,
-    user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> dict[str, Any]:
-    return MeetingService(session).create_update(meeting_id, payload, user)
-
-
-@router.delete("/{meeting_id}/updates/{update_id}", status_code=204)
-def delete_update(
-    meeting_id: str,
-    update_id: str,
-    _user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> None:
-    MeetingService(session).delete_update(meeting_id, update_id)
+    service = MeetingService(session)
+    return service.serialize_meeting(service.update_meeting(meeting_id, payload, user))
