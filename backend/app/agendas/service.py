@@ -168,7 +168,12 @@ class AgendaService:
         self._require_active(actor)
         meeting = self._meeting(meeting_id)
         self._require_mutable(meeting)
-        require_version(payload.expected_meeting_version, meeting.version)
+        actual_version = self.session.scalar(
+            select(Meeting.version).where(Meeting.id == meeting_id)
+        )
+        if actual_version is None:
+            raise AppError(404, "meeting_not_found", "会议不存在")
+        require_version(payload.expected_meeting_version, actual_version)
         items = self.list(meeting_id)
         current_ids = [item.id for item in items]
         if len(payload.ids) != len(set(payload.ids)) or set(payload.ids) != set(
@@ -300,3 +305,17 @@ class AgendaService:
         if item is None:
             raise AppError(404, "agenda_item_not_found", "议题不存在")
         return self.serialize(item)
+
+    def ordered_detail(self, meeting_id: str) -> list[dict[str, Any]]:
+        items = self.session.scalars(
+            select(AgendaItem)
+            .where(AgendaItem.meeting_id == meeting_id)
+            .options(
+                joinedload(AgendaItem.proposer),
+                joinedload(AgendaItem.presenter),
+                joinedload(AgendaItem.creator),
+                joinedload(AgendaItem.updater),
+            )
+            .order_by(AgendaItem.position, AgendaItem.id)
+        )
+        return [self.serialize(item) for item in items]

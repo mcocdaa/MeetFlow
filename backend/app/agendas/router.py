@@ -66,9 +66,8 @@ def reorder_agenda_items(
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     service = AgendaService(session)
-    return [
-        service.detail(item.id) for item in service.reorder(meeting_id, payload, user)
-    ]
+    service.reorder(meeting_id, payload, user)
+    return service.ordered_detail(meeting_id)
 
 
 def _command(name: str):

@@ -15,10 +15,10 @@ class StrictInput(BaseModel):
 
 class AgendaWrite(StrictInput):
     title: str = Field(min_length=1, max_length=300)
-    agenda_type: AgendaType = AgendaType.discussion
+    agenda_type: AgendaType
     proposer_user_id: str | None = Field(default=None, max_length=64)
     presenter_user_id: str | None = Field(default=None, max_length=64)
-    estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
+    estimated_minutes: int | None = Field(default=None, ge=1, le=480)
     notes_markdown: str = Field(default="", max_length=100_000)
     position: int | None = Field(default=None, ge=0)
     carry_from_open_question_id: str | None = Field(default=None, max_length=64)
@@ -58,7 +58,7 @@ class AgendaEdit(StrictInput):
     agenda_type: AgendaType | None = None
     proposer_user_id: str | None = Field(default=None, max_length=64)
     presenter_user_id: str | None = Field(default=None, max_length=64)
-    estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
+    estimated_minutes: int | None = Field(default=None, ge=1, le=480)
     notes_markdown: str | None = Field(default=None, max_length=100_000)
     carry_from_open_question_id: str | None = Field(default=None, max_length=64)
 
@@ -79,6 +79,15 @@ class AgendaEdit(StrictInput):
     def require_title(cls, value: str | None) -> str | None:
         if value == "":
             raise ValueError("title must not be blank")
+        return value
+
+    @field_validator(
+        "proposer_user_id", "presenter_user_id", "carry_from_open_question_id"
+    )
+    @classmethod
+    def reject_blank_reference(cls, value: str | None) -> str | None:
+        if value == "":
+            raise ValueError("reference must not be blank")
         return value
 
     @model_validator(mode="after")

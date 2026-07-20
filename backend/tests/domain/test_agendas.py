@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+from sqlalchemy import event, select
 
 from app.agendas.models import AgendaItem
 from app.agendas.schemas import (
@@ -64,7 +66,12 @@ def agenda_context(client):
 def add_item(service, meeting, actor, title, position=None, **values):
     return service.create(
         meeting.id,
-        AgendaWrite(title=title, position=position, **values),
+        AgendaWrite(
+            title=title,
+            agenda_type=values.pop("agenda_type", "discussion"),
+            position=position,
+            **values,
+        ),
         actor,
         expected_meeting_version=meeting.version,
     )
@@ -167,6 +174,64 @@ def test_update_preserves_markdown_and_validates_user(client, agenda_context):
         assert error.value.code == "user_not_found"
 
 
+def test_schema_requires_type_rejects_blank_refs_and_allows_explicit_clear():
+    with pytest.raises(ValidationError):
+        AgendaWrite(title="Missing type")
+    with pytest.raises(ValidationError):
+        AgendaWrite(
+            title="Too long",
+            agenda_type="discussion",
+            estimated_minutes=481,
+        )
+    with pytest.raises(ValidationError):
+        AgendaEdit(expected_version=1, estimated_minutes=481)
+    for field in (
+        "proposer_user_id",
+        "presenter_user_id",
+        "carry_from_open_question_id",
+    ):
+        with pytest.raises(ValidationError):
+            AgendaEdit(expected_version=1, **{field: "   "})
+        assert (
+            AgendaEdit(expected_version=1, **{field: None}).model_dump(
+                exclude_unset=True
+            )[field]
+            is None
+        )
+
+
+def test_edit_can_clear_optional_user_refs_without_poisoning_session(
+    client, agenda_context
+):
+    admin, presenter, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(
+            service,
+            meeting,
+            admin,
+            "Clear refs",
+            proposer_user_id=presenter.id,
+            presenter_user_id=presenter.id,
+            carry_from_open_question_id="question-id",
+        )
+        cleared = service.update(
+            item.id,
+            AgendaEdit(
+                expected_version=1,
+                proposer_user_id=None,
+                presenter_user_id=None,
+                carry_from_open_question_id=None,
+            ),
+            admin,
+        )
+        assert cleared.proposer_user_id is None
+        assert cleared.presenter_user_id is None
+        assert cleared.carry_from_open_question_id is None
+        assert session.scalar(select(AgendaItem.id).where(AgendaItem.id == item.id))
+
+
 def test_commands_set_status_timestamps_and_reject_invalid_transition(
     client, agenda_context
 ):
@@ -219,7 +284,7 @@ def test_completed_meeting_is_immutable_and_empty_item_can_be_deleted(
         with pytest.raises(AppError) as error:
             service.create(
                 meeting.id,
-                AgendaWrite(title="Too late"),
+                AgendaWrite(title="Too late", agenda_type="discussion"),
                 admin,
                 expected_meeting_version=meeting.version,
             )
@@ -259,18 +324,46 @@ def test_item_and_meeting_optimistic_conflicts(client, agenda_context):
         second_meeting = second_session.get(Meeting, meeting_id)
         first.create(
             meeting_id,
-            AgendaWrite(title="Winner append"),
+            AgendaWrite(title="Winner append", agenda_type="discussion"),
             admin,
             expected_meeting_version=first_meeting.version,
         )
         with pytest.raises(AppError) as error:
             second.create(
                 meeting_id,
-                AgendaWrite(title="Stale append"),
+                AgendaWrite(title="Stale append", agenda_type="discussion"),
                 admin,
                 expected_meeting_version=second_meeting.version,
             )
         assert error.value.code == "version_conflict"
+
+
+def test_stale_reorder_reports_version_before_changed_id_set(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    database = client.app.state.database
+    with database.session() as seed:
+        meeting = seed.get(Meeting, meeting_id)
+        original = add_item(AgendaService(seed), meeting, admin, "Original")
+        original_id = original.id
+
+    with database.session() as stale_session, database.session() as winner_session:
+        stale_meeting = stale_session.get(Meeting, meeting_id)
+        expected = stale_meeting.version
+        winner_meeting = winner_session.get(Meeting, meeting_id)
+        add_item(AgendaService(winner_session), winner_meeting, admin, "New item")
+
+        with pytest.raises(AppError) as error:
+            AgendaService(stale_session).reorder(
+                meeting_id,
+                AgendaReorder(ids=[original_id], expected_meeting_version=expected),
+                admin,
+            )
+        assert error.value.code == "version_conflict"
+        assert error.value.details == {
+            "expected_version": expected,
+            "actual_version": expected + 1,
+        }
+        assert stale_session.scalar(select(Meeting.id).where(Meeting.id == meeting_id))
 
 
 def test_agenda_routes_require_auth_and_serialize(authenticated_client, agenda_context):
@@ -296,6 +389,166 @@ def test_agenda_routes_require_auth_and_serialize(authenticated_client, agenda_c
         response = unauthenticated.post(
             f"/api/meetings/{meeting_id}/agenda-items",
             params={"expected_meeting_version": version + 1},
-            json={"title": "No auth"},
+            json={"title": "No auth", "agenda_type": "discussion"},
         )
     assert response.status_code == 401
+
+
+def test_all_agenda_mutation_routes_have_auth_and_expected_status_codes(
+    authenticated_client, agenda_context
+):
+    client = authenticated_client
+    _, _, meeting_id = agenda_context
+
+    def meeting_version():
+        with client.app.state.database.session() as session:
+            return session.get(Meeting, meeting_id).version
+
+    def create(title):
+        response = client.post(
+            f"/api/meetings/{meeting_id}/agenda-items",
+            params={"expected_meeting_version": meeting_version()},
+            json={"title": title, "agenda_type": "discussion"},
+        )
+        assert response.status_code == 201
+        return response.json()
+
+    edited = create("Edit")
+    completed = create("Complete")
+    skipped = create("Skip")
+    canceled = create("Cancel")
+    deleted = create("Delete")
+
+    response = client.put(
+        f"/api/agenda-items/{edited['id']}",
+        json={
+            "expected_version": edited["version"],
+            "presenter_user_id": "   ",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+    response = client.put(
+        f"/api/agenda-items/{edited['id']}",
+        json={"expected_version": edited["version"], "title": "Edited"},
+    )
+    assert response.status_code == 200
+    response = client.post(
+        f"/api/agenda-items/{completed['id']}/complete",
+        json={"expected_version": completed["version"]},
+    )
+    assert response.status_code == 200
+    response = client.post(
+        f"/api/agenda-items/{skipped['id']}/skip",
+        json={"expected_version": skipped["version"]},
+    )
+    assert response.status_code == 200
+    response = client.post(
+        f"/api/agenda-items/{canceled['id']}/cancel",
+        json={"expected_version": canceled["version"]},
+    )
+    assert response.status_code == 200
+
+    ids = [canceled["id"], skipped["id"], completed["id"], edited["id"], deleted["id"]]
+    response = client.post(
+        f"/api/meetings/{meeting_id}/agenda-items/reorder",
+        json={"ids": ids, "expected_meeting_version": meeting_version()},
+    )
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == ids
+
+    delete_version = next(
+        item["version"] for item in response.json() if item["id"] == deleted["id"]
+    )
+    response = client.request(
+        "DELETE",
+        f"/api/agenda-items/{deleted['id']}",
+        params={"expected_meeting_version": meeting_version()},
+        json={"expected_version": delete_version},
+    )
+    assert response.status_code == 204
+
+    unauthenticated = TestClient(client.app)
+    with unauthenticated:
+        requests = [
+            (
+                "PUT",
+                f"/api/agenda-items/{edited['id']}",
+                {},
+                {"expected_version": 2, "title": "x"},
+            ),
+            (
+                "DELETE",
+                f"/api/agenda-items/{edited['id']}",
+                {"expected_meeting_version": meeting_version()},
+                {"expected_version": 2},
+            ),
+            (
+                "POST",
+                f"/api/meetings/{meeting_id}/agenda-items/reorder",
+                {},
+                {"ids": ids[:-1], "expected_meeting_version": meeting_version()},
+            ),
+            (
+                "POST",
+                f"/api/agenda-items/{edited['id']}/complete",
+                {},
+                {"expected_version": 2},
+            ),
+            (
+                "POST",
+                f"/api/agenda-items/{edited['id']}/skip",
+                {},
+                {"expected_version": 2},
+            ),
+            (
+                "POST",
+                f"/api/agenda-items/{edited['id']}/cancel",
+                {},
+                {"expected_version": 2},
+            ),
+        ]
+        for method, path, params, payload in requests:
+            assert (
+                unauthenticated.request(
+                    method, path, params=params, json=payload
+                ).status_code
+                == 401
+            )
+
+
+def test_reorder_route_serialization_has_bounded_queries(
+    authenticated_client, agenda_context
+):
+    client = authenticated_client
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        for index in range(8):
+            add_item(service, meeting, admin, f"Topic {index}")
+            session.refresh(meeting)
+        ids = [item.id for item in service.list(meeting_id)]
+        version = meeting.version
+
+    selects = []
+
+    def count_select(_conn, _cursor, statement, _params, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    engine = client.app.state.database.engine
+    event.listen(engine, "before_cursor_execute", count_select)
+    try:
+        response = client.post(
+            f"/api/meetings/{meeting_id}/agenda-items/reorder",
+            json={"ids": ids, "expected_meeting_version": version},
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_select)
+
+    assert response.status_code == 200
+    assert len(response.json()) == 8
+    # Auth, meeting load, direct version check, queue load, eager response load.
+    assert len(selects) <= 5
