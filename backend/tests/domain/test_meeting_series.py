@@ -367,7 +367,7 @@ def test_upload_works_for_new_meeting_and_package_contains_attachment(
 def test_package_and_plugin_context_include_transitional_rows(
     client, project, meeting_users
 ):
-    admin, _, _ = meeting_users
+    admin, member, _ = meeting_users
     with client.app.state.database.session() as session:
         service = MeetingService(session)
         meeting = service.create_meeting(
@@ -376,6 +376,12 @@ def test_package_and_plugin_context_include_transitional_rows(
                 title="Plugin context",
                 scheduled_start=START,
                 scheduled_end=START + timedelta(minutes=30),
+                participants=[
+                    {
+                        "user_id": member.id,
+                        "participation_role": "attendee",
+                    }
+                ],
             ),
             admin,
         )
@@ -412,6 +418,9 @@ def test_package_and_plugin_context_include_transitional_rows(
         assert package["attachments"][0]["original_name"] == "notes.txt"
         assert context["attachments"] == package["attachments"]
         assert context["project"] == project.name
+        # Installed api_version=1 plugins receive the original flat contract.
+        assert context["meeting_type"] == "standalone"
+        assert context["participants"] == [member.display_name]
 
 
 def test_detail_serialization_has_bounded_relationship_queries(

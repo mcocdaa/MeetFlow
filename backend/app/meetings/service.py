@@ -579,11 +579,18 @@ class MeetingService:
 
     def plugin_context(self, meeting_id: str, user: User) -> dict[str, Any]:
         package = self.package(meeting_id)
+        # api_version=1 plugins consume the former flat meeting contract. New
+        # standalone meetings have no free-form type, so expose a deterministic
+        # source kind while keeping the 1.0 API serialization untouched.
         return {
             **package,
             "project": package["project"]["name"],
+            "meeting_type": "series" if package["series"] else "standalone",
             "meeting_date": package["scheduled_start"],
-            "participants": [item["user"] for item in package["participants"]],
+            "participants": [
+                item["user"]["display_name"] or item["user"]["username"]
+                for item in package["participants"]
+            ],
             "conclusions_markdown": package["summary_markdown"],
             "current_user": user_ref(user),
         }
