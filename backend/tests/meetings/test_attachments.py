@@ -1,4 +1,7 @@
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+import pytest
 
 from app.attachments.models import Attachment
 
@@ -100,3 +103,67 @@ def test_delete_removes_metadata_when_file_is_already_missing(
     with database.session() as session:
         assert session.get(Attachment, item["id"]) is None
         assert session.scalar(select(Attachment.id)) is None
+
+
+def test_delete_commit_failure_restores_file_and_row(
+    authenticated_client, meeting_id, monkeypatch
+):
+    item = upload(authenticated_client, meeting_id).json()
+    database = authenticated_client.app.state.database
+    with database.session() as session:
+        attachment = session.get(Attachment, item["id"])
+        original_path = (
+            authenticated_client.app.state.attachment_storage.attachment_path(
+                attachment.target_type, attachment.target_id, attachment.stored_name
+            )
+        )
+
+    original_commit = Session.commit
+
+    def fail_commit(_session):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(Session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        authenticated_client.delete(item["download_url"])
+    monkeypatch.setattr(Session, "commit", original_commit)
+
+    assert original_path.is_file()
+    assert not list(original_path.parent.glob(".delete-*"))
+    with database.session() as session:
+        assert session.get(Attachment, item["id"]) is not None
+        session.commit()
+
+
+def test_delete_unlink_failure_keeps_tombstone_and_returns_204(
+    authenticated_client, meeting_id, monkeypatch, caplog
+):
+    item = upload(authenticated_client, meeting_id).json()
+    database = authenticated_client.app.state.database
+    with database.session() as session:
+        attachment = session.get(Attachment, item["id"])
+        original_path = (
+            authenticated_client.app.state.attachment_storage.attachment_path(
+                attachment.target_type, attachment.target_id, attachment.stored_name
+            )
+        )
+
+    path_type = type(original_path)
+    original_unlink = path_type.unlink
+
+    def fail_tombstone_unlink(path, *args, **kwargs):
+        if path.name.startswith(".delete-"):
+            raise OSError("disk busy")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "unlink", fail_tombstone_unlink)
+    with caplog.at_level("WARNING"):
+        response = authenticated_client.delete(item["download_url"])
+
+    assert response.status_code == 204
+    assert not original_path.exists()
+    tombstones = list(original_path.parent.glob(".delete-*"))
+    assert len(tombstones) == 1
+    assert "attachment tombstone cleanup failed" in caplog.text
+    with database.session() as session:
+        assert session.get(Attachment, item["id"]) is None

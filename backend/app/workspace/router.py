@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.agendas.models import AgendaItem
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
@@ -14,8 +15,13 @@ from app.domain.enums import (
     DecisionStatus,
     MeetingStatus,
 )
-from app.meetings.models import Meeting, MeetingParticipant
-from app.meetings.service import MeetingService, meeting_relationship_options
+from app.meetings.models import (
+    Meeting,
+    MeetingAmendment,
+    MeetingParticipant,
+    MeetingSnapshot,
+)
+from app.meetings.service import as_utc, project_ref, user_ref
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.outcomes.service import OutcomeService
 from app.projects.models import Project
@@ -112,7 +118,25 @@ def global_meetings(
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    statement = select(Meeting)
+    agenda_count = (
+        select(func.count(AgendaItem.id))
+        .where(AgendaItem.meeting_id == Meeting.id)
+        .correlate(Meeting)
+        .scalar_subquery()
+    )
+    snapshot_count = (
+        select(func.count(MeetingSnapshot.id))
+        .where(MeetingSnapshot.meeting_id == Meeting.id)
+        .correlate(Meeting)
+        .scalar_subquery()
+    )
+    amendment_count = (
+        select(func.count(MeetingAmendment.id))
+        .where(MeetingAmendment.meeting_id == Meeting.id)
+        .correlate(Meeting)
+        .scalar_subquery()
+    )
+    statement = select(Meeting, agenda_count, snapshot_count, amendment_count)
     count_statement = select(func.count()).select_from(Meeting)
     filters = []
     if project_id:
@@ -127,18 +151,48 @@ def global_meetings(
         statement = statement.join(MeetingParticipant)
         count_statement = count_statement.join(MeetingParticipant)
         filters.append(MeetingParticipant.user_id == participant_user_id)
-    page = _page(
-        session,
+    rows = session.execute(
         statement.where(*filters)
-        .options(*meeting_relationship_options())
-        .order_by(Meeting.scheduled_start.desc(), Meeting.id),
-        count_statement.where(*filters),
-        limit,
-        offset,
-    )
-    service = MeetingService(session)
-    page["items"] = [service.serialize_meeting(row) for row in page["items"]]
-    return page
+        .options(
+            joinedload(Meeting.project),
+            joinedload(Meeting.series),
+            joinedload(Meeting.host),
+            joinedload(Meeting.recorder),
+        )
+        .order_by(Meeting.scheduled_start.desc(), Meeting.id)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    items = [
+        {
+            "id": meeting.id,
+            "project": project_ref(meeting.project),
+            "series": (
+                {"id": meeting.series.id, "title": meeting.series.title}
+                if meeting.series is not None
+                else None
+            ),
+            "title": meeting.title,
+            "purpose_markdown": meeting.purpose_markdown,
+            "scheduled_start": as_utc(meeting.scheduled_start),
+            "scheduled_end": as_utc(meeting.scheduled_end),
+            "status": meeting.status,
+            "host": user_ref(meeting.host),
+            "recorder": user_ref(meeting.recorder),
+            "version": meeting.version,
+            "agenda_count": agendas,
+            "snapshot_count": snapshots,
+            "amendment_count": amendments,
+            "updated_at": meeting.updated_at,
+        }
+        for meeting, agendas, snapshots, amendments in rows
+    ]
+    return {
+        "items": items,
+        "total": session.scalar(count_statement.where(*filters)) or 0,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 def _attention_item(
@@ -196,6 +250,7 @@ def attention(
         .where(
             DecisionReviewer.user_id == user.id,
             DecisionReviewer.status == DecisionReviewerStatus.pending,
+            Decision.status == DecisionStatus.proposed,
         )
         .options(joinedload(Decision.project))
     )

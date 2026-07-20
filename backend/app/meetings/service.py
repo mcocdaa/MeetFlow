@@ -124,6 +124,15 @@ def meeting_relationship_options():
         selectinload(Meeting.agenda_items)
         .selectinload(AgendaItem.open_questions)
         .joinedload(OpenQuestion.creator),
+        selectinload(Meeting.decisions).joinedload(Decision.creator),
+        selectinload(Meeting.decisions).joinedload(Decision.decided_by),
+        selectinload(Meeting.decisions)
+        .selectinload(Decision.reviewers)
+        .joinedload(DecisionReviewer.user),
+        selectinload(Meeting.actions).joinedload(ActionItem.owner_user),
+        selectinload(Meeting.actions).joinedload(ActionItem.creator),
+        selectinload(Meeting.open_questions).joinedload(OpenQuestion.owner_user),
+        selectinload(Meeting.open_questions).joinedload(OpenQuestion.creator),
     )
 
 
@@ -970,6 +979,21 @@ class MeetingService:
                     ],
                 }
                 for row in meeting.agenda_items
+            ],
+            "meeting_decisions": [
+                decision_detail(item)
+                for item in sorted(meeting.decisions, key=lambda value: value.id)
+                if item.agenda_item_id is None
+            ],
+            "meeting_actions": [
+                action_detail(item)
+                for item in sorted(meeting.actions, key=lambda value: value.id)
+                if item.agenda_item_id is None
+            ],
+            "meeting_open_questions": [
+                question_detail(item)
+                for item in sorted(meeting.open_questions, key=lambda value: value.id)
+                if item.agenda_item_id is None
             ],
             "created_by": user_ref(meeting.creator),
             "updated_by": user_ref(meeting.updater),

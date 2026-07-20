@@ -1,3 +1,5 @@
+import logging
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ TEXT_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".py", ".log"}
 TEXT_PREVIEW_MAX_BYTES = 512 * 1024
 
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
+logger = logging.getLogger(__name__)
 
 
 def require_target(session: Session, target_type: str, target_id: str):
@@ -187,6 +190,24 @@ def delete_attachment(
     path = request.app.state.attachment_storage.attachment_path(
         item.target_type, item.target_id, item.stored_name
     )
+    tombstone = path.with_name(f".delete-{uuid.uuid4()}") if path.is_file() else None
+    if tombstone is not None:
+        path.replace(tombstone)
     session.delete(item)
-    session.commit()
-    path.unlink(missing_ok=True)
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        if tombstone is not None and tombstone.exists():
+            try:
+                tombstone.replace(path)
+            except OSError:
+                logger.exception("attachment tombstone restore failed: %s", tombstone)
+        raise
+    if tombstone is not None:
+        try:
+            tombstone.unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "attachment tombstone cleanup failed: %s", tombstone, exc_info=True
+            )

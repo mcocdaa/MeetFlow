@@ -138,6 +138,32 @@ def test_project_overview_global_filters_and_attention(authenticated_client):
     }
 
 
+def test_attention_excludes_historical_pending_reviewers(authenticated_client):
+    user, project, meeting, _ = create_workspace(authenticated_client)
+    decision_ids = []
+    for title, command in (("Final", "finalize"), ("Withdrawn", "withdraw")):
+        decision = authenticated_client.post(
+            f"/api/projects/{project['id']}/decisions",
+            json={
+                "meeting_id": meeting["id"],
+                "title": title,
+                "decision_markdown": title,
+                "reviewer_ids": [user["id"]],
+            },
+        ).json()
+        decision_ids.append(decision["id"])
+        assert (
+            authenticated_client.post(
+                f"/api/decisions/{decision['id']}/{command}",
+                json={"expected_version": decision["version"]},
+            ).status_code
+            == 200
+        )
+
+    attention = authenticated_client.get("/api/attention").json()["items"]
+    assert not set(decision_ids) & {row["subject_id"] for row in attention}
+
+
 def test_workspace_views_require_authentication(client):
     assert client.get("/api/actions").status_code == 401
     assert client.get("/api/attention").status_code == 401
@@ -234,6 +260,32 @@ def test_meeting_detail_has_enriched_user_refs_with_bounded_queries(
             "owner_user_id": reviewer_id,
         },
     )
+    top_decision = authenticated_client.post(
+        f"/api/projects/{project['id']}/decisions",
+        json={
+            "meeting_id": meeting["id"],
+            "title": "Meeting-level decision",
+            "decision_markdown": "Not tied to an agenda item",
+            "reviewer_ids": [reviewer_id],
+        },
+    ).json()
+    top_action = authenticated_client.post(
+        f"/api/projects/{project['id']}/actions",
+        json={
+            "project_id": project["id"],
+            "meeting_id": meeting["id"],
+            "content": "Meeting-level action",
+            "owner_user_id": reviewer_id,
+        },
+    ).json()
+    top_question = authenticated_client.post(
+        f"/api/projects/{project['id']}/open-questions",
+        json={
+            "meeting_id": meeting["id"],
+            "question_markdown": "Meeting-level question",
+            "owner_user_id": reviewer_id,
+        },
+    ).json()
     with database.session() as session:
         stored_meeting = session.get(Meeting, meeting["id"])
         stored_decision = session.get(Decision, decision["id"])
@@ -286,4 +338,77 @@ def test_meeting_detail_has_enriched_user_refs_with_bounded_queries(
     assert agenda_detail["actions"][0]["owner"] == reviewer_ref
     assert agenda_detail["open_questions"][0]["created_by"] == admin_ref
     assert agenda_detail["open_questions"][0]["owner"] == reviewer_ref
-    assert len(statements) <= 10
+    assert [row["id"] for row in detail["meeting_decisions"]] == [top_decision["id"]]
+    assert [row["id"] for row in detail["meeting_actions"]] == [top_action["id"]]
+    assert [row["id"] for row in detail["meeting_open_questions"]] == [
+        top_question["id"]
+    ]
+    assert detail["meeting_decisions"][0]["reviewers"][0]["user"] == reviewer_ref
+    assert detail["meeting_actions"][0]["owner"] == reviewer_ref
+    assert detail["meeting_open_questions"][0]["owner"] == reviewer_ref
+    agenda_outcome_ids = {
+        row["id"]
+        for key in ("decisions", "actions", "open_questions")
+        for row in agenda_detail[key]
+    }
+    assert not agenda_outcome_ids & {
+        top_decision["id"],
+        top_action["id"],
+        top_question["id"],
+    }
+    assert len(statements) <= 15
+
+
+def test_global_meetings_is_compact_and_query_bounded(authenticated_client):
+    _, project, meeting, _agenda = create_workspace(authenticated_client)
+    database = authenticated_client.app.state.database
+    with database.session() as session:
+        admin = session.scalar(select(User).where(User.username == "admin"))
+        stored = session.get(Meeting, meeting["id"])
+        for number in range(1, 6):
+            session.add(
+                MeetingSnapshot(
+                    meeting_id=stored.id,
+                    completion_number=number,
+                    snapshot_json={"schema_version": 1, "large": "x" * 1000},
+                    created_by=admin.id,
+                )
+            )
+            session.add(
+                MeetingAmendment(
+                    meeting_id=stored.id,
+                    reason=f"Correction {number}",
+                    content_markdown="x" * 1000,
+                    created_by=admin.id,
+                )
+            )
+        session.commit()
+
+    statements = []
+
+    def count_query(_conn, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    event.listen(database.engine, "before_cursor_execute", count_query)
+    try:
+        response = authenticated_client.get(
+            "/api/meetings", params={"project_id": project["id"]}
+        )
+    finally:
+        event.remove(database.engine, "before_cursor_execute", count_query)
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["agenda_count"] == 1
+    assert item["snapshot_count"] == 5
+    assert item["amendment_count"] == 5
+    for detail_key in (
+        "agenda_items",
+        "snapshots",
+        "amendments",
+        "meeting_decisions",
+        "meeting_actions",
+        "meeting_open_questions",
+    ):
+        assert detail_key not in item
+    assert len(statements) <= 4
