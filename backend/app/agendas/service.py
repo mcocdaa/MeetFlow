@@ -40,6 +40,12 @@ class AgendaService:
     def _require_mutable(meeting: Meeting) -> None:
         if meeting.status == MeetingStatus.completed:
             raise AppError(409, "meeting_completed", "已完成的会议不可修改")
+        if meeting.status not in {
+            MeetingStatus.draft,
+            MeetingStatus.ready,
+            MeetingStatus.in_progress,
+        }:
+            raise AppError(409, "meeting_immutable", "当前会议状态不可修改议程")
 
     def _users(self, user_ids: Iterable[str | None]) -> None:
         ids = list(dict.fromkeys(user_id for user_id in user_ids if user_id))
@@ -78,25 +84,61 @@ class AgendaService:
         self, meeting_id: str, expected_version: int, exc: Exception
     ) -> None:
         self.session.rollback()
-        actual = self.session.scalar(
-            select(Meeting.version).where(Meeting.id == meeting_id)
-        )
-        if actual is None:
+        row = self.session.execute(
+            select(Meeting.version, Meeting.status).where(Meeting.id == meeting_id)
+        ).one_or_none()
+        if row is None:
             raise AppError(404, "meeting_not_found", "会议不存在") from exc
+        actual, status = row
+        if status == MeetingStatus.completed:
+            raise AppError(409, "meeting_completed", "已完成的会议不可修改") from exc
+        if status not in {
+            MeetingStatus.draft,
+            MeetingStatus.ready,
+            MeetingStatus.in_progress,
+        }:
+            raise AppError(
+                409, "meeting_immutable", "当前会议状态不可修改议程"
+            ) from exc
         require_version(expected_version, actual)
         raise AppError(409, "version_conflict", "会议议程已更新，请刷新后重试") from exc
 
-    def _raise_item_stale(
-        self, item_id: str, expected_version: int, exc: Exception
+    def _raise_item_or_meeting_stale(
+        self,
+        *,
+        item_id: str,
+        expected_item_version: int,
+        meeting_id: str,
+        expected_meeting_version: int,
+        exc: Exception,
     ) -> None:
         self.session.rollback()
-        actual = self.session.scalar(
+        row = self.session.execute(
+            select(Meeting.version, Meeting.status).where(Meeting.id == meeting_id)
+        ).one_or_none()
+        if row is None:
+            raise AppError(404, "meeting_not_found", "会议不存在") from exc
+        actual_meeting_version, status = row
+        if status == MeetingStatus.completed:
+            raise AppError(409, "meeting_completed", "已完成的会议不可修改") from exc
+        if status not in {
+            MeetingStatus.draft,
+            MeetingStatus.ready,
+            MeetingStatus.in_progress,
+        }:
+            raise AppError(
+                409, "meeting_immutable", "当前会议状态不可修改议程"
+            ) from exc
+        require_version(expected_meeting_version, actual_meeting_version)
+        actual_item_version = self.session.scalar(
             select(AgendaItem.version).where(AgendaItem.id == item_id)
         )
-        if actual is None:
+        if actual_item_version is None:
             raise AppError(404, "agenda_item_not_found", "议题不存在") from exc
-        require_version(expected_version, actual)
-        raise AppError(409, "version_conflict", "议题已更新，请刷新后重试") from exc
+        require_version(expected_item_version, actual_item_version)
+        raise AppError(
+            409, "version_conflict", "议题或会议已更新，请刷新后重试"
+        ) from exc
 
     def create(
         self,
@@ -143,7 +185,10 @@ class AgendaService:
     def update(self, item_id: str, payload: AgendaEdit, actor: User) -> AgendaItem:
         self._require_active(actor)
         item = self.get(item_id)
-        self._require_mutable(item.meeting)
+        meeting = item.meeting
+        meeting_id = meeting.id
+        self._require_mutable(meeting)
+        expected_meeting_version = meeting.version
         require_version(payload.expected_version, item.version)
         changes = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
         if not changes or all(
@@ -155,10 +200,18 @@ class AgendaService:
             setattr(item, field, value)
         item.updated_by = actor.id
         item.version += 1
+        meeting.updated_by = actor.id
+        meeting.version += 1
         try:
             self.session.commit()
         except StaleDataError as exc:
-            self._raise_item_stale(item_id, payload.expected_version, exc)
+            self._raise_item_or_meeting_stale(
+                item_id=item_id,
+                expected_item_version=payload.expected_version,
+                meeting_id=meeting_id,
+                expected_meeting_version=expected_meeting_version,
+                exc=exc,
+            )
         self.session.refresh(item)
         return item
 
@@ -208,21 +261,32 @@ class AgendaService:
     ) -> AgendaItem:
         self._require_active(actor)
         item = self.get(item_id)
-        self._require_mutable(item.meeting)
+        meeting = item.meeting
+        self._require_mutable(meeting)
+        meeting_id = meeting.id
+        expected_meeting_version = meeting.version
         require_version(payload.expected_version, item.version)
         if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
             raise AppError(409, "invalid_agenda_transition", "议题状态不可再次结束")
         now = utcnow()
-        if item.started_at is None:
+        if target == AgendaStatus.completed and item.started_at is None:
             item.started_at = now
         item.status = target
         item.completed_at = now
         item.updated_by = actor.id
         item.version += 1
+        meeting.updated_by = actor.id
+        meeting.version += 1
         try:
             self.session.commit()
         except StaleDataError as exc:
-            self._raise_item_stale(item_id, payload.expected_version, exc)
+            self._raise_item_or_meeting_stale(
+                item_id=item_id,
+                expected_item_version=payload.expected_version,
+                meeting_id=meeting_id,
+                expected_meeting_version=expected_meeting_version,
+                exc=exc,
+            )
         self.session.refresh(item)
         return item
 
@@ -246,6 +310,7 @@ class AgendaService:
         self._require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
+        meeting_id = meeting.id
         self._require_mutable(meeting)
         require_version(payload.expected_version, item.version)
         require_version(expected_meeting_version, meeting.version)
@@ -267,7 +332,7 @@ class AgendaService:
         try:
             self.session.commit()
         except StaleDataError as exc:
-            self._raise_meeting_stale(meeting.id, expected_meeting_version, exc)
+            self._raise_meeting_stale(meeting_id, expected_meeting_version, exc)
 
     def serialize(self, item: AgendaItem) -> dict[str, Any]:
         return {

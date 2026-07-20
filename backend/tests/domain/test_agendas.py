@@ -252,14 +252,130 @@ def test_commands_set_status_timestamps_and_reject_invalid_transition(
         canceled = service.cancel(canceled.id, AgendaCommand(expected_version=1), admin)
         assert completed.status.value == "completed"
         assert completed.completed_at is not None
+        assert completed.started_at is not None
         assert skipped.status.value == "skipped"
         assert skipped.completed_at is not None
+        assert skipped.started_at is None
         assert canceled.status.value == "canceled"
         assert canceled.completed_at is not None
+        assert canceled.started_at is None
 
         with pytest.raises(AppError) as error:
             service.skip(completed.id, AgendaCommand(expected_version=2), admin)
         assert error.value.code == "invalid_agenda_transition"
+
+
+def test_complete_preserves_existing_started_at(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    started = datetime(2026, 7, 22, 9, 15, tzinfo=timezone.utc)
+    with client.app.state.database.session() as session:
+        service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(service, meeting, admin, "Already underway")
+        item.status = "in_progress"
+        item.started_at = started
+        session.commit()
+
+        completed = service.complete(
+            item.id, AgendaCommand(expected_version=item.version), admin
+        )
+        actual_started = completed.started_at
+        if actual_started.tzinfo is None:
+            actual_started = actual_started.replace(tzinfo=timezone.utc)
+        assert actual_started == started
+
+
+@pytest.mark.parametrize(
+    "operation", ["create", "update", "reorder", "transition", "delete"]
+)
+def test_canceled_meeting_rejects_every_agenda_write(client, agenda_context, operation):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(service, meeting, admin, "Frozen")
+        session.refresh(meeting)
+        meeting.status = "canceled"
+        session.commit()
+
+        with pytest.raises(AppError) as error:
+            if operation == "create":
+                service.create(
+                    meeting_id,
+                    AgendaWrite(title="New", agenda_type="discussion"),
+                    admin,
+                    expected_meeting_version=meeting.version,
+                )
+            elif operation == "update":
+                service.update(
+                    item.id,
+                    AgendaEdit(expected_version=item.version, title="Changed"),
+                    admin,
+                )
+            elif operation == "reorder":
+                service.reorder(
+                    meeting_id,
+                    AgendaReorder(
+                        ids=[item.id], expected_meeting_version=meeting.version
+                    ),
+                    admin,
+                )
+            elif operation == "transition":
+                service.complete(
+                    item.id, AgendaCommand(expected_version=item.version), admin
+                )
+            else:
+                service.delete(
+                    item.id,
+                    AgendaCommand(expected_version=item.version),
+                    admin,
+                    expected_meeting_version=meeting.version,
+                )
+        assert error.value.code == "meeting_immutable"
+
+
+@pytest.mark.parametrize("operation", ["edit", "transition"])
+def test_parent_lifecycle_race_rejects_stale_item_write(
+    client, agenda_context, operation
+):
+    admin, _, meeting_id = agenda_context
+    database = client.app.state.database
+    with database.session() as seed:
+        meeting = seed.get(Meeting, meeting_id)
+        item = add_item(AgendaService(seed), meeting, admin, "Original")
+        item_id = item.id
+
+    with database.session() as stale_session, database.session() as winner_session:
+        stale_service = AgendaService(stale_session)
+        stale_item = stale_service.get(item_id)
+        stale_item.meeting.version
+        winner = winner_session.get(Meeting, meeting_id)
+        winner.status = "completed"
+        winner.version += 1
+        winner.updated_by = admin.id
+        winner_session.commit()
+
+        with pytest.raises(AppError) as error:
+            if operation == "edit":
+                stale_service.update(
+                    item_id,
+                    AgendaEdit(expected_version=stale_item.version, title="Lost edit"),
+                    admin,
+                )
+            else:
+                stale_service.complete(
+                    item_id,
+                    AgendaCommand(expected_version=stale_item.version),
+                    admin,
+                )
+        assert error.value.code == "meeting_completed"
+        assert stale_session.scalar(select(Meeting.id).where(Meeting.id == meeting_id))
+
+    with database.session() as verify:
+        unchanged = verify.get(AgendaItem, item_id)
+        assert unchanged.title == "Original"
+        assert unchanged.status.value == "planned"
+        assert unchanged.version == 1
 
 
 def test_completed_meeting_is_immutable_and_empty_item_can_be_deleted(
