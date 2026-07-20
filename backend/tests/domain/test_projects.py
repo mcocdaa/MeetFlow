@@ -52,6 +52,47 @@ def project_payload(admin, member=None, **overrides):
     return ProjectWrite(**values)
 
 
+def test_project_write_trims_ordinary_strings_before_validation():
+    payload = ProjectWrite(
+        name="  MeetFlow  ",
+        slug="  meetflow  ",
+        summary="  Project workspace  ",
+        description_markdown="  # Keep markdown  \n",
+        status=" active ",
+        health=" on_track ",
+        lead_user_id="  user-1  ",
+        member_ids=["  user-1  ", " user-2 "],
+    )
+
+    assert payload.name == "MeetFlow"
+    assert payload.slug == "meetflow"
+    assert payload.summary == "Project workspace"
+    assert payload.description_markdown == "  # Keep markdown  \n"
+    assert payload.status.value == "active"
+    assert payload.health.value == "on_track"
+    assert payload.lead_user_id == "user-1"
+    assert payload.member_ids == ["user-1", "user-2"]
+
+
+def test_project_edit_trims_lead_before_lookup_and_persistence(client, users):
+    admin, member, _ = users
+    with client.app.state.database.session() as session:
+        service = ProjectService(session)
+        project = service.create(project_payload(admin), admin)
+        edited = service.update(
+            project.id,
+            ProjectEdit(
+                expected_version=1,
+                lead_user_id=f"  {member.id}  ",
+                description_markdown="  preserved edit markdown  \n",
+            ),
+            admin,
+        )
+
+        assert edited.lead_user_id == member.id
+        assert edited.description_markdown == "  preserved edit markdown  \n"
+
+
 def test_project_has_members_health_and_version(client, users):
     admin, member, _ = users
     with client.app.state.database.session() as session:

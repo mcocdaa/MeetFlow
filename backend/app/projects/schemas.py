@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -10,6 +11,10 @@ def _strip_nonblank(value: str) -> str:
     if not value:
         raise ValueError("value must not be blank")
     return value
+
+
+def _strip_if_string(value: Any) -> Any:
+    return value.strip() if isinstance(value, str) else value
 
 
 class ProjectWrite(BaseModel):
@@ -26,6 +31,26 @@ class ProjectWrite(BaseModel):
     lead_user_id: str | None = None
     target_date: date | None = None
     member_ids: list[str] = Field(default_factory=list, max_length=200)
+
+    @field_validator(
+        "name",
+        "slug",
+        "summary",
+        "status",
+        "health",
+        "lead_user_id",
+        mode="before",
+    )
+    @classmethod
+    def strip_ordinary_strings(cls, value: Any) -> Any:
+        return _strip_if_string(value)
+
+    @field_validator("member_ids", mode="before")
+    @classmethod
+    def strip_member_ids_before_validation(cls, values: Any) -> Any:
+        if isinstance(values, list):
+            return [_strip_if_string(value) for value in values]
+        return values
 
     @field_validator("name", "slug")
     @classmethod
@@ -65,6 +90,26 @@ class ProjectEdit(BaseModel):
     target_date: date | None = None
     member_ids: list[str] | None = Field(default=None, max_length=200)
 
+    @field_validator(
+        "name",
+        "slug",
+        "summary",
+        "status",
+        "health",
+        "lead_user_id",
+        mode="before",
+    )
+    @classmethod
+    def strip_ordinary_strings(cls, value: Any) -> Any:
+        return _strip_if_string(value)
+
+    @field_validator("member_ids", mode="before")
+    @classmethod
+    def strip_member_ids_before_validation(cls, values: Any) -> Any:
+        if isinstance(values, list):
+            return [_strip_if_string(value) for value in values]
+        return values
+
     @field_validator("name", "slug")
     @classmethod
     def normalize_required_strings(cls, value: str | None) -> str | None:
@@ -95,6 +140,11 @@ class ProjectUpdateWrite(BaseModel):
     health: ProjectHealth = ProjectHealth.unset
     content_markdown: str = Field(min_length=1, max_length=100_000)
     source: ProjectUpdateSource = ProjectUpdateSource.human
+
+    @field_validator("health", "source", mode="before")
+    @classmethod
+    def strip_ordinary_strings(cls, value: Any) -> Any:
+        return _strip_if_string(value)
 
     @field_validator("content_markdown")
     @classmethod
