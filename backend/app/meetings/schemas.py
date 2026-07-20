@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.enums import AgendaType, MeetingStatus, ParticipationRole, SeriesStatus
+from app.domain.enums import AgendaType, ParticipationRole, SeriesStatus
 
 
 def _strip(value: Any) -> Any:
@@ -17,7 +17,17 @@ def _required(value: str) -> str:
     return value
 
 
-class ParticipantWrite(BaseModel):
+class StrictInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("datetime must include a timezone offset")
+    return value.astimezone(timezone.utc)
+
+
+class ParticipantWrite(StrictInput):
     user_id: str = Field(min_length=1, max_length=64)
     participation_role: ParticipationRole = ParticipationRole.attendee
 
@@ -32,7 +42,7 @@ class ParticipantWrite(BaseModel):
         return _required(value)
 
 
-class StandingAgendaWrite(BaseModel):
+class StandingAgendaWrite(StrictInput):
     title: str = Field(min_length=1, max_length=240)
     agenda_type: AgendaType = AgendaType.discussion
     default_owner_user_id: str | None = Field(default=None, max_length=64)
@@ -54,7 +64,7 @@ class StandingAgendaWrite(BaseModel):
         return _required(value) if value is not None else None
 
 
-class MeetingSeriesWrite(BaseModel):
+class MeetingSeriesWrite(StrictInput):
     title: str = Field(min_length=1, max_length=240)
     purpose_markdown: str = Field(default="", max_length=100_000)
     recurrence_description: str = Field(default="", max_length=500)
@@ -63,7 +73,9 @@ class MeetingSeriesWrite(BaseModel):
     default_recorder_user_id: str | None = Field(default=None, max_length=64)
     status: SeriesStatus = SeriesStatus.active
     participants: list[ParticipantWrite] = Field(default_factory=list, max_length=200)
-    standing_items: list[StandingAgendaWrite] = Field(default_factory=list, max_length=200)
+    standing_items: list[StandingAgendaWrite] = Field(
+        default_factory=list, max_length=200
+    )
 
     @field_validator(
         "title",
@@ -93,7 +105,7 @@ class MeetingSeriesWrite(BaseModel):
         return _required(value) if value is not None else None
 
 
-class MeetingSeriesEdit(BaseModel):
+class MeetingSeriesEdit(StrictInput):
     expected_version: int = Field(ge=0)
     title: str | None = Field(default=None, min_length=1, max_length=240)
     purpose_markdown: str | None = Field(default=None, max_length=100_000)
@@ -103,7 +115,9 @@ class MeetingSeriesEdit(BaseModel):
     default_recorder_user_id: str | None = Field(default=None, max_length=64)
     status: SeriesStatus | None = None
     participants: list[ParticipantWrite] | None = Field(default=None, max_length=200)
-    standing_items: list[StandingAgendaWrite] | None = Field(default=None, max_length=200)
+    standing_items: list[StandingAgendaWrite] | None = Field(
+        default=None, max_length=200
+    )
 
     @field_validator(
         "title",
@@ -141,9 +155,14 @@ class MeetingSeriesEdit(BaseModel):
         return self
 
 
-class _TimeWindow(BaseModel):
+class _TimeWindow(StrictInput):
     scheduled_start: datetime
     scheduled_end: datetime
+
+    @field_validator("scheduled_start", "scheduled_end")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        return _aware(value)
 
     @model_validator(mode="after")
     def end_after_start(self):
@@ -169,14 +188,13 @@ class OccurrenceWrite(_TimeWindow):
 class MeetingWrite(_TimeWindow):
     title: str = Field(min_length=1, max_length=240)
     purpose_markdown: str = Field(default="", max_length=100_000)
-    status: MeetingStatus = MeetingStatus.draft
     host_user_id: str | None = Field(default=None, max_length=64)
     recorder_user_id: str | None = Field(default=None, max_length=64)
     summary_markdown: str = Field(default="", max_length=100_000)
     raw_notes_markdown: str = Field(default="", max_length=200_000)
     participants: list[ParticipantWrite] = Field(default_factory=list, max_length=200)
 
-    @field_validator("title", "status", "host_user_id", "recorder_user_id", mode="before")
+    @field_validator("title", "host_user_id", "recorder_user_id", mode="before")
     @classmethod
     def normalize(cls, value: Any) -> Any:
         return _strip(value)
@@ -192,20 +210,19 @@ class MeetingWrite(_TimeWindow):
         return _required(value) if value is not None else None
 
 
-class MeetingEdit(BaseModel):
+class MeetingEdit(StrictInput):
     expected_version: int = Field(ge=0)
     title: str | None = Field(default=None, min_length=1, max_length=240)
     purpose_markdown: str | None = Field(default=None, max_length=100_000)
     scheduled_start: datetime | None = None
     scheduled_end: datetime | None = None
-    status: MeetingStatus | None = None
     host_user_id: str | None = Field(default=None, max_length=64)
     recorder_user_id: str | None = Field(default=None, max_length=64)
     summary_markdown: str | None = Field(default=None, max_length=100_000)
     raw_notes_markdown: str | None = Field(default=None, max_length=200_000)
     participants: list[ParticipantWrite] | None = Field(default=None, max_length=200)
 
-    @field_validator("title", "status", "host_user_id", "recorder_user_id", mode="before")
+    @field_validator("title", "host_user_id", "recorder_user_id", mode="before")
     @classmethod
     def normalize(cls, value: Any) -> Any:
         return _strip(value)
@@ -219,6 +236,11 @@ class MeetingEdit(BaseModel):
     @classmethod
     def require_user_if_present(cls, value: str | None) -> str | None:
         return _required(value) if value is not None else None
+
+    @field_validator("scheduled_start", "scheduled_end")
+    @classmethod
+    def require_timezone(cls, value: datetime | None) -> datetime | None:
+        return _aware(value) if value is not None else None
 
     @model_validator(mode="after")
     def reject_invalid_values(self):

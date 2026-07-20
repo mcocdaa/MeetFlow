@@ -2,11 +2,17 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.auth.models import User, UserRole, UserStatus
 from app.errors import AppError
-from app.meetings.models import Meeting, MeetingSeries
+from app.meetings.models import (
+    ActionItem,
+    Attachment,
+    Meeting,
+    MeetingSeries,
+    MeetingUpdate,
+)
 from app.meetings.schemas import (
     MeetingEdit,
     MeetingSeriesEdit,
@@ -17,7 +23,6 @@ from app.meetings.schemas import (
 from app.meetings.service import MeetingService
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
-
 
 START = datetime(2026, 7, 21, 9, tzinfo=timezone.utc)
 
@@ -121,7 +126,10 @@ def test_occurrence_copies_current_series_defaults_and_participants(
         assert occurrence.host_user_id == admin.id
         assert occurrence.recorder_user_id == recorder.id
         # First appearance wins, including role and position.
-        assert [(row.user_id, row.participation_role.value) for row in occurrence.participants] == [
+        assert [
+            (row.user_id, row.participation_role.value)
+            for row in occurrence.participants
+        ] == [
             (member.id, "attendee"),
             (admin.id, "host"),
         ]
@@ -202,9 +210,7 @@ def test_standalone_meeting_has_no_series(client, project, meeting_users):
                 purpose_markdown="Incident notes",
                 scheduled_start=START,
                 scheduled_end=START + timedelta(minutes=30),
-                participants=[
-                    {"user_id": member.id, "participation_role": "attendee"}
-                ],
+                participants=[{"user_id": member.id, "participation_role": "attendee"}],
             ),
             admin,
         )
@@ -217,7 +223,9 @@ def test_referenced_projects_and_users_are_validated(client, project, meeting_us
     with client.app.state.database.session() as session:
         service = MeetingService(session)
         with pytest.raises(AppError) as error:
-            service.create_series("missing", series_payload(admin, member, recorder), admin)
+            service.create_series(
+                "missing", series_payload(admin, member, recorder), admin
+            )
         assert error.value.code == "project_not_found"
 
         with pytest.raises(AppError) as error:
@@ -251,6 +259,203 @@ def test_schemas_trim_ordinary_text_preserve_markdown_and_validate_time():
             scheduled_start=START,
             scheduled_end=START,
         )
+
+
+def test_meeting_inputs_require_timezone_and_lifecycle_status_is_command_only():
+    with pytest.raises(ValidationError):
+        MeetingWrite(
+            title="Naive start",
+            scheduled_start=START.replace(tzinfo=None),
+            scheduled_end=START + timedelta(minutes=30),
+        )
+    with pytest.raises(ValidationError):
+        MeetingWrite(
+            title="Lifecycle bypass",
+            scheduled_start=START,
+            scheduled_end=START + timedelta(minutes=30),
+            status="completed",
+        )
+    with pytest.raises(ValidationError):
+        MeetingEdit(expected_version=1, status="completed")
+
+    offset_payload = MeetingWrite(
+        title="UTC normalization",
+        scheduled_start=datetime(2026, 7, 21, 9, tzinfo=timezone(timedelta(hours=8))),
+        scheduled_end=datetime(2026, 7, 21, 10, tzinfo=timezone(timedelta(hours=8))),
+    )
+    assert offset_payload.scheduled_start == datetime(
+        2026, 7, 21, 1, tzinfo=timezone.utc
+    )
+
+
+def test_one_sided_time_edit_handles_sqlite_naive_values(
+    client, project, meeting_users
+):
+    admin, _, _ = meeting_users
+    database = client.app.state.database
+    with database.session() as session:
+        meeting = MeetingService(session).create_meeting(
+            project.id,
+            MeetingWrite(
+                title="Timezone edit",
+                scheduled_start=START,
+                scheduled_end=START + timedelta(minutes=30),
+            ),
+            admin,
+        )
+        meeting_id = meeting.id
+
+    with database.session() as session:
+        loaded = session.get(Meeting, meeting_id)
+        assert loaded.scheduled_start.tzinfo is None  # SQLite storage behavior.
+        edited = MeetingService(session).update_meeting(
+            meeting_id,
+            MeetingEdit(
+                expected_version=1,
+                scheduled_end=START + timedelta(minutes=45),
+            ),
+            admin,
+        )
+        assert edited.version == 2
+
+
+def test_new_meeting_is_always_draft(client, project, meeting_users):
+    admin, _, _ = meeting_users
+    with client.app.state.database.session() as session:
+        meeting = MeetingService(session).create_meeting(
+            project.id,
+            MeetingWrite(
+                title="Draft only",
+                scheduled_start=START,
+                scheduled_end=START + timedelta(minutes=30),
+            ),
+            admin,
+        )
+        assert meeting.status.value == "draft"
+
+
+def test_upload_works_for_new_meeting_and_package_contains_attachment(
+    authenticated_client, project, meeting_users
+):
+    admin, _, _ = meeting_users
+    with authenticated_client.app.state.database.session() as session:
+        meeting = MeetingService(session).create_meeting(
+            project.id,
+            MeetingWrite(
+                title="Attachment integration",
+                scheduled_start=START,
+                scheduled_end=START + timedelta(minutes=30),
+            ),
+            admin,
+        )
+        meeting_id = meeting.id
+
+    uploaded = authenticated_client.post(
+        f"/api/meetings/{meeting_id}/attachments",
+        files={"file": ("board.png", b"\x89PNG\r\n\x1a\nimage", "image/png")},
+    )
+    assert uploaded.status_code == 201
+    assert uploaded.json()["created_by"]["id"] == admin.id
+
+    with authenticated_client.app.state.database.session() as session:
+        package = MeetingService(session).package(meeting_id)
+        assert [item["id"] for item in package["attachments"]] == [
+            uploaded.json()["id"]
+        ]
+
+
+def test_package_and_plugin_context_include_transitional_rows(
+    client, project, meeting_users
+):
+    admin, _, _ = meeting_users
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        meeting = service.create_meeting(
+            project.id,
+            MeetingWrite(
+                title="Plugin context",
+                scheduled_start=START,
+                scheduled_end=START + timedelta(minutes=30),
+            ),
+            admin,
+        )
+        session.add_all(
+            [
+                ActionItem(
+                    meeting_id=meeting.id,
+                    content="Follow up",
+                    created_by=admin.id,
+                ),
+                MeetingUpdate(
+                    meeting_id=meeting.id,
+                    content_markdown="Update",
+                    created_by=admin.id,
+                ),
+                Attachment(
+                    meeting_id=meeting.id,
+                    original_name="notes.txt",
+                    stored_name="stored-notes.txt",
+                    mime_type="application/octet-stream",
+                    size=5,
+                    attachment_type="file",
+                    created_by=admin.id,
+                ),
+            ]
+        )
+        session.commit()
+
+        package = service.package(meeting.id)
+        context = service.plugin_context(meeting.id, admin)
+
+        assert package["actions"][0]["content"] == "Follow up"
+        assert package["updates"][0]["content_markdown"] == "Update"
+        assert package["attachments"][0]["original_name"] == "notes.txt"
+        assert context["attachments"] == package["attachments"]
+        assert context["project"] == project.name
+
+
+def test_detail_serialization_has_bounded_relationship_queries(
+    client, project, meeting_users
+):
+    admin, member, recorder = meeting_users
+    database = client.app.state.database
+    with database.session() as seed:
+        service = MeetingService(seed)
+        series = service.create_series(
+            project.id, series_payload(admin, member, recorder), admin
+        )
+        meeting = service.create_occurrence(
+            series.id,
+            OccurrenceWrite(
+                title="Bounded detail",
+                scheduled_start=START,
+                scheduled_end=START + timedelta(minutes=45),
+            ),
+            admin,
+        )
+        series_id, meeting_id = series.id, meeting.id
+
+    with database.session() as session:
+        statements = []
+
+        def count_query(_conn, _cursor, statement, _params, _context, _many):
+            statements.append(statement)
+
+        event.listen(database.engine, "before_cursor_execute", count_query)
+        try:
+            series_body = MeetingService(session).series_detail(series_id)
+            series_queries = len(statements)
+            statements.clear()
+            meeting_body = MeetingService(session).meeting_detail(meeting_id)
+            meeting_queries = len(statements)
+        finally:
+            event.remove(database.engine, "before_cursor_execute", count_query)
+
+        assert len(series_body["participants"]) == 2
+        assert len(series_body["standing_items"]) == 2
+        assert len(meeting_body["participants"]) == 2
+        assert series_queries <= 3
+        assert meeting_queries <= 2
 
 
 def test_series_atomic_two_session_conflict(client, project, meeting_users):

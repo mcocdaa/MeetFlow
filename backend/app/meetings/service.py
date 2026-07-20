@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from sqlalchemy import select
@@ -50,6 +51,39 @@ def dedupe_participants(values: Iterable[ParticipantWrite]) -> list[ParticipantW
             seen.add(value.user_id)
             result.append(value)
     return result
+
+
+def as_utc(value: datetime) -> datetime:
+    """Normalize SQLite's naive round-trip as UTC and convert aware values to UTC."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def series_relationship_options():
+    return (
+        joinedload(MeetingSeries.project),
+        joinedload(MeetingSeries.default_host),
+        joinedload(MeetingSeries.default_recorder),
+        joinedload(MeetingSeries.creator),
+        joinedload(MeetingSeries.updater),
+        selectinload(MeetingSeries.participants).joinedload(SeriesParticipant.user),
+        selectinload(MeetingSeries.standing_items).joinedload(
+            StandingAgendaItem.default_owner
+        ),
+    )
+
+
+def meeting_relationship_options():
+    return (
+        joinedload(Meeting.project),
+        joinedload(Meeting.series),
+        joinedload(Meeting.host),
+        joinedload(Meeting.recorder),
+        joinedload(Meeting.creator),
+        joinedload(Meeting.updater),
+        selectinload(Meeting.participants).joinedload(MeetingParticipant.user),
+    )
 
 
 class MeetingService:
@@ -112,7 +146,9 @@ class MeetingService:
         ]
 
     @staticmethod
-    def _meeting_participants(values: list[ParticipantWrite]) -> list[MeetingParticipant]:
+    def _meeting_participants(
+        values: list[ParticipantWrite],
+    ) -> list[MeetingParticipant]:
         return [
             MeetingParticipant(
                 user_id=value.user_id,
@@ -170,9 +206,13 @@ class MeetingService:
         self.session.refresh(series)
         return series
 
-    def _raise_series_stale(self, series_id: str, expected_version: int, exc: Exception):
+    def _raise_series_stale(
+        self, series_id: str, expected_version: int, exc: Exception
+    ):
         self.session.rollback()
-        actual = self.session.scalar(select(MeetingSeries.version).where(MeetingSeries.id == series_id))
+        actual = self.session.scalar(
+            select(MeetingSeries.version).where(MeetingSeries.id == series_id)
+        )
         if actual is None:
             raise AppError(404, "meeting_series_not_found", "会议系列不存在") from exc
         require_version(expected_version, actual)
@@ -188,13 +228,19 @@ class MeetingService:
             exclude={"expected_version", "participants", "standing_items"},
             exclude_unset=True,
         )
-        if not changes and payload.participants is None and payload.standing_items is None:
+        if (
+            not changes
+            and payload.participants is None
+            and payload.standing_items is None
+        ):
             return series
 
         participants = payload.participants
         if participants is None:
             participants = [
-                ParticipantWrite(user_id=row.user_id, participation_role=row.participation_role)
+                ParticipantWrite(
+                    user_id=row.user_id, participation_role=row.participation_role
+                )
                 for row in series.participants
             ]
         participants = dedupe_participants(participants)
@@ -211,7 +257,9 @@ class MeetingService:
             ]
         self._validate_series_references(
             host_id=changes.get("default_host_user_id", series.default_host_user_id),
-            recorder_id=changes.get("default_recorder_user_id", series.default_recorder_user_id),
+            recorder_id=changes.get(
+                "default_recorder_user_id", series.default_recorder_user_id
+            ),
             participants=participants,
             standing_items=standing_items,
         )
@@ -236,7 +284,9 @@ class MeetingService:
         self._require_active(actor)
         series = self.get_series(series_id)
         participants = [
-            ParticipantWrite(user_id=row.user_id, participation_role=row.participation_role)
+            ParticipantWrite(
+                user_id=row.user_id, participation_role=row.participation_role
+            )
             for row in series.participants
         ]
         meeting = Meeting(
@@ -283,9 +333,13 @@ class MeetingService:
         self.session.refresh(meeting)
         return meeting
 
-    def _raise_meeting_stale(self, meeting_id: str, expected_version: int, exc: Exception):
+    def _raise_meeting_stale(
+        self, meeting_id: str, expected_version: int, exc: Exception
+    ):
         self.session.rollback()
-        actual = self.session.scalar(select(Meeting.version).where(Meeting.id == meeting_id))
+        actual = self.session.scalar(
+            select(Meeting.version).where(Meeting.id == meeting_id)
+        )
         if actual is None:
             raise AppError(404, "meeting_not_found", "会议不存在") from exc
         require_version(expected_version, actual)
@@ -302,14 +356,16 @@ class MeetingService:
         )
         if not changes and payload.participants is None:
             return meeting
-        start = changes.get("scheduled_start", meeting.scheduled_start)
-        end = changes.get("scheduled_end", meeting.scheduled_end)
+        start = as_utc(changes.get("scheduled_start", meeting.scheduled_start))
+        end = as_utc(changes.get("scheduled_end", meeting.scheduled_end))
         if end <= start:
             raise AppError(422, "invalid_meeting_time", "会议结束时间必须晚于开始时间")
         participants = payload.participants
         if participants is None:
             participants = [
-                ParticipantWrite(user_id=row.user_id, participation_role=row.participation_role)
+                ParticipantWrite(
+                    user_id=row.user_id, participation_role=row.participation_role
+                )
                 for row in meeting.participants
             ]
         participants = dedupe_participants(participants)
@@ -381,8 +437,8 @@ class MeetingService:
             ),
             "title": meeting.title,
             "purpose_markdown": meeting.purpose_markdown,
-            "scheduled_start": meeting.scheduled_start,
-            "scheduled_end": meeting.scheduled_end,
+            "scheduled_start": as_utc(meeting.scheduled_start),
+            "scheduled_end": as_utc(meeting.scheduled_end),
             "status": meeting.status,
             "host": user_ref(meeting.host),
             "recorder": user_ref(meeting.recorder),
@@ -412,15 +468,11 @@ class MeetingService:
             select(MeetingSeries)
             .where(MeetingSeries.project_id == project_id)
             .options(
-                joinedload(MeetingSeries.project),
-                joinedload(MeetingSeries.default_host),
-                joinedload(MeetingSeries.default_recorder),
-                joinedload(MeetingSeries.creator),
-                joinedload(MeetingSeries.updater),
-                selectinload(MeetingSeries.participants).joinedload(SeriesParticipant.user),
-                selectinload(MeetingSeries.standing_items).joinedload(StandingAgendaItem.default_owner),
+                *series_relationship_options(),
             )
-            .order_by(MeetingSeries.updated_at.desc(), MeetingSeries.title, MeetingSeries.id)
+            .order_by(
+                MeetingSeries.updated_at.desc(), MeetingSeries.title, MeetingSeries.id
+            )
         )
         return [self.serialize_series(item) for item in self.session.scalars(statement)]
 
@@ -430,34 +482,108 @@ class MeetingService:
             select(Meeting)
             .where(Meeting.project_id == project_id)
             .options(
-                joinedload(Meeting.project),
-                joinedload(Meeting.series),
-                joinedload(Meeting.host),
-                joinedload(Meeting.recorder),
-                joinedload(Meeting.creator),
-                joinedload(Meeting.updater),
-                selectinload(Meeting.participants).joinedload(MeetingParticipant.user),
+                *meeting_relationship_options(),
             )
             .order_by(Meeting.scheduled_start.desc(), Meeting.id)
         )
-        return [self.serialize_meeting(item) for item in self.session.scalars(statement)]
+        return [
+            self.serialize_meeting(item) for item in self.session.scalars(statement)
+        ]
 
     def series_detail(self, series_id: str) -> dict[str, Any]:
-        return self.serialize_series(self.get_series(series_id))
+        series = self.session.scalar(
+            select(MeetingSeries)
+            .where(MeetingSeries.id == series_id)
+            .options(*series_relationship_options())
+        )
+        if series is None:
+            raise AppError(404, "meeting_series_not_found", "会议系列不存在")
+        return self.serialize_series(series)
 
     def meeting_detail(self, meeting_id: str) -> dict[str, Any]:
-        return self.serialize_meeting(self.get_meeting(meeting_id))
+        meeting = self.session.scalar(
+            select(Meeting)
+            .where(Meeting.id == meeting_id)
+            .options(*meeting_relationship_options())
+        )
+        if meeting is None:
+            raise AppError(404, "meeting_not_found", "会议不存在")
+        return self.serialize_meeting(meeting)
 
-    # Transitional package shape keeps installed plugins/attachments import-safe.
+    def _actor(self, user_id: str) -> dict[str, str]:
+        user = self.session.get(User, user_id)
+        if user is None:
+            raise AppError(500, "actor_not_found", "记录创建者不存在")
+        return user_ref(user)
+
+    def serialize_attachment(self, item: Attachment) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "meeting_id": item.meeting_id,
+            "original_name": item.original_name,
+            "mime_type": item.mime_type,
+            "size": item.size,
+            "attachment_type": item.attachment_type,
+            "created_by": self._actor(item.created_by),
+            "created_at": item.created_at,
+            "download_url": f"/api/meetings/{item.meeting_id}/attachments/{item.id}",
+        }
+
+    def serialize_action(self, item: ActionItem) -> dict[str, Any]:
+        meeting = self.get_meeting(item.meeting_id)
+        return {
+            "id": item.id,
+            "meeting_id": item.meeting_id,
+            "meeting_title": meeting.title,
+            "content": item.content,
+            "owner": item.owner,
+            "due_date": item.due_date,
+            "status": item.status,
+            "created_by": self._actor(item.created_by),
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        }
+
+    def serialize_update(self, item: MeetingUpdate) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "meeting_id": item.meeting_id,
+            "content_markdown": item.content_markdown,
+            "created_by": self._actor(item.created_by),
+            "created_at": item.created_at,
+        }
+
     def package(self, meeting_id: str) -> dict[str, Any]:
-        meeting = self.get_meeting(meeting_id)
-        result = self.serialize_meeting(meeting)
-        result["actions"] = []
-        result["updates"] = []
-        result["attachments"] = []
+        result = self.meeting_detail(meeting_id)
+        actions = self.session.scalars(
+            select(ActionItem)
+            .where(ActionItem.meeting_id == meeting_id)
+            .order_by(ActionItem.created_at, ActionItem.id)
+        )
+        updates = self.session.scalars(
+            select(MeetingUpdate)
+            .where(MeetingUpdate.meeting_id == meeting_id)
+            .order_by(MeetingUpdate.created_at.desc(), MeetingUpdate.id.desc())
+        )
+        attachments = self.session.scalars(
+            select(Attachment)
+            .where(Attachment.meeting_id == meeting_id)
+            .order_by(Attachment.created_at.desc(), Attachment.id.desc())
+        )
+        result["actions"] = [self.serialize_action(item) for item in actions]
+        result["updates"] = [self.serialize_update(item) for item in updates]
+        result["attachments"] = [
+            self.serialize_attachment(item) for item in attachments
+        ]
         return result
 
     def plugin_context(self, meeting_id: str, user: User) -> dict[str, Any]:
-        result = self.package(meeting_id)
-        result["current_user"] = user_ref(user)
-        return result
+        package = self.package(meeting_id)
+        return {
+            **package,
+            "project": package["project"]["name"],
+            "meeting_date": package["scheduled_start"],
+            "participants": [item["user"] for item in package["participants"]],
+            "conclusions_markdown": package["summary_markdown"],
+            "current_user": user_ref(user),
+        }
