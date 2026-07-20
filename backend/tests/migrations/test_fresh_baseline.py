@@ -33,6 +33,19 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         )
 
 
+def test_fresh_database_with_percent_in_path_upgrades_to_head(tmp_path):
+    database = Database(f"sqlite:///{tmp_path / 'fresh%database.db'}")
+
+    database.migrate()
+
+    tables = set(inspect(database.engine).get_table_names())
+    assert tables == APPLICATION_TABLES | {"alembic_version"}
+    with database.engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0001"
+        )
+
+
 def test_v01_database_is_rejected_without_deletion(tmp_path):
     path = tmp_path / "legacy.db"
     with sqlite3.connect(path) as connection:

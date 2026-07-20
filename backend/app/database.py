@@ -76,7 +76,9 @@ class Database:
         config = Config(migration_config_path())
         config.set_main_option(
             "sqlalchemy.url",
-            self.engine.url.render_as_string(hide_password=False),
+            self.engine.url.render_as_string(hide_password=False).replace(
+                "%", "%%"
+            ),
         )
         command.upgrade(config, "head")
 
