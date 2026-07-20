@@ -9,13 +9,14 @@ from app.agendas.models import AgendaItem
 from app.agendas.schemas import AgendaWrite
 from app.agendas.service import AgendaService
 from app.auth.models import User
-from app.domain.enums import AgendaStatus, MeetingStatus
+from app.domain.enums import AgendaStatus, MeetingStatus, ParticipationRole
 from app.errors import AppError
 from app.meetings.models import Meeting, MeetingAmendment, MeetingSnapshot
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
     MeetingEdit,
+    SnapshotParticipant,
     MeetingWrite,
 )
 from app.meetings.service import MeetingService
@@ -66,6 +67,20 @@ def test_lifecycle_schemas_are_strict_and_require_safe_versions():
     )
     assert amendment.reason == "typo"
     assert amendment.content_markdown == "  exact markdown\n"
+
+    with pytest.raises(ValidationError):
+        SnapshotParticipant(
+            user_id="user-1",
+            participation_role=ParticipationRole.attendee,
+            position=0,
+            unknown="not part of the signed document",
+        )
+    with pytest.raises(ValidationError):
+        SnapshotParticipant(
+            user_id=123,
+            participation_role=ParticipationRole.attendee,
+            position=0,
+        )
 
 
 def test_transitions_are_versioned_and_invalid_transition_is_explicit(
@@ -301,6 +316,18 @@ def test_lifecycle_routes_require_authentication(client, lifecycle_context):
         == 401
     )
     assert client.get(f"/api/meetings/{meeting_id}/snapshots").status_code == 401
+    assert (
+        client.post(
+            f"/api/meetings/{meeting_id}/reopen", json={"expected_version": 1}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/api/meetings/{meeting_id}/cancel", json={"expected_version": 1}
+        ).status_code
+        == 401
+    )
 
 
 def test_lifecycle_routes_return_records_and_status_codes(client, lifecycle_context):
@@ -336,6 +363,17 @@ def test_lifecycle_routes_return_records_and_status_codes(client, lifecycle_cont
         },
     )
     assert amended.status_code == 201
+    reopened = client.post(
+        f"/api/meetings/{meeting_id}/reopen", json={"expected_version": 5}
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "in_progress"
+    canceled = client.post(
+        f"/api/meetings/{meeting_id}/cancel", json={"expected_version": 6}
+    )
+    assert canceled.status_code == 200
+    assert canceled.json()["status"] == "canceled"
+    assert canceled.json()["completed_at"] is None
 
 
 def test_simultaneous_finish_creates_one_snapshot(client, lifecycle_context):
@@ -407,3 +445,72 @@ def test_finish_loses_atomically_to_concurrent_agenda_write(client, lifecycle_co
         assert verify.scalar(select(func.count(MeetingSnapshot.id))) == 0
         assert verify.get(Meeting, meeting_id).status == MeetingStatus.in_progress
         assert verify.scalar(select(func.count(AgendaItem.id))) == 1
+
+
+@pytest.mark.parametrize("winner", ["finish", "cancel"])
+def test_finish_and_cancel_race_has_one_trustworthy_winner(
+    client, lifecycle_context, winner
+):
+    admin_id, _, meeting_id = lifecycle_context
+    database = client.app.state.database
+    with database.session() as seed:
+        meeting = MeetingService(seed).start(
+            meeting_id, LifecycleCommand(expected_version=1), seed.get(User, admin_id)
+        )
+        expected = meeting.version
+
+    with database.session() as first, database.session() as second:
+        first_service = MeetingService(first)
+        second_service = MeetingService(second)
+        first_actor = first.get(User, admin_id)
+        second_actor = second.get(User, admin_id)
+        first_service._meeting_for_snapshot(meeting_id)
+        second_service._meeting_for_snapshot(meeting_id)
+
+        if winner == "finish":
+            won = first_service.finish(
+                meeting_id, LifecycleCommand(expected_version=expected), first_actor
+            )
+            assert won.status == MeetingStatus.completed
+
+            def losing_call():
+                return second_service.cancel(
+                    meeting_id,
+                    LifecycleCommand(expected_version=expected),
+                    second_actor,
+                )
+
+            expected_status = MeetingStatus.completed
+            expected_snapshots = 1
+        else:
+            won = first_service.cancel(
+                meeting_id, LifecycleCommand(expected_version=expected), first_actor
+            )
+            assert won.status == MeetingStatus.canceled
+
+            def losing_call():
+                return second_service.finish(
+                    meeting_id,
+                    LifecycleCommand(expected_version=expected),
+                    second_actor,
+                )
+
+            expected_status = MeetingStatus.canceled
+            expected_snapshots = 0
+
+        with pytest.raises(AppError) as conflict:
+            losing_call()
+        assert conflict.value.code == "version_conflict"
+        assert conflict.value.details == {
+            "expected_version": expected,
+            "actual_version": expected + 1,
+        }
+        assert second.scalar(select(Meeting.id).where(Meeting.id == meeting_id))
+
+    with database.session() as verify:
+        final = verify.get(Meeting, meeting_id)
+        assert final.status == expected_status
+        assert (
+            verify.scalar(select(func.count(MeetingSnapshot.id))) == expected_snapshots
+        )
+        assert bool(final.current_snapshot_id) is bool(expected_snapshots)

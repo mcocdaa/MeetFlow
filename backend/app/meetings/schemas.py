@@ -59,20 +59,24 @@ class AmendmentWrite(StrictInput):
         return value
 
 
-class SnapshotParticipant(BaseModel):
+class StrictSnapshotModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class SnapshotParticipant(StrictSnapshotModel):
     user_id: str
     participation_role: ParticipationRole
     position: int
 
 
-class SnapshotReviewer(BaseModel):
+class SnapshotReviewer(StrictSnapshotModel):
     user_id: str
     status: DecisionReviewerStatus
     responded_at: datetime | None
     comment: str | None
 
 
-class SnapshotDecision(BaseModel):
+class SnapshotDecision(StrictSnapshotModel):
     id: str
     project_id: str
     meeting_id: str | None
@@ -90,7 +94,7 @@ class SnapshotDecision(BaseModel):
     reviewers: list[SnapshotReviewer]
 
 
-class SnapshotAction(BaseModel):
+class SnapshotAction(StrictSnapshotModel):
     id: str
     project_id: str
     meeting_id: str | None
@@ -107,7 +111,7 @@ class SnapshotAction(BaseModel):
     completed_at: datetime | None
 
 
-class SnapshotQuestion(BaseModel):
+class SnapshotQuestion(StrictSnapshotModel):
     id: str
     project_id: str
     meeting_id: str | None
@@ -124,7 +128,7 @@ class SnapshotQuestion(BaseModel):
     updated_at: datetime
 
 
-class SnapshotAgendaItem(BaseModel):
+class SnapshotAgendaItem(StrictSnapshotModel):
     id: str
     meeting_id: str
     title: str
@@ -149,7 +153,7 @@ class SnapshotAgendaItem(BaseModel):
     open_questions: list[SnapshotQuestion]
 
 
-class SnapshotAmendment(BaseModel):
+class SnapshotAmendment(StrictSnapshotModel):
     id: str
     reason: str
     content_markdown: str
@@ -157,7 +161,7 @@ class SnapshotAmendment(BaseModel):
     created_at: datetime
 
 
-class SnapshotMeeting(BaseModel):
+class SnapshotMeeting(StrictSnapshotModel):
     id: str
     project_id: str
     series_id: str | None
@@ -179,7 +183,7 @@ class SnapshotMeeting(BaseModel):
     participants: list[SnapshotParticipant]
 
 
-class MeetingSnapshotDocument(BaseModel):
+class MeetingSnapshotDocument(StrictSnapshotModel):
     schema_version: int = 1
     meeting: SnapshotMeeting
     agenda_items: list[SnapshotAgendaItem]
