@@ -4,9 +4,15 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app import models  # noqa: F401 - registers all mapped models
+from app.config import Settings
 from app.database import Base
 
 config = context.config
+
+if config.get_main_option("sqlalchemy.url") is None:
+    config.set_main_option(
+        "sqlalchemy.url", Settings().database_url.replace("%", "%%")
+    )
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)

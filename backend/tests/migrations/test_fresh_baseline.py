@@ -1,5 +1,8 @@
 import os
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from sqlalchemy import inspect, text
@@ -18,6 +21,37 @@ APPLICATION_TABLES = {
     "plugin_states",
     "users",
 }
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_alembic_cli_upgrades_fresh_database_to_head(tmp_path):
+    database_path = tmp_path / "cli-fresh.db"
+    environment = os.environ.copy()
+    environment["DATABASE_URL"] = f"sqlite:///{database_path}"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "backend/alembic.ini",
+            "upgrade",
+            "head",
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0001",)
 
 
 def test_fresh_database_upgrades_to_head(tmp_path):
