@@ -11,7 +11,13 @@ from app.meetings.models import (
     SeriesParticipant,
     StandingAgendaItem,
 )
-from app.outcomes.models import ActionItem, Decision, DecisionReviewer, OpenQuestion
+from app.outcomes.models import (
+    ActionItem,
+    Decision,
+    DecisionReviewer,
+    OpenQuestion,
+    OutcomeMigrationRecord,
+)
 from app.plugins.models import PluginConfig, PluginState
 from app.projects.models import Project, ProjectMember, ProjectUpdate
 
@@ -28,6 +34,7 @@ __all__ = [
     "MeetingSnapshot",
     "MeetingUpdate",
     "OpenQuestion",
+    "OutcomeMigrationRecord",
     "PluginConfig",
     "PluginState",
     "Project",

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, func, select
 
 from app.agendas.models import AgendaItem
 from app.agendas.schemas import AgendaCommand, AgendaWrite
@@ -12,7 +12,13 @@ from app.errors import AppError
 from app.meetings.models import Meeting
 from app.meetings.schemas import MeetingWrite
 from app.meetings.service import MeetingService
-from app.outcomes.models import ActionItem, Decision, OpenQuestion
+from app.outcomes.models import (
+    ActionItem,
+    Decision,
+    DecisionReviewer,
+    OpenQuestion,
+    OutcomeMigrationRecord,
+)
 from app.outcomes.schemas import (
     ActionEdit,
     ActionWrite,
@@ -20,10 +26,12 @@ from app.outcomes.schemas import (
     AgendaConvertWrite,
     AgendaOutcomeMigrationWrite,
     DecisionFinalizeWrite,
+    DecisionEdit,
     DecisionReviewWrite,
     DecisionSupersedeWrite,
     DecisionWrite,
     QuestionResolveWrite,
+    QuestionEdit,
     QuestionScheduleWrite,
     QuestionWrite,
 )
@@ -158,6 +166,44 @@ def test_source_chain_and_reviewer_response_are_traceable(client, outcome_contex
         assert finalized.reviewers[0].status.value == "approved"
 
 
+def test_decision_edit_finalize_pending_and_withdraw_preserve_history(
+    client, outcome_context
+):
+    admin_id, reviewer_id, outsider_id, project_id, _, _, _, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        service = OutcomeService(session)
+        decision = service.create_decision(
+            project_id,
+            DecisionWrite(
+                title="Draft",
+                decision_markdown="Exact markdown",
+                reviewer_ids=[reviewer_id, outsider_id],
+            ),
+            actor,
+        )
+        edited = service.update_decision(
+            decision.id,
+            DecisionEdit(expected_version=1, title="Edited"),
+            actor,
+        )
+        final = service.finalize_decision(
+            edited.id, DecisionFinalizeWrite(expected_version=2), actor
+        )
+        assert final.title == "Edited"
+        assert [row.status.value for row in final.reviewers] == ["pending", "pending"]
+
+        withdrawn = service.create_decision(
+            project_id,
+            DecisionWrite(title="Withdraw", decision_markdown="No longer valid"),
+            actor,
+        )
+        withdrawn = service.withdraw_decision(
+            withdrawn.id, DecisionFinalizeWrite(expected_version=1), actor
+        )
+        assert withdrawn.status.value == "withdrawn"
+
+
 def test_final_decision_can_be_superseded_without_losing_history(
     client, outcome_context
 ):
@@ -202,7 +248,9 @@ def test_source_validation_distinguishes_missing_and_mismatch(client, outcome_co
         with pytest.raises(AppError) as missing:
             service.create_action(
                 project_id,
-                ActionWrite(meeting_id="missing", content="Do it"),
+                ActionWrite(
+                    project_id=project_id, meeting_id="missing", content="Do it"
+                ),
                 actor,
             )
         assert missing.value.code == "source_not_found"
@@ -210,6 +258,7 @@ def test_source_validation_distinguishes_missing_and_mismatch(client, outcome_co
             service.create_action(
                 project_id,
                 ActionWrite(
+                    project_id=project_id,
                     meeting_id=future_id,
                     agenda_item_id=agenda_id,
                     content="Do it",
@@ -219,13 +268,46 @@ def test_source_validation_distinguishes_missing_and_mismatch(client, outcome_co
         assert mismatch.value.code == "source_mismatch"
 
 
+def test_invalid_or_inactive_owner_does_not_poison_session(client, outcome_context):
+    admin_id, _, _, project_id, _, _, _, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        inactive = User(
+            username="inactive-owner",
+            display_name="Inactive",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.DISABLED,
+        )
+        session.add(inactive)
+        session.commit()
+        service = OutcomeService(session)
+        for owner_id in ("missing-user", inactive.id):
+            with pytest.raises(AppError) as error:
+                service.create_action(
+                    project_id,
+                    ActionWrite(
+                        project_id=project_id,
+                        content="Owned task",
+                        owner_user_id=owner_id,
+                    ),
+                    actor,
+                )
+            assert error.value.code == "user_not_found"
+            assert (
+                session.scalar(select(User.id).where(User.id == actor.id)) == actor.id
+            )
+
+
 def test_action_completion_and_reopening_manage_timestamp(client, outcome_context):
     admin_id, _, _, project_id, _, _, _, _ = outcome_context
     with client.app.state.database.session() as session:
         service = OutcomeService(session)
         actor = session.get(User, admin_id)
         action = service.create_action(
-            project_id, ActionWrite(content="Ship it", priority="urgent"), actor
+            project_id,
+            ActionWrite(project_id=project_id, content="Ship it", priority="urgent"),
+            actor,
         )
         done = service.update_action(
             action.id, ActionEdit(expected_version=1, status="done"), actor
@@ -248,6 +330,62 @@ def test_edit_schemas_reject_null_nonnullable_fields_and_blank_markdown():
             payload()
 
 
+def test_outcome_contracts_normalize_refs_and_forbid_status_bypass():
+    with pytest.raises(ValidationError):
+        ActionWrite(content="Missing project")
+    with pytest.raises(ValidationError):
+        DecisionReviewWrite(status="pending", expected_version=1)
+    with pytest.raises(ValidationError):
+        QuestionEdit(expected_version=1, status="resolved")
+
+    assert ActionWrite(project_id="  p1  ", content="Do").project_id == "p1"
+    assert ActionEdit(expected_version=1, owner_user_id="  u1 ").owner_user_id == "u1"
+    assert ActionEdit(expected_version=1, owner_user_id=None).owner_user_id is None
+    assert (
+        QuestionWrite(question_markdown="Q?", owner_user_id="  u2 ").owner_user_id
+        == "u2"
+    )
+    assert (
+        QuestionScheduleWrite(
+            meeting_id="  m1 ", expected_version=1, expected_meeting_version=1
+        ).meeting_id
+        == "m1"
+    )
+    assert (
+        QuestionResolveWrite(decision_id="  d1 ", expected_version=1).decision_id
+        == "d1"
+    )
+    assert (
+        DecisionSupersedeWrite(
+            new_decision_id="  d2 ", expected_version=1, expected_new_version=1
+        ).new_decision_id
+        == "d2"
+    )
+    for factory in (
+        lambda: ActionEdit(expected_version=1, owner_user_id="   "),
+        lambda: QuestionWrite(question_markdown="Q", owner_user_id="   "),
+        lambda: QuestionScheduleWrite(
+            meeting_id="   ", expected_version=1, expected_meeting_version=1
+        ),
+        lambda: QuestionResolveWrite(decision_id="   ", expected_version=1),
+    ):
+        with pytest.raises(ValidationError):
+            factory()
+
+
+def test_outcome_models_have_exact_duplicate_keys_and_migration_audit():
+    assert OpenQuestion.__table__.c.converted_from_agenda_item_id.unique
+    assert "copied_from_agenda_item_id" in AgendaItem.__table__.c
+    copied_unique = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in AgendaItem.__table__.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert ("meeting_id", "copied_from_agenda_item_id") in copied_unique
+    assert DecisionReviewer.__table__.c.comment.nullable
+    assert "outcome_migration_records" in Decision.metadata.tables
+
+
 def test_concurrent_action_edit_has_exact_conflict_and_reusable_session(
     client, outcome_context
 ):
@@ -256,7 +394,7 @@ def test_concurrent_action_edit_has_exact_conflict_and_reusable_session(
     with database.session() as seed:
         action = OutcomeService(seed).create_action(
             project_id,
-            ActionWrite(content="Original"),
+            ActionWrite(project_id=project_id, content="Original"),
             seed.get(User, admin_id),
         )
         action_id = action.id
@@ -340,6 +478,55 @@ def test_question_schedule_and_resolve_are_idempotency_safe(client, outcome_cont
         assert resolved.resolved_by_decision_id == decision.id
 
 
+def test_project_question_rejects_past_and_immutable_schedule_targets(
+    client, outcome_context
+):
+    admin_id, _, _, project_id, _, future_id, _, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meetings = MeetingService(session)
+        past = meetings.create_meeting(
+            project_id,
+            MeetingWrite(
+                title="Past meeting",
+                scheduled_start=START - timedelta(days=60),
+                scheduled_end=START - timedelta(days=60) + timedelta(hours=1),
+            ),
+            actor,
+        )
+        service = OutcomeService(session)
+        question = service.create_question(
+            project_id, QuestionWrite(question_markdown="When?"), actor
+        )
+        with pytest.raises(AppError) as past_error:
+            service.schedule_question(
+                question.id,
+                QuestionScheduleWrite(
+                    meeting_id=past.id,
+                    expected_version=question.version,
+                    expected_meeting_version=past.version,
+                ),
+                actor,
+            )
+        assert past_error.value.code == "meeting_not_future"
+
+        future = session.get(Meeting, future_id)
+        future.status = "completed"
+        future.version += 1
+        session.commit()
+        with pytest.raises(AppError) as immutable:
+            service.schedule_question(
+                question.id,
+                QuestionScheduleWrite(
+                    meeting_id=future.id,
+                    expected_version=question.version,
+                    expected_meeting_version=future.version,
+                ),
+                actor,
+            )
+        assert immutable.value.code == "meeting_immutable"
+
+
 def test_agenda_delete_guard_and_explicit_migration(client, outcome_context):
     admin_id, _, _, project_id, meeting_id, _, agenda_id, target_id = outcome_context
     with client.app.state.database.session() as session:
@@ -357,7 +544,12 @@ def test_agenda_delete_guard_and_explicit_migration(client, outcome_context):
         )
         outcomes.create_action(
             project_id,
-            ActionWrite(meeting_id=meeting_id, agenda_item_id=agenda_id, content="A"),
+            ActionWrite(
+                project_id=project_id,
+                meeting_id=meeting_id,
+                agenda_item_id=agenda_id,
+                content="A",
+            ),
             actor,
         )
         outcomes.create_question(
@@ -437,6 +629,28 @@ def test_agenda_delete_guard_and_explicit_migration(client, outcome_context):
         assert session.scalar(select(ActionItem)).agenda_item_id == target_id
         assert session.scalar(select(OpenQuestion)).agenda_item_id == target_id
         assert meeting.version == 4
+        audit = session.scalar(select(OutcomeMigrationRecord))
+        assert outcomes.list_migration_records(agenda_id)[0].id == audit.id
+        assert audit.source_agenda_id == agenda_id
+        assert audit.source_meeting_id == meeting_id
+        assert audit.target_agenda_id == target_id
+        assert {row["type"] for row in audit.moved_outcomes_json} == {
+            "decision",
+            "action",
+            "open_question",
+        }
+        assert all(
+            row["old_agenda_item_id"] == agenda_id
+            and row["old_meeting_id"] == meeting_id
+            for row in audit.moved_outcomes_json
+        )
+        AgendaService(session).delete(
+            agenda_id,
+            AgendaCommand(expected_version=source.version),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        assert session.get(AgendaItem, agenda_id) is None
 
 
 def test_skipped_agenda_conversion_and_copy_are_explicit_and_duplicate_safe(
@@ -451,43 +665,195 @@ def test_skipped_agenda_conversion_and_copy_are_explicit_and_duplicate_safe(
             agenda_id, AgendaCommand(expected_version=source.version), actor
         )
         source = session.get(AgendaItem, agenda_id)
+        source_meeting = session.get(Meeting, meeting_id)
         service = OutcomeService(session)
         question = service.convert_agenda_to_question(
             agenda_id,
-            AgendaConvertWrite(expected_source_version=source.version),
+            AgendaConvertWrite(
+                expected_source_version=source.version,
+                expected_source_meeting_version=source_meeting.version,
+            ),
             actor,
         )
         assert question.question_markdown == source.title
+        assert question.converted_from_agenda_item_id == source.id
         with pytest.raises(AppError) as duplicate:
             service.convert_agenda_to_question(
                 agenda_id,
-                AgendaConvertWrite(expected_source_version=source.version),
+                AgendaConvertWrite(
+                    expected_source_version=1,
+                    expected_source_meeting_version=1,
+                ),
                 actor,
             )
         assert duplicate.value.code == "agenda_already_converted"
 
         future = session.get(Meeting, future_id)
+        unrelated = AgendaService(session).create(
+            future.id,
+            AgendaWrite(title=source.title, agenda_type=source.agenda_type),
+            actor,
+            expected_meeting_version=future.version,
+        )
+        assert unrelated.title == source.title
+        source_version = source.version
+        source_meeting_version = source_meeting.version
         copied = service.copy_agenda_to_meeting(
             agenda_id,
             AgendaCopyWrite(
                 target_meeting_id=future_id,
-                expected_source_version=source.version,
+                expected_source_version=source_version,
+                expected_source_meeting_version=source_meeting_version,
                 expected_target_meeting_version=future.version,
             ),
             actor,
         )
         assert copied.meeting_id == future_id
+        assert copied.copied_from_agenda_item_id == source.id
         with pytest.raises(AppError) as copied_twice:
             service.copy_agenda_to_meeting(
                 agenda_id,
                 AgendaCopyWrite(
                     target_meeting_id=future_id,
-                    expected_source_version=source.version,
-                    expected_target_meeting_version=future.version,
+                    expected_source_version=1,
+                    expected_source_meeting_version=1,
+                    expected_target_meeting_version=1,
                 ),
                 actor,
             )
         assert copied_twice.value.code == "agenda_already_copied"
+
+
+def test_concurrent_convert_and_copy_map_to_stable_duplicate_errors(
+    client, outcome_context
+):
+    admin_id, _, _, _, meeting_id, future_id, agenda_id, _ = outcome_context
+    database = client.app.state.database
+    with database.session() as seed:
+        actor = seed.get(User, admin_id)
+        source = seed.get(AgendaItem, agenda_id)
+        AgendaService(seed).skip(
+            source.id, AgendaCommand(expected_version=source.version), actor
+        )
+
+    with database.session() as first, database.session() as second:
+        first_source = first.get(AgendaItem, agenda_id)
+        second_source = second.get(AgendaItem, agenda_id)
+        first_meeting = first.get(Meeting, meeting_id)
+        second_meeting = second.get(Meeting, meeting_id)
+        convert = AgendaConvertWrite(
+            expected_source_version=first_source.version,
+            expected_source_meeting_version=first_meeting.version,
+        )
+        OutcomeService(first).convert_agenda_to_question(
+            agenda_id, convert, first.get(User, admin_id)
+        )
+        with pytest.raises(AppError) as duplicate:
+            OutcomeService(second).convert_agenda_to_question(
+                agenda_id,
+                AgendaConvertWrite(
+                    expected_source_version=second_source.version,
+                    expected_source_meeting_version=second_meeting.version,
+                ),
+                second.get(User, admin_id),
+            )
+        assert duplicate.value.code == "agenda_already_converted"
+        assert second.scalar(select(OpenQuestion.id)) is not None
+
+    with database.session() as first, database.session() as second:
+        first_source = first.get(AgendaItem, agenda_id)
+        second_source = second.get(AgendaItem, agenda_id)
+        first_source_meeting = first.get(Meeting, meeting_id)
+        second_source_meeting = second.get(Meeting, meeting_id)
+        first_target = first.get(Meeting, future_id)
+        second_target = second.get(Meeting, future_id)
+        OutcomeService(first).copy_agenda_to_meeting(
+            agenda_id,
+            AgendaCopyWrite(
+                target_meeting_id=future_id,
+                expected_source_version=first_source.version,
+                expected_source_meeting_version=first_source_meeting.version,
+                expected_target_meeting_version=first_target.version,
+            ),
+            first.get(User, admin_id),
+        )
+        with pytest.raises(AppError) as duplicate:
+            OutcomeService(second).copy_agenda_to_meeting(
+                agenda_id,
+                AgendaCopyWrite(
+                    target_meeting_id=future_id,
+                    expected_source_version=second_source.version,
+                    expected_source_meeting_version=second_source_meeting.version,
+                    expected_target_meeting_version=second_target.version,
+                ),
+                second.get(User, admin_id),
+            )
+        assert duplicate.value.code == "agenda_already_copied"
+        assert second.scalar(
+            select(AgendaItem.id).where(
+                AgendaItem.meeting_id == future_id,
+                AgendaItem.copied_from_agenda_item_id == agenda_id,
+            )
+        )
+
+
+def test_concurrent_migration_rolls_back_and_leaves_session_reusable(
+    client, outcome_context
+):
+    admin_id, _, _, project_id, meeting_id, _, source_id, target_id = outcome_context
+    database = client.app.state.database
+    with database.session() as seed:
+        actor = seed.get(User, admin_id)
+        service = OutcomeService(seed)
+        decision = service.create_decision(
+            project_id,
+            DecisionWrite(
+                meeting_id=meeting_id,
+                agenda_item_id=source_id,
+                title="Concurrent migration",
+                decision_markdown="D",
+            ),
+            actor,
+        )
+        decision_id = decision.id
+
+    with database.session() as first, database.session() as second:
+        first_source = first.get(AgendaItem, source_id)
+        second_source = second.get(AgendaItem, source_id)
+        first_target = first.get(AgendaItem, target_id)
+        second_target = second.get(AgendaItem, target_id)
+        first_meeting = first.get(Meeting, meeting_id)
+        second_meeting = second.get(Meeting, meeting_id)
+        first_payload = AgendaOutcomeMigrationWrite(
+            target_agenda_item_id=target_id,
+            expected_source_version=first_source.version,
+            expected_target_version=first_target.version,
+            expected_source_meeting_version=first_meeting.version,
+            expected_target_meeting_version=first_meeting.version,
+        )
+        OutcomeService(first).migrate_agenda_outcomes(
+            source_id, first_payload, first.get(User, admin_id)
+        )
+        with pytest.raises(AppError) as conflict:
+            OutcomeService(second).migrate_agenda_outcomes(
+                source_id,
+                AgendaOutcomeMigrationWrite(
+                    target_agenda_item_id=target_id,
+                    expected_source_version=second_source.version,
+                    expected_target_version=second_target.version,
+                    expected_source_meeting_version=second_meeting.version,
+                    expected_target_meeting_version=second_meeting.version,
+                ),
+                second.get(User, admin_id),
+            )
+        assert conflict.value.code == "version_conflict"
+        assert (
+            second.scalar(
+                select(Decision.agenda_item_id).where(Decision.id == decision_id)
+            )
+            == target_id
+        )
+        assert second.scalar(select(func.count(OutcomeMigrationRecord.id))) == 1
 
 
 def test_outcome_routes_require_auth_and_return_serialized_lists(
@@ -516,3 +882,122 @@ def test_outcome_routes_require_auth_and_return_serialized_lists(
     listed = authenticated_client.get(f"/api/projects/{project_id}/decisions")
     assert listed.status_code == 200
     assert listed.json()[0]["title"] == "API decision"
+    assert (
+        authenticated_client.get(
+            f"/api/projects/{project_id}/decisions?limit=201"
+        ).status_code
+        == 422
+    )
+
+    mismatch = authenticated_client.post(
+        f"/api/projects/{project_id}/actions",
+        json={"project_id": "another-project", "content": "Mismatch"},
+    )
+    assert mismatch.status_code == 422
+    assert mismatch.json()["error"]["code"] == "source_mismatch"
+    created_action = authenticated_client.post(
+        f"/api/projects/{project_id}/actions",
+        json={"project_id": project_id, "content": "API action"},
+    )
+    assert created_action.status_code == 201
+    assert created_action.json()["project_id"] == project_id
+    created_question = authenticated_client.post(
+        f"/api/projects/{project_id}/open-questions",
+        json={"question_markdown": "API question"},
+    )
+    assert created_question.status_code == 201
+    assert created_question.json()["question_markdown"] == "API question"
+    questions = authenticated_client.get(f"/api/projects/{project_id}/open-questions")
+    assert questions.status_code == 200
+    assert questions.json()[0]["id"] == created_question.json()["id"]
+
+
+def test_decision_list_query_count_is_bounded(client, outcome_context):
+    admin_id, _, _, project_id, _, _, _, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        service = OutcomeService(session)
+        for index in range(8):
+            service.create_decision(
+                project_id,
+                DecisionWrite(title=f"Decision {index}", decision_markdown=f"D{index}"),
+                actor,
+            )
+        statements = []
+
+        def track(_conn, _cursor, statement, _params, _context, _many):
+            statements.append(statement)
+
+        event.listen(session.bind, "before_cursor_execute", track)
+        try:
+            assert len(service.list_decisions(project_id, limit=8)) == 8
+        finally:
+            event.remove(session.bind, "before_cursor_execute", track)
+        assert len(statements) <= 3
+
+
+def test_every_outcome_route_is_authenticated(client):
+    cases = (
+        ("GET", "/api/projects/p/decisions", None),
+        ("POST", "/api/projects/p/decisions", {"title": "D", "decision_markdown": "D"}),
+        ("PUT", "/api/decisions/d", {"expected_version": 1, "title": "D"}),
+        (
+            "POST",
+            "/api/decisions/d/review",
+            {"expected_version": 1, "status": "approved"},
+        ),
+        ("POST", "/api/decisions/d/finalize", {"expected_version": 1}),
+        ("POST", "/api/decisions/d/withdraw", {"expected_version": 1}),
+        (
+            "POST",
+            "/api/decisions/d/supersede",
+            {"new_decision_id": "n", "expected_version": 1, "expected_new_version": 1},
+        ),
+        ("GET", "/api/projects/p/actions", None),
+        ("POST", "/api/projects/p/actions", {"project_id": "p", "content": "A"}),
+        ("PUT", "/api/actions/a", {"expected_version": 1, "content": "A"}),
+        ("GET", "/api/projects/p/open-questions", None),
+        ("POST", "/api/projects/p/open-questions", {"question_markdown": "Q"}),
+        (
+            "PUT",
+            "/api/open-questions/q",
+            {"expected_version": 1, "question_markdown": "Q"},
+        ),
+        (
+            "POST",
+            "/api/open-questions/q/schedule",
+            {"meeting_id": "m", "expected_version": 1, "expected_meeting_version": 1},
+        ),
+        ("POST", "/api/open-questions/q/resolve", {"expected_version": 1}),
+        (
+            "POST",
+            "/api/agenda-items/a/migrate-outcomes",
+            {
+                "target_agenda_item_id": "b",
+                "expected_source_version": 1,
+                "expected_target_version": 1,
+                "expected_source_meeting_version": 1,
+                "expected_target_meeting_version": 1,
+            },
+        ),
+        (
+            "POST",
+            "/api/agenda-items/a/convert-to-question",
+            {"expected_source_version": 1, "expected_source_meeting_version": 1},
+        ),
+        (
+            "POST",
+            "/api/agenda-items/a/copy-to-meeting",
+            {
+                "target_meeting_id": "m",
+                "expected_source_version": 1,
+                "expected_source_meeting_version": 1,
+                "expected_target_meeting_version": 1,
+            },
+        ),
+    )
+    unauthenticated = client.__class__(client.app)
+    with unauthenticated:
+        for method, path, body in cases:
+            response = unauthenticated.request(method, path, json=body)
+            assert response.status_code == 401, (method, path, response.text)

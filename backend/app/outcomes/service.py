@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -19,7 +20,13 @@ from app.domain.enums import (
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import Meeting
-from app.outcomes.models import ActionItem, Decision, DecisionReviewer, OpenQuestion
+from app.outcomes.models import (
+    ActionItem,
+    Decision,
+    DecisionReviewer,
+    OpenQuestion,
+    OutcomeMigrationRecord,
+)
 from app.outcomes.schemas import (
     ActionEdit,
     ActionWrite,
@@ -295,12 +302,16 @@ class OutcomeService:
         self, project_id: str, payload: ActionWrite, actor: User
     ) -> ActionItem:
         self._require_active(actor)
+        if payload.project_id != project_id:
+            raise AppError(422, "source_mismatch", "行动项项目与路径项目不匹配")
         self.require_source_chain(
             project_id, payload.meeting_id, payload.agenda_item_id
         )
         self._users([payload.owner_user_id])
         action = ActionItem(
-            project_id=project_id, **payload.model_dump(), created_by=actor.id
+            project_id=project_id,
+            **payload.model_dump(exclude={"project_id"}),
+            created_by=actor.id,
         )
         self.session.add(action)
         self._commit(entity="行动项")
@@ -406,9 +417,10 @@ class OutcomeService:
         if meeting.project_id != question.project_id:
             raise AppError(422, "source_mismatch", "目标会议与开放问题不属于同一项目")
         origin = question.meeting
-        if origin is not None and _aware(meeting.scheduled_start) <= _aware(
-            origin.scheduled_start
-        ):
+        earliest = utcnow()
+        if origin is not None:
+            earliest = max(earliest, _aware(origin.scheduled_start))
+        if _aware(meeting.scheduled_start) <= earliest:
             raise AppError(422, "meeting_not_future", "开放问题只能排入之后的会议")
         position = (
             self.session.scalar(
@@ -484,27 +496,67 @@ class OutcomeService:
         target = self.session.get(AgendaItem, payload.target_agenda_item_id)
         if source is None or target is None:
             raise AppError(404, "source_not_found", "源议题或目标议题不存在")
-        require_version(payload.expected_source_version, source.version)
-        require_version(payload.expected_target_version, target.version)
+        actual_source_version = self.session.scalar(
+            select(AgendaItem.version).where(AgendaItem.id == source.id)
+        )
+        actual_target_version = self.session.scalar(
+            select(AgendaItem.version).where(AgendaItem.id == target.id)
+        )
+        require_version(payload.expected_source_version, actual_source_version)
+        require_version(payload.expected_target_version, actual_target_version)
         if source.id == target.id:
             raise AppError(422, "source_mismatch", "源议题与目标议题不能相同")
         if source.meeting.project_id != target.meeting.project_id:
             raise AppError(422, "source_mismatch", "议题不属于同一项目")
         source_meeting = source.meeting
         target_meeting = target.meeting
-        require_version(payload.expected_source_meeting_version, source_meeting.version)
-        require_version(payload.expected_target_meeting_version, target_meeting.version)
-        moved = 0
-        for model in (Decision, ActionItem, OpenQuestion):
+        actual_source_meeting_version = self.session.scalar(
+            select(Meeting.version).where(Meeting.id == source_meeting.id)
+        )
+        actual_target_meeting_version = self.session.scalar(
+            select(Meeting.version).where(Meeting.id == target_meeting.id)
+        )
+        require_version(
+            payload.expected_source_meeting_version,
+            actual_source_meeting_version,
+        )
+        require_version(
+            payload.expected_target_meeting_version,
+            actual_target_meeting_version,
+        )
+        moved_rows: list[dict[str, Any]] = []
+        model_types = (
+            (Decision, "decision"),
+            (ActionItem, "action"),
+            (OpenQuestion, "open_question"),
+        )
+        for model, outcome_type in model_types:
             for outcome in self.session.scalars(
                 select(model).where(model.agenda_item_id == source.id)
             ):
+                moved_rows.append(
+                    {
+                        "type": outcome_type,
+                        "id": outcome.id,
+                        "old_agenda_item_id": outcome.agenda_item_id,
+                        "old_meeting_id": outcome.meeting_id,
+                    }
+                )
                 outcome.agenda_item_id = target.id
                 outcome.meeting_id = target.meeting_id
                 outcome.version += 1
-                moved += 1
-        if not moved:
+        if not moved_rows:
             raise AppError(409, "agenda_has_no_outcomes", "源议题没有可迁移产物")
+        self.session.add(
+            OutcomeMigrationRecord(
+                source_agenda_id=source.id,
+                source_meeting_id=source.meeting_id,
+                target_agenda_id=target.id,
+                target_meeting_id=target.meeting_id,
+                moved_outcomes_json=moved_rows,
+                created_by=actor.id,
+            )
+        )
         source.version += 1
         source.updated_by = actor.id
         target.version += 1
@@ -524,23 +576,51 @@ class OutcomeService:
         source = self.session.get(AgendaItem, source_id)
         if source is None:
             raise AppError(404, "source_not_found", "源议题不存在")
-        require_version(payload.expected_source_version, source.version)
-        if source.status != AgendaStatus.skipped:
-            raise AppError(409, "agenda_not_skipped", "只有跳过的议题可转为开放问题")
         existing = self.session.scalar(
-            select(OpenQuestion).where(OpenQuestion.agenda_item_id == source.id)
+            select(OpenQuestion).where(
+                OpenQuestion.converted_from_agenda_item_id == source.id
+            )
         )
         if existing is not None:
             raise AppError(409, "agenda_already_converted", "议题已转为开放问题")
+        require_version(payload.expected_source_version, source.version)
+        source_meeting = source.meeting
+        require_version(payload.expected_source_meeting_version, source_meeting.version)
+        self._mutable_meeting(source_meeting)
+        if source.status != AgendaStatus.skipped:
+            raise AppError(409, "agenda_not_skipped", "只有跳过的议题可转为开放问题")
         question = OpenQuestion(
-            project_id=source.meeting.project_id,
+            project_id=source_meeting.project_id,
             meeting_id=source.meeting_id,
             agenda_item_id=source.id,
+            converted_from_agenda_item_id=source.id,
             question_markdown=source.title,
             created_by=actor.id,
         )
         self.session.add(question)
-        self._commit(entity="开放问题")
+        source.version += 1
+        source.updated_by = actor.id
+        source_meeting.version += 1
+        source_meeting.updated_by = actor.id
+        try:
+            self.session.commit()
+        except (IntegrityError, StaleDataError) as exc:
+            self.session.rollback()
+            duplicate = self.session.scalar(
+                select(OpenQuestion.id).where(
+                    OpenQuestion.converted_from_agenda_item_id == source_id
+                )
+            )
+            if duplicate is not None:
+                raise AppError(
+                    409, "agenda_already_converted", "议题已转为开放问题"
+                ) from exc
+            actual = self.session.scalar(
+                select(AgendaItem.version).where(AgendaItem.id == source_id)
+            )
+            if actual is not None:
+                require_version(payload.expected_source_version, actual)
+            raise AppError(409, "version_conflict", "议题或会议已更新") from exc
         self.session.refresh(question)
         return question
 
@@ -552,28 +632,34 @@ class OutcomeService:
         target = self.session.get(Meeting, payload.target_meeting_id)
         if source is None or target is None:
             raise AppError(404, "source_not_found", "源议题或目标会议不存在")
-        require_version(payload.expected_source_version, source.version)
-        require_version(payload.expected_target_meeting_version, target.version)
-        if source.status != AgendaStatus.skipped:
-            raise AppError(409, "agenda_not_skipped", "只有跳过的议题可复制")
-        self._mutable_meeting(target)
-        if target.project_id != source.meeting.project_id:
-            raise AppError(422, "source_mismatch", "目标会议不属于同一项目")
-        if _aware(target.scheduled_start) <= _aware(source.meeting.scheduled_start):
-            raise AppError(422, "meeting_not_future", "议题只能复制到之后的会议")
-        question = self.session.scalar(
-            select(OpenQuestion).where(OpenQuestion.agenda_item_id == source.id)
-        )
-        carry_id = question.id if question is not None else None
         duplicate = self.session.scalar(
             select(AgendaItem).where(
                 AgendaItem.meeting_id == target.id,
-                AgendaItem.title == source.title,
-                AgendaItem.carry_from_open_question_id == carry_id,
+                AgendaItem.copied_from_agenda_item_id == source.id,
             )
         )
         if duplicate is not None:
             raise AppError(409, "agenda_already_copied", "议题已复制到目标会议")
+        require_version(payload.expected_source_version, source.version)
+        source_meeting = source.meeting
+        require_version(payload.expected_source_meeting_version, source_meeting.version)
+        require_version(payload.expected_target_meeting_version, target.version)
+        if source.status != AgendaStatus.skipped:
+            raise AppError(409, "agenda_not_skipped", "只有跳过的议题可复制")
+        self._mutable_meeting(source_meeting)
+        self._mutable_meeting(target)
+        if target.project_id != source_meeting.project_id:
+            raise AppError(422, "source_mismatch", "目标会议不属于同一项目")
+        if _aware(target.scheduled_start) <= max(
+            utcnow(), _aware(source_meeting.scheduled_start)
+        ):
+            raise AppError(422, "meeting_not_future", "议题只能复制到之后的会议")
+        question = self.session.scalar(
+            select(OpenQuestion).where(
+                OpenQuestion.converted_from_agenda_item_id == source.id
+            )
+        )
+        carry_id = question.id if question is not None else None
         position = (
             self.session.scalar(
                 select(func.count())
@@ -592,13 +678,40 @@ class OutcomeService:
             notes_markdown=source.notes_markdown,
             position=position,
             carry_from_open_question_id=carry_id,
+            copied_from_agenda_item_id=source.id,
             created_by=actor.id,
             updated_by=actor.id,
         )
         self.session.add(item)
+        source.version += 1
+        source.updated_by = actor.id
+        source_meeting.version += 1
+        source_meeting.updated_by = actor.id
         target.version += 1
         target.updated_by = actor.id
-        self._commit(entity="会议议题")
+        if target.id == source_meeting.id:
+            # Defensive only; the future-meeting check normally makes this impossible.
+            target.version -= 1
+        try:
+            self.session.commit()
+        except (IntegrityError, StaleDataError) as exc:
+            self.session.rollback()
+            duplicate = self.session.scalar(
+                select(AgendaItem.id).where(
+                    AgendaItem.meeting_id == payload.target_meeting_id,
+                    AgendaItem.copied_from_agenda_item_id == source_id,
+                )
+            )
+            if duplicate is not None:
+                raise AppError(
+                    409, "agenda_already_copied", "议题已复制到目标会议"
+                ) from exc
+            actual = self.session.scalar(
+                select(AgendaItem.version).where(AgendaItem.id == source_id)
+            )
+            if actual is not None:
+                require_version(payload.expected_source_version, actual)
+            raise AppError(409, "version_conflict", "议题或会议已更新") from exc
         self.session.refresh(item)
         return item
 
@@ -633,6 +746,24 @@ class OutcomeService:
                 .where(OpenQuestion.project_id == project_id)
                 .order_by(OpenQuestion.updated_at.desc(), OpenQuestion.id)
                 .limit(limit)
+            )
+        )
+
+    def list_migration_records(
+        self, agenda_id: str, limit: int = 200
+    ) -> list[OutcomeMigrationRecord]:
+        return list(
+            self.session.scalars(
+                select(OutcomeMigrationRecord)
+                .where(
+                    (OutcomeMigrationRecord.source_agenda_id == agenda_id)
+                    | (OutcomeMigrationRecord.target_agenda_id == agenda_id)
+                )
+                .order_by(
+                    OutcomeMigrationRecord.created_at.desc(),
+                    OutcomeMigrationRecord.id,
+                )
+                .limit(min(max(limit, 1), 200))
             )
         )
 

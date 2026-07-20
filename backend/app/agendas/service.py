@@ -352,6 +352,7 @@ class AgendaService:
             "status": item.status,
             "position": item.position,
             "carry_from_open_question_id": item.carry_from_open_question_id,
+            "copied_from_agenda_item_id": item.copied_from_agenda_item_id,
             "version": item.version,
             "created_by": user_ref(item.creator),
             "updated_by": user_ref(item.updater),

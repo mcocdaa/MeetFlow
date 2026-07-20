@@ -1,13 +1,11 @@
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.enums import (
     ActionPriority,
     ActionStatus,
-    DecisionReviewerStatus,
-    OpenQuestionStatus,
 )
 
 
@@ -112,16 +110,9 @@ class DecisionEdit(StrictInput):
 
 
 class DecisionReviewWrite(StrictInput):
-    status: DecisionReviewerStatus
+    status: Literal["approved", "changes_requested"]
     comment: str = Field(default="", max_length=2000)
     expected_version: int = Field(ge=1)
-
-    @field_validator("status")
-    @classmethod
-    def response_only(cls, value: DecisionReviewerStatus) -> DecisionReviewerStatus:
-        if value == DecisionReviewerStatus.pending:
-            raise ValueError("review response may not be pending")
-        return value
 
 
 class DecisionFinalizeWrite(StrictInput):
@@ -133,23 +124,31 @@ class DecisionSupersedeWrite(StrictInput):
     expected_version: int = Field(ge=1)
     expected_new_version: int = Field(ge=1)
 
+    @field_validator("new_decision_id", mode="before")
+    @classmethod
+    def normalize_new_id(cls, value: Any) -> Any:
+        return _strip(value)
+
 
 class ActionWrite(SourceInput):
+    project_id: str = Field(min_length=1, max_length=64)
     content: str = Field(min_length=1, max_length=1000)
     owner_user_id: str | None = Field(default=None, max_length=64)
     due_date: date | None = None
     priority: ActionPriority = ActionPriority.normal
 
-    @field_validator("content", "owner_user_id", "priority", mode="before")
+    @field_validator(
+        "project_id", "content", "owner_user_id", "priority", mode="before"
+    )
     @classmethod
     def normalize(cls, value: Any) -> Any:
         return _strip(value)
 
-    @field_validator("content")
+    @field_validator("project_id", "content")
     @classmethod
     def content_nonblank(cls, value: str) -> str:
         if not value:
-            raise ValueError("content must not be blank")
+            raise ValueError("value must not be blank")
         return value
 
     @field_validator("owner_user_id")
@@ -173,6 +172,13 @@ class ActionEdit(StrictInput):
     def normalize(cls, value: Any) -> Any:
         return _strip(value)
 
+    @field_validator("owner_user_id")
+    @classmethod
+    def reject_blank_owner(cls, value: str | None) -> str | None:
+        if value == "":
+            raise ValueError("owner_user_id must not be blank")
+        return value
+
     @model_validator(mode="after")
     def reject_null_nonnullable(self):
         nullable = {"owner_user_id", "due_date"}
@@ -191,6 +197,13 @@ class QuestionWrite(SourceInput):
     def normalize_owner(cls, value: Any) -> Any:
         return _strip(value)
 
+    @field_validator("owner_user_id")
+    @classmethod
+    def reject_blank_owner(cls, value: str | None) -> str | None:
+        if value == "":
+            raise ValueError("owner_user_id must not be blank")
+        return value
+
     @field_validator("question_markdown")
     @classmethod
     def question_nonblank(cls, value: str) -> str:
@@ -205,7 +218,18 @@ class QuestionEdit(StrictInput):
         default=None, min_length=1, max_length=100_000
     )
     owner_user_id: str | None = Field(default=None, max_length=64)
-    status: OpenQuestionStatus | None = None
+
+    @field_validator("owner_user_id", mode="before")
+    @classmethod
+    def normalize_owner(cls, value: Any) -> Any:
+        return _strip(value)
+
+    @field_validator("owner_user_id")
+    @classmethod
+    def reject_blank_owner(cls, value: str | None) -> str | None:
+        if value == "":
+            raise ValueError("owner_user_id must not be blank")
+        return value
 
     @model_validator(mode="after")
     def reject_null_nonnullable(self):
@@ -222,10 +246,27 @@ class QuestionScheduleWrite(StrictInput):
     expected_version: int = Field(ge=1)
     expected_meeting_version: int = Field(ge=1)
 
+    @field_validator("meeting_id", mode="before")
+    @classmethod
+    def normalize_meeting_id(cls, value: Any) -> Any:
+        return _strip(value)
+
 
 class QuestionResolveWrite(StrictInput):
     decision_id: str | None = Field(default=None, max_length=64)
     expected_version: int = Field(ge=1)
+
+    @field_validator("decision_id", mode="before")
+    @classmethod
+    def normalize_decision_id(cls, value: Any) -> Any:
+        return _strip(value)
+
+    @field_validator("decision_id")
+    @classmethod
+    def reject_blank_decision(cls, value: str | None) -> str | None:
+        if value == "":
+            raise ValueError("decision_id must not be blank")
+        return value
 
 
 class AgendaOutcomeMigrationWrite(StrictInput):
@@ -235,12 +276,24 @@ class AgendaOutcomeMigrationWrite(StrictInput):
     expected_source_meeting_version: int = Field(ge=1)
     expected_target_meeting_version: int = Field(ge=1)
 
+    @field_validator("target_agenda_item_id", mode="before")
+    @classmethod
+    def normalize_target_id(cls, value: Any) -> Any:
+        return _strip(value)
+
 
 class AgendaConvertWrite(StrictInput):
     expected_source_version: int = Field(ge=1)
+    expected_source_meeting_version: int = Field(ge=1)
 
 
 class AgendaCopyWrite(StrictInput):
     target_meeting_id: str = Field(min_length=1, max_length=64)
     expected_source_version: int = Field(ge=1)
+    expected_source_meeting_version: int = Field(ge=1)
     expected_target_meeting_version: int = Field(ge=1)
+
+    @field_validator("target_meeting_id", mode="before")
+    @classmethod
+    def normalize_target_id(cls, value: Any) -> Any:
+        return _strip(value)

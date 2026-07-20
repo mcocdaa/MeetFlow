@@ -8,6 +8,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     event,
@@ -104,7 +105,7 @@ class DecisionReviewer(Base):
     responded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    comment: Mapped[str] = mapped_column(String(2000), default="")
+    comment: Mapped[str | None] = mapped_column(String(2000), nullable=True)
 
     decision: Mapped[Decision] = relationship(back_populates="reviewers")
     user: Mapped[User] = relationship(foreign_keys=[user_id])
@@ -192,6 +193,12 @@ class OpenQuestion(Base):
     resolved_by_decision_id: Mapped[str | None] = mapped_column(
         ForeignKey("decisions.id", ondelete="SET NULL"), nullable=True
     )
+    converted_from_agenda_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agenda_items.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(
@@ -215,6 +222,28 @@ class OpenQuestion(Base):
     resolved_by_decision: Mapped[Decision | None] = relationship(
         foreign_keys=[resolved_by_decision_id]
     )
+    converted_from_agenda_item: Mapped["AgendaItem | None"] = relationship(
+        foreign_keys=[converted_from_agenda_item_id]
+    )
+    creator: Mapped[User] = relationship(foreign_keys=[created_by])
+
+
+class OutcomeMigrationRecord(Base):
+    __tablename__ = "outcome_migration_records"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    source_agenda_id: Mapped[str] = mapped_column(String, index=True)
+    source_meeting_id: Mapped[str] = mapped_column(String, index=True)
+    target_agenda_id: Mapped[str] = mapped_column(String, index=True)
+    target_meeting_id: Mapped[str] = mapped_column(String, index=True)
+    moved_outcomes_json: Mapped[list[dict]] = mapped_column(JSON)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
     creator: Mapped[User] = relationship(foreign_keys=[created_by])
 
 
