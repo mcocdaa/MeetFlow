@@ -16,6 +16,15 @@ MIGRATION_RESOURCES = {
 
 
 def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment.update(
+        {
+            "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+            "PIP_NO_INDEX": "1",
+            "PIP_ROOT_USER_ACTION": "ignore",
+        }
+    )
     source = tmp_path / "source"
     source.mkdir()
     shutil.copy2(PROJECT_ROOT / "pyproject.toml", source / "pyproject.toml")
@@ -34,9 +43,11 @@ def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
             str(wheelhouse),
         ],
         cwd=source,
+        env=environment,
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     wheel = next(wheelhouse.glob("meetflow-*.whl"))
     with ZipFile(wheel) as archive:
@@ -44,8 +55,6 @@ def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
     for resource in MIGRATION_RESOURCES:
         assert any(name.endswith(resource) for name in names), resource
 
-    environment = os.environ.copy()
-    environment.pop("PYTHONPATH", None)
     virtualenv = tmp_path / "venv"
     subprocess.run(
         [
@@ -58,6 +67,7 @@ def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     virtualenv_python = virtualenv / "bin" / "python"
     subprocess.run(
@@ -73,6 +83,7 @@ def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     database = tmp_path / "installed.db"
     script = """
@@ -106,6 +117,7 @@ with database.engine.connect() as connection:
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     assert not any(name.startswith("tests/") for name in names)
     assert not any(name.startswith("migrations/") for name in names)
