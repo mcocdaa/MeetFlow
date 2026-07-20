@@ -1,8 +1,8 @@
-"""meetflow_1
+"""meetflow 1 baseline
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-07-19 21:08:53.675690
+Create Date: 2026-07-20 14:50:05.392782
 
 """
 
@@ -10,7 +10,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
 
 # revision identifiers, used by Alembic.
 revision: str = "0001"
@@ -51,37 +50,42 @@ def upgrade() -> None:
         )
 
     op.create_table(
-        "meetings",
+        "outcome_migration_records",
         sa.Column("id", sa.String(), nullable=False),
-        sa.Column("title", sa.String(length=240), nullable=False),
-        sa.Column("project", sa.String(length=160), nullable=False),
-        sa.Column("meeting_type", sa.String(length=120), nullable=False),
-        sa.Column("meeting_date", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("participants", sa.JSON(), nullable=False),
-        sa.Column("raw_notes_markdown", sa.Text(), nullable=False),
-        sa.Column("conclusions_markdown", sa.Text(), nullable=False),
+        sa.Column("source_agenda_id", sa.String(), nullable=False),
+        sa.Column("source_meeting_id", sa.String(), nullable=False),
+        sa.Column("target_agenda_id", sa.String(), nullable=False),
+        sa.Column("target_meeting_id", sa.String(), nullable=False),
+        sa.Column("moved_outcomes_json", sa.JSON(), nullable=False),
         sa.Column("created_by", sa.String(), nullable=False),
-        sa.Column("updated_by", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["created_by"],
             ["users.id"],
         ),
-        sa.ForeignKeyConstraint(
-            ["updated_by"],
-            ["users.id"],
-        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("meetings", schema=None) as batch_op:
+    with op.batch_alter_table("outcome_migration_records", schema=None) as batch_op:
         batch_op.create_index(
-            batch_op.f("ix_meetings_meeting_date"), ["meeting_date"], unique=False
+            batch_op.f("ix_outcome_migration_records_source_agenda_id"),
+            ["source_agenda_id"],
+            unique=False,
         )
         batch_op.create_index(
-            batch_op.f("ix_meetings_project"), ["project"], unique=False
+            batch_op.f("ix_outcome_migration_records_source_meeting_id"),
+            ["source_meeting_id"],
+            unique=False,
         )
-        batch_op.create_index(batch_op.f("ix_meetings_title"), ["title"], unique=False)
+        batch_op.create_index(
+            batch_op.f("ix_outcome_migration_records_target_agenda_id"),
+            ["target_agenda_id"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_outcome_migration_records_target_meeting_id"),
+            ["target_meeting_id"],
+            unique=False,
+        )
 
     op.create_table(
         "plugin_configs",
@@ -110,29 +114,370 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("plugin_id"),
     )
     op.create_table(
-        "action_items",
+        "projects",
         sa.Column("id", sa.String(), nullable=False),
-        sa.Column("meeting_id", sa.String(), nullable=False),
-        sa.Column("content", sa.String(length=500), nullable=False),
-        sa.Column("owner", sa.String(length=120), nullable=False),
-        sa.Column("due_date", sa.Date(), nullable=True),
-        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("name", sa.String(length=160), nullable=False),
+        sa.Column("slug", sa.String(length=80), nullable=False),
+        sa.Column("summary", sa.String(length=500), nullable=False),
+        sa.Column("description_markdown", sa.Text(), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "planned",
+                "active",
+                "paused",
+                "completed",
+                "canceled",
+                name="projectstatus",
+            ),
+            nullable=False,
+        ),
+        sa.Column(
+            "health",
+            sa.Enum("on_track", "at_risk", "off_track", "unset", name="projecthealth"),
+            nullable=False,
+        ),
+        sa.Column("lead_user_id", sa.String(), nullable=True),
+        sa.Column("target_date", sa.Date(), nullable=True),
+        sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("updated_by", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["created_by"],
             ["users.id"],
         ),
-        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["lead_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["updated_by"],
+            ["users.id"],
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("action_items", schema=None) as batch_op:
+    with op.batch_alter_table("projects", schema=None) as batch_op:
         batch_op.create_index(
-            batch_op.f("ix_action_items_meeting_id"), ["meeting_id"], unique=False
+            batch_op.f("ix_projects_health"), ["health"], unique=False
         )
         batch_op.create_index(
-            batch_op.f("ix_action_items_status"), ["status"], unique=False
+            batch_op.f("ix_projects_lead_user_id"), ["lead_user_id"], unique=False
+        )
+        batch_op.create_index(batch_op.f("ix_projects_slug"), ["slug"], unique=True)
+        batch_op.create_index(
+            batch_op.f("ix_projects_status"), ["status"], unique=False
+        )
+
+    op.create_table(
+        "meeting_series",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("project_id", sa.String(), nullable=False),
+        sa.Column("title", sa.String(length=240), nullable=False),
+        sa.Column("purpose_markdown", sa.Text(), nullable=False),
+        sa.Column("recurrence_description", sa.String(length=500), nullable=False),
+        sa.Column("default_duration_minutes", sa.Integer(), nullable=False),
+        sa.Column("default_host_user_id", sa.String(), nullable=True),
+        sa.Column("default_recorder_user_id", sa.String(), nullable=True),
+        sa.Column(
+            "status", sa.Enum("active", "archived", name="seriesstatus"), nullable=False
+        ),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("updated_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["default_host_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["default_recorder_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["updated_by"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("meeting_series", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_meeting_series_project_id"), ["project_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_meeting_series_status"), ["status"], unique=False
+        )
+
+    op.create_table(
+        "project_members",
+        sa.Column("project_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.String(), nullable=False),
+        sa.Column(
+            "role",
+            sa.Enum("member", "stakeholder", name="projectmemberrole"),
+            nullable=False,
+        ),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("project_id", "user_id"),
+    )
+    op.create_table(
+        "project_updates",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("project_id", sa.String(), nullable=False),
+        sa.Column(
+            "health",
+            sa.Enum("on_track", "at_risk", "off_track", "unset", name="projecthealth"),
+            nullable=False,
+        ),
+        sa.Column("content_markdown", sa.Text(), nullable=False),
+        sa.Column(
+            "source",
+            sa.Enum("human", "ai_draft_applied", name="projectupdatesource"),
+            nullable=False,
+        ),
+        sa.Column("author_id", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["author_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("project_updates", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_project_updates_project_id"), ["project_id"], unique=False
+        )
+
+    op.create_table(
+        "meetings",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("project_id", sa.String(), nullable=False),
+        sa.Column("series_id", sa.String(), nullable=True),
+        sa.Column("title", sa.String(length=240), nullable=False),
+        sa.Column("purpose_markdown", sa.Text(), nullable=False),
+        sa.Column("scheduled_start", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("scheduled_end", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "draft",
+                "ready",
+                "in_progress",
+                "completed",
+                "canceled",
+                name="meetingstatus",
+            ),
+            nullable=False,
+        ),
+        sa.Column("host_user_id", sa.String(), nullable=True),
+        sa.Column("recorder_user_id", sa.String(), nullable=True),
+        sa.Column("summary_markdown", sa.Text(), nullable=False),
+        sa.Column("raw_notes_markdown", sa.Text(), nullable=False),
+        sa.Column("current_snapshot_id", sa.String(), nullable=True),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("updated_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["current_snapshot_id"],
+            ["meeting_snapshots.id"],
+            name="fk_meeting_current_snapshot",
+            use_alter=True,
+        ),
+        sa.ForeignKeyConstraint(
+            ["host_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["recorder_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["series_id"], ["meeting_series.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["updated_by"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("meetings", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_meetings_project_id"), ["project_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_meetings_scheduled_start"), ["scheduled_start"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_meetings_series_id"), ["series_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_meetings_status"), ["status"], unique=False
+        )
+        batch_op.create_index(batch_op.f("ix_meetings_title"), ["title"], unique=False)
+
+    op.create_table(
+        "series_participants",
+        sa.Column("series_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.String(), nullable=False),
+        sa.Column(
+            "participation_role",
+            sa.Enum(
+                "attendee", "host", "recorder", "presenter", name="participationrole"
+            ),
+            nullable=False,
+        ),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["series_id"], ["meeting_series.id"], ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("series_id", "user_id"),
+    )
+    op.create_table(
+        "standing_agenda_items",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("series_id", sa.String(), nullable=False),
+        sa.Column("title", sa.String(length=240), nullable=False),
+        sa.Column(
+            "agenda_type",
+            sa.Enum("information", "discussion", "decision", name="agendatype"),
+            nullable=False,
+        ),
+        sa.Column("default_owner_user_id", sa.String(), nullable=True),
+        sa.Column("default_duration_minutes", sa.Integer(), nullable=True),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["default_owner_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["series_id"], ["meeting_series.id"], ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("standing_agenda_items", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_standing_agenda_items_series_id"),
+            ["series_id"],
+            unique=False,
+        )
+
+    op.create_table(
+        "agenda_items",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("meeting_id", sa.String(), nullable=False),
+        sa.Column("title", sa.String(length=300), nullable=False),
+        sa.Column(
+            "agenda_type",
+            sa.Enum("information", "discussion", "decision", name="agendatype"),
+            nullable=False,
+        ),
+        sa.Column("proposer_user_id", sa.String(), nullable=True),
+        sa.Column("presenter_user_id", sa.String(), nullable=True),
+        sa.Column("estimated_minutes", sa.Integer(), nullable=True),
+        sa.Column("notes_markdown", sa.Text(), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "planned",
+                "in_progress",
+                "completed",
+                "skipped",
+                "canceled",
+                name="agendastatus",
+            ),
+            nullable=False,
+        ),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("carry_from_open_question_id", sa.String(), nullable=True),
+        sa.Column("copied_from_agenda_item_id", sa.String(), nullable=True),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("updated_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["carry_from_open_question_id"],
+            ["open_questions.id"],
+            name="fk_agenda_carry_open_question",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        sa.ForeignKeyConstraint(
+            ["copied_from_agenda_item_id"],
+            ["agenda_items.id"],
+            name="fk_agenda_copied_from_agenda",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["presenter_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["proposer_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["updated_by"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "meeting_id",
+            "copied_from_agenda_item_id",
+            name="uq_agenda_copy_per_meeting",
+        ),
+    )
+    with op.batch_alter_table("agenda_items", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_agenda_items_carry_from_open_question_id"),
+            ["carry_from_open_question_id"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_agenda_items_copied_from_agenda_item_id"),
+            ["copied_from_agenda_item_id"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_agenda_items_meeting_id"), ["meeting_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_agenda_items_status"), ["status"], unique=False
         )
 
     op.create_table(
@@ -160,6 +505,66 @@ def upgrade() -> None:
         )
 
     op.create_table(
+        "meeting_amendments",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("meeting_id", sa.String(), nullable=False),
+        sa.Column("reason", sa.String(length=500), nullable=False),
+        sa.Column("content_markdown", sa.Text(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("meeting_amendments", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_meeting_amendments_meeting_id"), ["meeting_id"], unique=False
+        )
+
+    op.create_table(
+        "meeting_participants",
+        sa.Column("meeting_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.String(), nullable=False),
+        sa.Column(
+            "participation_role",
+            sa.Enum(
+                "attendee", "host", "recorder", "presenter", name="participationrole"
+            ),
+            nullable=False,
+        ),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("meeting_id", "user_id"),
+    )
+    op.create_table(
+        "meeting_snapshots",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("meeting_id", sa.String(), nullable=False),
+        sa.Column("completion_number", sa.Integer(), nullable=False),
+        sa.Column("snapshot_json", sa.JSON(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("meeting_id", "completion_number"),
+    )
+    with op.batch_alter_table("meeting_snapshots", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_meeting_snapshots_meeting_id"), ["meeting_id"], unique=False
+        )
+
+    op.create_table(
         "meeting_updates",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("meeting_id", sa.String(), nullable=False),
@@ -178,33 +583,307 @@ def upgrade() -> None:
             batch_op.f("ix_meeting_updates_meeting_id"), ["meeting_id"], unique=False
         )
 
+    op.create_table(
+        "action_items",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("project_id", sa.String(), nullable=False),
+        sa.Column("meeting_id", sa.String(), nullable=True),
+        sa.Column("agenda_item_id", sa.String(), nullable=True),
+        sa.Column("content", sa.String(length=1000), nullable=False),
+        sa.Column("owner_user_id", sa.String(), nullable=True),
+        sa.Column("due_date", sa.Date(), nullable=True),
+        sa.Column(
+            "priority",
+            sa.Enum("low", "normal", "high", "urgent", name="actionpriority"),
+            nullable=False,
+        ),
+        sa.Column(
+            "status",
+            sa.Enum("open", "in_progress", "done", "canceled", name="actionstatus"),
+            nullable=False,
+        ),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["agenda_item_id"], ["agenda_items.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["owner_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("action_items", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_action_items_agenda_item_id"),
+            ["agenda_item_id"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_action_items_meeting_id"), ["meeting_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_action_items_owner_user_id"), ["owner_user_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_action_items_project_id"), ["project_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_action_items_status"), ["status"], unique=False
+        )
+
+    op.create_table(
+        "decisions",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("project_id", sa.String(), nullable=False),
+        sa.Column("meeting_id", sa.String(), nullable=True),
+        sa.Column("agenda_item_id", sa.String(), nullable=True),
+        sa.Column("title", sa.String(length=300), nullable=False),
+        sa.Column("decision_markdown", sa.Text(), nullable=False),
+        sa.Column("rationale_markdown", sa.Text(), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "proposed", "final", "superseded", "withdrawn", name="decisionstatus"
+            ),
+            nullable=False,
+        ),
+        sa.Column("decided_by_user_id", sa.String(), nullable=True),
+        sa.Column("supersedes_decision_id", sa.String(), nullable=True),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["agenda_item_id"], ["agenda_items.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["decided_by_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["supersedes_decision_id"], ["decisions.id"], ondelete="SET NULL"
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("decisions", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_decisions_agenda_item_id"), ["agenda_item_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_decisions_meeting_id"), ["meeting_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_decisions_project_id"), ["project_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_decisions_status"), ["status"], unique=False
+        )
+
+    op.create_table(
+        "decision_reviewers",
+        sa.Column("decision_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.String(), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "pending",
+                "approved",
+                "changes_requested",
+                name="decisionreviewerstatus",
+            ),
+            nullable=False,
+        ),
+        sa.Column("responded_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("comment", sa.String(length=2000), nullable=True),
+        sa.ForeignKeyConstraint(["decision_id"], ["decisions.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+        ),
+        sa.PrimaryKeyConstraint("decision_id", "user_id"),
+    )
+    op.create_table(
+        "open_questions",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("project_id", sa.String(), nullable=False),
+        sa.Column("meeting_id", sa.String(), nullable=True),
+        sa.Column("agenda_item_id", sa.String(), nullable=True),
+        sa.Column("question_markdown", sa.Text(), nullable=False),
+        sa.Column("owner_user_id", sa.String(), nullable=True),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "open", "scheduled", "resolved", "dropped", name="openquestionstatus"
+            ),
+            nullable=False,
+        ),
+        sa.Column("scheduled_meeting_id", sa.String(), nullable=True),
+        sa.Column("resolved_by_decision_id", sa.String(), nullable=True),
+        sa.Column("converted_from_agenda_item_id", sa.String(), nullable=True),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["agenda_item_id"], ["agenda_items.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["converted_from_agenda_item_id"], ["agenda_items.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["owner_user_id"],
+            ["users.id"],
+        ),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["resolved_by_decision_id"], ["decisions.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["scheduled_meeting_id"], ["meetings.id"], ondelete="SET NULL"
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("open_questions", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_open_questions_agenda_item_id"),
+            ["agenda_item_id"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_open_questions_converted_from_agenda_item_id"),
+            ["converted_from_agenda_item_id"],
+            unique=True,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_open_questions_meeting_id"), ["meeting_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_open_questions_project_id"), ["project_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_open_questions_status"), ["status"], unique=False
+        )
+
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    with op.batch_alter_table("open_questions", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_open_questions_status"))
+        batch_op.drop_index(batch_op.f("ix_open_questions_project_id"))
+        batch_op.drop_index(batch_op.f("ix_open_questions_meeting_id"))
+        batch_op.drop_index(
+            batch_op.f("ix_open_questions_converted_from_agenda_item_id")
+        )
+        batch_op.drop_index(batch_op.f("ix_open_questions_agenda_item_id"))
+
+    op.drop_table("open_questions")
+    op.drop_table("decision_reviewers")
+    with op.batch_alter_table("decisions", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_decisions_status"))
+        batch_op.drop_index(batch_op.f("ix_decisions_project_id"))
+        batch_op.drop_index(batch_op.f("ix_decisions_meeting_id"))
+        batch_op.drop_index(batch_op.f("ix_decisions_agenda_item_id"))
+
+    op.drop_table("decisions")
+    with op.batch_alter_table("action_items", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_action_items_status"))
+        batch_op.drop_index(batch_op.f("ix_action_items_project_id"))
+        batch_op.drop_index(batch_op.f("ix_action_items_owner_user_id"))
+        batch_op.drop_index(batch_op.f("ix_action_items_meeting_id"))
+        batch_op.drop_index(batch_op.f("ix_action_items_agenda_item_id"))
+
+    op.drop_table("action_items")
     with op.batch_alter_table("meeting_updates", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_meeting_updates_meeting_id"))
 
     op.drop_table("meeting_updates")
+    with op.batch_alter_table("meeting_snapshots", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_meeting_snapshots_meeting_id"))
+
+    op.drop_table("meeting_snapshots")
+    op.drop_table("meeting_participants")
+    with op.batch_alter_table("meeting_amendments", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_meeting_amendments_meeting_id"))
+
+    op.drop_table("meeting_amendments")
     with op.batch_alter_table("attachments", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_attachments_meeting_id"))
 
     op.drop_table("attachments")
-    with op.batch_alter_table("action_items", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_action_items_status"))
-        batch_op.drop_index(batch_op.f("ix_action_items_meeting_id"))
+    with op.batch_alter_table("agenda_items", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_agenda_items_status"))
+        batch_op.drop_index(batch_op.f("ix_agenda_items_meeting_id"))
+        batch_op.drop_index(batch_op.f("ix_agenda_items_copied_from_agenda_item_id"))
+        batch_op.drop_index(batch_op.f("ix_agenda_items_carry_from_open_question_id"))
 
-    op.drop_table("action_items")
-    op.drop_table("plugin_states")
-    op.drop_table("plugin_configs")
+    op.drop_table("agenda_items")
+    with op.batch_alter_table("standing_agenda_items", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_standing_agenda_items_series_id"))
+
+    op.drop_table("standing_agenda_items")
+    op.drop_table("series_participants")
     with op.batch_alter_table("meetings", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_meetings_title"))
-        batch_op.drop_index(batch_op.f("ix_meetings_project"))
-        batch_op.drop_index(batch_op.f("ix_meetings_meeting_date"))
+        batch_op.drop_index(batch_op.f("ix_meetings_status"))
+        batch_op.drop_index(batch_op.f("ix_meetings_series_id"))
+        batch_op.drop_index(batch_op.f("ix_meetings_scheduled_start"))
+        batch_op.drop_index(batch_op.f("ix_meetings_project_id"))
 
     op.drop_table("meetings")
+    with op.batch_alter_table("project_updates", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_project_updates_project_id"))
+
+    op.drop_table("project_updates")
+    op.drop_table("project_members")
+    with op.batch_alter_table("meeting_series", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_meeting_series_status"))
+        batch_op.drop_index(batch_op.f("ix_meeting_series_project_id"))
+
+    op.drop_table("meeting_series")
+    with op.batch_alter_table("projects", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_projects_status"))
+        batch_op.drop_index(batch_op.f("ix_projects_slug"))
+        batch_op.drop_index(batch_op.f("ix_projects_lead_user_id"))
+        batch_op.drop_index(batch_op.f("ix_projects_health"))
+
+    op.drop_table("projects")
+    op.drop_table("plugin_states")
+    op.drop_table("plugin_configs")
+    with op.batch_alter_table("outcome_migration_records", schema=None) as batch_op:
+        batch_op.drop_index(
+            batch_op.f("ix_outcome_migration_records_target_meeting_id")
+        )
+        batch_op.drop_index(batch_op.f("ix_outcome_migration_records_target_agenda_id"))
+        batch_op.drop_index(
+            batch_op.f("ix_outcome_migration_records_source_meeting_id")
+        )
+        batch_op.drop_index(batch_op.f("ix_outcome_migration_records_source_agenda_id"))
+
+    op.drop_table("outcome_migration_records")
     with op.batch_alter_table("users", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_users_username"))
 

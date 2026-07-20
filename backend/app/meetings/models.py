@@ -191,6 +191,7 @@ class Meeting(Base):
         back_populates="meeting",
         cascade="all, delete-orphan",
         foreign_keys="MeetingSnapshot.meeting_id",
+        order_by="(MeetingSnapshot.completion_number, MeetingSnapshot.id)",
     )
     current_snapshot: Mapped["MeetingSnapshot | None"] = relationship(
         foreign_keys=[current_snapshot_id], post_update=True
@@ -198,7 +199,7 @@ class Meeting(Base):
     amendments: Mapped[list["MeetingAmendment"]] = relationship(
         back_populates="meeting",
         cascade="all, delete-orphan",
-        order_by="MeetingAmendment.created_at",
+        order_by="(MeetingAmendment.created_at, MeetingAmendment.id)",
     )
     agenda_items: Mapped[list["AgendaItem"]] = relationship(
         back_populates="meeting",

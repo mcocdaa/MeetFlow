@@ -11,14 +11,27 @@ from app.database import Database
 from app import schema_guard
 from app.schema_guard import LegacyDatabaseError, reject_legacy_schema
 
-
 APPLICATION_TABLES = {
     "action_items",
+    "agenda_items",
     "attachments",
+    "decision_reviewers",
+    "decisions",
+    "meeting_amendments",
+    "meeting_participants",
+    "meeting_series",
+    "meeting_snapshots",
     "meeting_updates",
     "meetings",
+    "open_questions",
+    "outcome_migration_records",
     "plugin_configs",
     "plugin_states",
+    "project_members",
+    "project_updates",
+    "projects",
+    "series_participants",
+    "standing_agenda_items",
     "users",
 }
 

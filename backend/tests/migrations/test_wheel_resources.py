@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from zipfile import ZipFile
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MIGRATION_RESOURCES = {
     "share/meetflow/alembic.ini",
@@ -99,12 +98,26 @@ with database.engine.connect() as connection:
         f"sqlite:///{database}",
         {
             "action_items",
+            "agenda_items",
             "alembic_version",
             "attachments",
+            "decision_reviewers",
+            "decisions",
+            "meeting_amendments",
+            "meeting_participants",
+            "meeting_series",
+            "meeting_snapshots",
             "meeting_updates",
             "meetings",
+            "open_questions",
+            "outcome_migration_records",
             "plugin_configs",
             "plugin_states",
+            "project_members",
+            "project_updates",
+            "projects",
+            "series_participants",
+            "standing_agenda_items",
             "users",
         },
     )

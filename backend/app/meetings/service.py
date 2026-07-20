@@ -3,25 +3,31 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
+from app.domain.enums import AgendaStatus, MeetingStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import (
     Attachment,
     Meeting,
+    MeetingAmendment,
     MeetingParticipant,
     MeetingSeries,
+    MeetingSnapshot,
     MeetingUpdate,
     SeriesParticipant,
     StandingAgendaItem,
 )
 from app.outcomes.models import ActionItem
 from app.meetings.schemas import (
+    AmendmentWrite,
+    LifecycleCommand,
     MeetingEdit,
     MeetingSeriesEdit,
     MeetingSeriesWrite,
@@ -29,8 +35,14 @@ from app.meetings.schemas import (
     OccurrenceWrite,
     ParticipantWrite,
     StandingAgendaWrite,
+    MeetingSnapshotDocument,
 )
+from app.outcomes.models import Decision
 from app.projects.models import Project
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def user_ref(user: User | None) -> dict[str, str] | None:
@@ -84,6 +96,8 @@ def meeting_relationship_options():
         joinedload(Meeting.creator),
         joinedload(Meeting.updater),
         selectinload(Meeting.participants).joinedload(MeetingParticipant.user),
+        joinedload(Meeting.snapshots),
+        joinedload(Meeting.amendments),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.proposer),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.presenter),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.creator),
@@ -373,6 +387,8 @@ class MeetingService:
     ) -> Meeting:
         self._require_active(actor)
         meeting = self.get_meeting(meeting_id)
+        if meeting.status in {MeetingStatus.completed, MeetingStatus.canceled}:
+            raise AppError(409, "meeting_locked", "已结束的会议不可直接修改")
         require_version(payload.expected_version, meeting.version)
         changes = payload.model_dump(
             exclude={"expected_version", "participants"}, exclude_unset=True
@@ -411,6 +427,346 @@ class MeetingService:
             self._raise_meeting_stale(meeting_id, payload.expected_version, exc)
         self.session.refresh(meeting)
         return meeting
+
+    @staticmethod
+    def _invalid_transition(meeting: Meeting, target: MeetingStatus) -> None:
+        raise AppError(
+            409,
+            "invalid_meeting_transition",
+            "会议状态不可执行此操作",
+            details={"from": meeting.status.value, "to": target.value},
+        )
+
+    def _commit_meeting_command(
+        self, meeting: Meeting, expected_version: int
+    ) -> Meeting:
+        meeting_id = meeting.id
+        meeting.version += 1
+        try:
+            self.session.commit()
+        except (StaleDataError, IntegrityError) as exc:
+            self._raise_meeting_stale(meeting_id, expected_version, exc)
+        self.session.refresh(meeting)
+        return meeting
+
+    def mark_ready(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
+    ) -> Meeting:
+        self._require_active(actor)
+        meeting = self.get_meeting(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        if meeting.status != MeetingStatus.draft:
+            self._invalid_transition(meeting, MeetingStatus.ready)
+        meeting.status = MeetingStatus.ready
+        meeting.updated_by = actor.id
+        return self._commit_meeting_command(meeting, payload.expected_version)
+
+    def start(self, meeting_id: str, payload: LifecycleCommand, actor: User) -> Meeting:
+        self._require_active(actor)
+        meeting = self.get_meeting(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        if meeting.status not in {MeetingStatus.draft, MeetingStatus.ready}:
+            self._invalid_transition(meeting, MeetingStatus.in_progress)
+        meeting.status = MeetingStatus.in_progress
+        meeting.started_at = meeting.started_at or utcnow()
+        meeting.updated_by = actor.id
+        return self._commit_meeting_command(meeting, payload.expected_version)
+
+    def cancel(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
+    ) -> Meeting:
+        self._require_active(actor)
+        meeting = self.get_meeting(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        if meeting.status not in {
+            MeetingStatus.draft,
+            MeetingStatus.ready,
+            MeetingStatus.in_progress,
+        }:
+            self._invalid_transition(meeting, MeetingStatus.canceled)
+        meeting.status = MeetingStatus.canceled
+        meeting.completed_at = None
+        meeting.updated_by = actor.id
+        return self._commit_meeting_command(meeting, payload.expected_version)
+
+    def reopen(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
+    ) -> Meeting:
+        self._require_active(actor)
+        meeting = self.get_meeting(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        if meeting.status != MeetingStatus.completed:
+            self._invalid_transition(meeting, MeetingStatus.in_progress)
+        meeting.status = MeetingStatus.in_progress
+        meeting.started_at = meeting.started_at or utcnow()
+        meeting.completed_at = None
+        meeting.updated_by = actor.id
+        return self._commit_meeting_command(meeting, payload.expected_version)
+
+    def _meeting_for_snapshot(self, meeting_id: str) -> Meeting:
+        meeting = self.session.scalar(
+            select(Meeting)
+            .where(Meeting.id == meeting_id)
+            .options(
+                selectinload(Meeting.participants),
+                selectinload(Meeting.amendments),
+                selectinload(Meeting.agenda_items)
+                .selectinload(AgendaItem.decisions)
+                .selectinload(Decision.reviewers),
+                selectinload(Meeting.agenda_items).selectinload(AgendaItem.actions),
+                selectinload(Meeting.agenda_items).selectinload(
+                    AgendaItem.open_questions
+                ),
+            )
+        )
+        if meeting is None:
+            raise AppError(404, "meeting_not_found", "会议不存在")
+        return meeting
+
+    @staticmethod
+    def _snapshot_document(meeting: Meeting) -> dict[str, Any]:
+        def columns(item, names):
+            return {name: getattr(item, name) for name in names}
+
+        agenda_documents = []
+        for item in sorted(
+            meeting.agenda_items, key=lambda row: (row.position, row.id)
+        ):
+            item_data = columns(
+                item,
+                (
+                    "id",
+                    "meeting_id",
+                    "title",
+                    "agenda_type",
+                    "proposer_user_id",
+                    "presenter_user_id",
+                    "estimated_minutes",
+                    "notes_markdown",
+                    "status",
+                    "position",
+                    "carry_from_open_question_id",
+                    "copied_from_agenda_item_id",
+                    "version",
+                    "created_by",
+                    "updated_by",
+                    "created_at",
+                    "updated_at",
+                    "started_at",
+                    "completed_at",
+                ),
+            )
+            item_data["decisions"] = []
+            for decision in sorted(item.decisions, key=lambda row: row.id):
+                decision_data = columns(
+                    decision,
+                    (
+                        "id",
+                        "project_id",
+                        "meeting_id",
+                        "agenda_item_id",
+                        "title",
+                        "decision_markdown",
+                        "rationale_markdown",
+                        "status",
+                        "decided_by_user_id",
+                        "supersedes_decision_id",
+                        "version",
+                        "created_by",
+                        "created_at",
+                        "updated_at",
+                    ),
+                )
+                decision_data["reviewers"] = [
+                    columns(
+                        row,
+                        ("user_id", "status", "responded_at", "comment"),
+                    )
+                    for row in sorted(decision.reviewers, key=lambda row: row.user_id)
+                ]
+                item_data["decisions"].append(decision_data)
+            item_data["actions"] = [
+                columns(
+                    row,
+                    (
+                        "id",
+                        "project_id",
+                        "meeting_id",
+                        "agenda_item_id",
+                        "content",
+                        "owner_user_id",
+                        "due_date",
+                        "priority",
+                        "status",
+                        "version",
+                        "created_by",
+                        "created_at",
+                        "updated_at",
+                        "completed_at",
+                    ),
+                )
+                for row in sorted(item.actions, key=lambda row: row.id)
+            ]
+            item_data["open_questions"] = [
+                columns(
+                    row,
+                    (
+                        "id",
+                        "project_id",
+                        "meeting_id",
+                        "agenda_item_id",
+                        "question_markdown",
+                        "owner_user_id",
+                        "status",
+                        "scheduled_meeting_id",
+                        "resolved_by_decision_id",
+                        "converted_from_agenda_item_id",
+                        "version",
+                        "created_by",
+                        "created_at",
+                        "updated_at",
+                    ),
+                )
+                for row in sorted(item.open_questions, key=lambda row: row.id)
+            ]
+            agenda_documents.append(item_data)
+        meeting_data = columns(
+            meeting,
+            (
+                "id",
+                "project_id",
+                "series_id",
+                "title",
+                "purpose_markdown",
+                "scheduled_start",
+                "scheduled_end",
+                "host_user_id",
+                "recorder_user_id",
+                "summary_markdown",
+                "raw_notes_markdown",
+                "created_by",
+                "updated_by",
+                "created_at",
+                "updated_at",
+                "started_at",
+            ),
+        )
+        meeting_data["status_before_completion"] = meeting.status
+        meeting_data["version_before_completion"] = meeting.version
+        meeting_data["participants"] = [
+            columns(row, ("user_id", "participation_role", "position"))
+            for row in sorted(meeting.participants, key=lambda row: row.position)
+        ]
+        amendments = [
+            columns(
+                row, ("id", "reason", "content_markdown", "created_by", "created_at")
+            )
+            for row in sorted(
+                meeting.amendments, key=lambda row: (row.created_at, row.id)
+            )
+        ]
+        document = MeetingSnapshotDocument(
+            meeting=meeting_data,
+            agenda_items=agenda_documents,
+            amendments=amendments,
+        )
+        return document.model_dump(mode="json")
+
+    def finish(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
+    ) -> Meeting:
+        self._require_active(actor)
+        meeting = self._meeting_for_snapshot(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        if meeting.status != MeetingStatus.in_progress:
+            self._invalid_transition(meeting, MeetingStatus.completed)
+        unresolved = [
+            row.id
+            for row in sorted(
+                meeting.agenda_items, key=lambda row: (row.position, row.id)
+            )
+            if row.status in {AgendaStatus.planned, AgendaStatus.in_progress}
+        ]
+        if unresolved:
+            raise AppError(
+                409,
+                "meeting_has_unresolved_agenda",
+                "会议仍有未处理议题",
+                details={"agenda_ids": unresolved},
+            )
+        completion_number = (
+            self.session.scalar(
+                select(func.max(MeetingSnapshot.completion_number)).where(
+                    MeetingSnapshot.meeting_id == meeting.id
+                )
+            )
+            or 0
+        ) + 1
+        snapshot = MeetingSnapshot(
+            meeting_id=meeting.id,
+            completion_number=completion_number,
+            snapshot_json=self._snapshot_document(meeting),
+            created_by=actor.id,
+        )
+        self.session.add(snapshot)
+        meeting.current_snapshot = snapshot
+        meeting.status = MeetingStatus.completed
+        meeting.completed_at = utcnow()
+        meeting.updated_by = actor.id
+        return self._commit_meeting_command(meeting, payload.expected_version)
+
+    def list_snapshots(self, meeting_id: str) -> list[MeetingSnapshot]:
+        self.get_meeting(meeting_id)
+        return list(
+            self.session.scalars(
+                select(MeetingSnapshot)
+                .where(MeetingSnapshot.meeting_id == meeting_id)
+                .order_by(MeetingSnapshot.completion_number, MeetingSnapshot.id)
+                .limit(200)
+            )
+        )
+
+    def add_amendment(
+        self, meeting_id: str, payload: AmendmentWrite, actor: User
+    ) -> MeetingAmendment:
+        self._require_active(actor)
+        meeting = self.get_meeting(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        if meeting.status != MeetingStatus.completed:
+            raise AppError(409, "meeting_not_completed", "只有已完成会议可添加更正")
+        amendment = MeetingAmendment(
+            meeting_id=meeting.id,
+            reason=payload.reason,
+            content_markdown=payload.content_markdown,
+            created_by=actor.id,
+        )
+        self.session.add(amendment)
+        meeting.updated_by = actor.id
+        self._commit_meeting_command(meeting, payload.expected_version)
+        self.session.refresh(amendment)
+        return amendment
+
+    @staticmethod
+    def serialize_snapshot(item: MeetingSnapshot) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "meeting_id": item.meeting_id,
+            "completion_number": item.completion_number,
+            "snapshot": item.snapshot_json,
+            "created_by": item.created_by,
+            "created_at": item.created_at,
+        }
+
+    @staticmethod
+    def serialize_amendment(item: MeetingAmendment) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "meeting_id": item.meeting_id,
+            "reason": item.reason,
+            "content_markdown": item.content_markdown,
+            "created_by": item.created_by,
+            "created_at": item.created_at,
+        }
 
     def serialize_series(self, series: MeetingSeries) -> dict[str, Any]:
         return {
@@ -468,6 +824,16 @@ class MeetingService:
             "summary_markdown": meeting.summary_markdown,
             "raw_notes_markdown": meeting.raw_notes_markdown,
             "current_snapshot_id": meeting.current_snapshot_id,
+            "snapshots": [
+                {
+                    "id": row.id,
+                    "completion_number": row.completion_number,
+                    "created_by": row.created_by,
+                    "created_at": row.created_at,
+                }
+                for row in meeting.snapshots
+            ],
+            "amendments": [self.serialize_amendment(row) for row in meeting.amendments],
             "version": meeting.version,
             "participants": [
                 {

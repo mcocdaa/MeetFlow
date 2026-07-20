@@ -7,6 +7,8 @@ from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
 from app.meetings.schemas import (
+    AmendmentWrite,
+    LifecycleCommand,
     MeetingEdit,
     MeetingSeriesEdit,
     MeetingSeriesWrite,
@@ -111,3 +113,88 @@ def update_meeting(
 ) -> dict[str, Any]:
     service = MeetingService(session)
     return service.serialize_meeting(service.update_meeting(meeting_id, payload, user))
+
+
+def _lifecycle_result(
+    operation: str,
+    meeting_id: str,
+    payload: LifecycleCommand,
+    user: User,
+    session: Session,
+) -> dict[str, Any]:
+    service = MeetingService(session)
+    meeting = getattr(service, operation)(meeting_id, payload, user)
+    return service.serialize_meeting(meeting)
+
+
+@router.post("/api/meetings/{meeting_id}/ready")
+def mark_ready(
+    meeting_id: str,
+    payload: LifecycleCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return _lifecycle_result("mark_ready", meeting_id, payload, user, session)
+
+
+@router.post("/api/meetings/{meeting_id}/start")
+def start_meeting(
+    meeting_id: str,
+    payload: LifecycleCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return _lifecycle_result("start", meeting_id, payload, user, session)
+
+
+@router.post("/api/meetings/{meeting_id}/finish")
+def finish_meeting(
+    meeting_id: str,
+    payload: LifecycleCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return _lifecycle_result("finish", meeting_id, payload, user, session)
+
+
+@router.post("/api/meetings/{meeting_id}/reopen")
+def reopen_meeting(
+    meeting_id: str,
+    payload: LifecycleCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return _lifecycle_result("reopen", meeting_id, payload, user, session)
+
+
+@router.post("/api/meetings/{meeting_id}/cancel")
+def cancel_meeting(
+    meeting_id: str,
+    payload: LifecycleCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return _lifecycle_result("cancel", meeting_id, payload, user, session)
+
+
+@router.get("/api/meetings/{meeting_id}/snapshots")
+def list_snapshots(
+    meeting_id: str,
+    _user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict[str, Any]]:
+    service = MeetingService(session)
+    return [
+        service.serialize_snapshot(row) for row in service.list_snapshots(meeting_id)
+    ]
+
+
+@router.post("/api/meetings/{meeting_id}/amendments", status_code=201)
+def add_amendment(
+    meeting_id: str,
+    payload: AmendmentWrite,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    service = MeetingService(session)
+    return service.serialize_amendment(service.add_amendment(meeting_id, payload, user))
