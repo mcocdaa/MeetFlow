@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -331,6 +332,10 @@ def test_edit_schemas_reject_null_nonnullable_fields_and_blank_markdown():
 
 
 def test_outcome_contracts_normalize_refs_and_forbid_status_bypass():
+    assert (
+        ActionWrite.model_fields["priority"].annotation
+        == Literal["low", "normal", "high", "urgent"]
+    )
     with pytest.raises(ValidationError):
         ActionWrite(content="Missing project")
     with pytest.raises(ValidationError):

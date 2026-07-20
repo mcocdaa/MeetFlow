@@ -11,6 +11,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
 from app.domain.enums import (
+    ActionPriority,
     ActionStatus,
     AgendaStatus,
     DecisionStatus,
@@ -308,9 +309,11 @@ class OutcomeService:
             project_id, payload.meeting_id, payload.agenda_item_id
         )
         self._users([payload.owner_user_id])
+        values = payload.model_dump(exclude={"project_id"})
+        values["priority"] = ActionPriority(payload.priority)
         action = ActionItem(
             project_id=project_id,
-            **payload.model_dump(exclude={"project_id"}),
+            **values,
             created_by=actor.id,
         )
         self.session.add(action)

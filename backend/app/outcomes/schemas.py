@@ -135,7 +135,7 @@ class ActionWrite(SourceInput):
     content: str = Field(min_length=1, max_length=1000)
     owner_user_id: str | None = Field(default=None, max_length=64)
     due_date: date | None = None
-    priority: ActionPriority = ActionPriority.normal
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
 
     @field_validator(
         "project_id", "content", "owner_user_id", "priority", mode="before"
