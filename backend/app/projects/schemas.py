@@ -120,6 +120,11 @@ class ProjectEdit(BaseModel):
     def normalize_summary(cls, value: str | None) -> str | None:
         return value.strip() if value is not None else None
 
+    @field_validator("lead_user_id")
+    @classmethod
+    def normalize_lead(cls, value: str | None) -> str | None:
+        return _strip_nonblank(value) if value is not None else None
+
     @field_validator("member_ids")
     @classmethod
     def normalize_members(cls, values: list[str] | None) -> list[str] | None:

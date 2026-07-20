@@ -93,6 +93,13 @@ def test_project_edit_trims_lead_before_lookup_and_persistence(client, users):
         assert edited.description_markdown == "  preserved edit markdown  \n"
 
 
+def test_project_edit_rejects_whitespace_only_lead_id():
+    with pytest.raises(ValueError):
+        ProjectEdit(expected_version=1, lead_user_id="   ")
+
+    assert ProjectEdit(expected_version=1, lead_user_id=None).lead_user_id is None
+
+
 def test_project_has_members_health_and_version(client, users):
     admin, member, _ = users
     with client.app.state.database.session() as session:
