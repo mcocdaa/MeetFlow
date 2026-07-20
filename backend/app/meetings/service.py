@@ -12,7 +12,6 @@ from app.auth.models import User, UserStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import (
-    ActionItem,
     Attachment,
     Meeting,
     MeetingParticipant,
@@ -21,6 +20,7 @@ from app.meetings.models import (
     SeriesParticipant,
     StandingAgendaItem,
 )
+from app.outcomes.models import ActionItem
 from app.meetings.schemas import (
     MeetingEdit,
     MeetingSeriesEdit,
@@ -584,7 +584,7 @@ class MeetingService:
             "content": item.content,
             "owner": item.owner,
             "due_date": item.due_date,
-            "status": item.status,
+            "status": item.status.value,
             "created_by": self._actor(item.created_by),
             "created_at": item.created_at,
             "updated_at": item.updated_at,

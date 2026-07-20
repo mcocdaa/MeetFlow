@@ -58,3 +58,37 @@ class AgendaStatus(StrEnum):
     completed = "completed"
     skipped = "skipped"
     canceled = "canceled"
+
+
+class DecisionStatus(StrEnum):
+    proposed = "proposed"
+    final = "final"
+    superseded = "superseded"
+    withdrawn = "withdrawn"
+
+
+class DecisionReviewerStatus(StrEnum):
+    pending = "pending"
+    approved = "approved"
+    changes_requested = "changes_requested"
+
+
+class ActionPriority(StrEnum):
+    low = "low"
+    normal = "normal"
+    high = "high"
+    urgent = "urgent"
+
+
+class ActionStatus(StrEnum):
+    open = "open"
+    in_progress = "in_progress"
+    done = "done"
+    canceled = "canceled"
+
+
+class OpenQuestionStatus(StrEnum):
+    open = "open"
+    scheduled = "scheduled"
+    resolved = "resolved"
+    dropped = "dropped"

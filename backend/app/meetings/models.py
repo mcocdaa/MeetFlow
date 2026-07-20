@@ -1,10 +1,9 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
-    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -267,28 +266,6 @@ class MeetingAmendment(Base):
     creator: Mapped[User] = relationship(foreign_keys=[created_by])
 
 
-# Transitional v0.1 tables remain mapped until their APIs are replaced in Task 7.
-class ActionItem(Base):
-    __tablename__ = "action_items"
-    id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    meeting_id: Mapped[str] = mapped_column(
-        ForeignKey("meetings.id", ondelete="CASCADE"), index=True
-    )
-    content: Mapped[str] = mapped_column(String(500))
-    owner: Mapped[str] = mapped_column(String(120), default="")
-    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
-    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow
-    )
-
-
 class MeetingUpdate(Base):
     __tablename__ = "meeting_updates"
     id: Mapped[str] = mapped_column(
@@ -321,3 +298,8 @@ class Attachment(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
+
+
+# Temporary import compatibility for v0.1 plugin/package consumers. The table
+# mapping itself lives in outcomes and is removed from this module.
+from app.outcomes.models import ActionItem  # noqa: E402,F401

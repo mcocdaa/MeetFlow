@@ -314,6 +314,11 @@ class AgendaService:
         self._require_mutable(meeting)
         require_version(payload.expected_version, item.version)
         require_version(expected_meeting_version, meeting.version)
+        # Imported lazily to avoid a model/service import cycle.
+        from app.outcomes.service import OutcomeService
+
+        if OutcomeService(self.session).count_for_agenda(item.id):
+            raise AppError(409, "agenda_has_outcomes", "议题已有产出，不能直接删除")
         following = list(
             self.session.scalars(
                 select(AgendaItem).where(

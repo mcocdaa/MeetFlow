@@ -43,7 +43,14 @@ class AgendaItem(Base):
     )
     position: Mapped[int] = mapped_column(Integer)
     carry_from_open_question_id: Mapped[str | None] = mapped_column(
-        String, nullable=True
+        ForeignKey(
+            "open_questions.id",
+            use_alter=True,
+            name="fk_agenda_carry_open_question",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
     )
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
@@ -68,3 +75,15 @@ class AgendaItem(Base):
     presenter: Mapped[User | None] = relationship(foreign_keys=[presenter_user_id])
     creator: Mapped[User] = relationship(foreign_keys=[created_by])
     updater: Mapped[User] = relationship(foreign_keys=[updated_by])
+
+    decisions = relationship(
+        "Decision", back_populates="agenda_item", foreign_keys="Decision.agenda_item_id"
+    )
+    actions = relationship(
+        "ActionItem", back_populates="agenda_item", foreign_keys="ActionItem.agenda_item_id"
+    )
+    open_questions = relationship(
+        "OpenQuestion",
+        back_populates="agenda_item",
+        foreign_keys="OpenQuestion.agenda_item_id",
+    )

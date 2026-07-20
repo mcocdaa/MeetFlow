@@ -1,7 +1,6 @@
 from app.auth.models import User
 from app.agendas.models import AgendaItem
 from app.meetings.models import (
-    ActionItem,
     Attachment,
     Meeting,
     MeetingAmendment,
@@ -12,6 +11,7 @@ from app.meetings.models import (
     SeriesParticipant,
     StandingAgendaItem,
 )
+from app.outcomes.models import ActionItem, Decision, DecisionReviewer, OpenQuestion
 from app.plugins.models import PluginConfig, PluginState
 from app.projects.models import Project, ProjectMember, ProjectUpdate
 
@@ -19,12 +19,15 @@ __all__ = [
     "ActionItem",
     "AgendaItem",
     "Attachment",
+    "Decision",
+    "DecisionReviewer",
     "Meeting",
     "MeetingAmendment",
     "MeetingParticipant",
     "MeetingSeries",
     "MeetingSnapshot",
     "MeetingUpdate",
+    "OpenQuestion",
     "PluginConfig",
     "PluginState",
     "Project",

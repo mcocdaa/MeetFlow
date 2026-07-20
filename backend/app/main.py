@@ -14,6 +14,7 @@ from app.config import Settings
 from app.database import Database
 from app.errors import install_error_handlers
 from app.meetings.router import actions_router, router as meetings_router
+from app.outcomes.router import router as outcomes_router
 from app.plugins.manager import PluginManager
 from app.plugins.router import (
     actions_router as plugin_actions_router,
@@ -67,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(meeting_actions_router)
     app.include_router(projects_router)
     app.include_router(updates_router)
+    app.include_router(outcomes_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(request: Request, call_next):

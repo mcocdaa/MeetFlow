@@ -18,6 +18,7 @@ from app.errors import AppError
 from app.meetings.models import Meeting
 from app.meetings.schemas import MeetingWrite
 from app.meetings.service import MeetingService
+from app.outcomes.models import OpenQuestion
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -207,6 +208,16 @@ def test_edit_can_clear_optional_user_refs_without_poisoning_session(
     with client.app.state.database.session() as session:
         service = AgendaService(session)
         meeting = session.get(Meeting, meeting_id)
+        session.add(
+            OpenQuestion(
+                id="question-id",
+                project_id=meeting.project_id,
+                meeting_id=meeting.id,
+                question_markdown="Question used by the carry reference",
+                created_by=admin.id,
+            )
+        )
+        session.commit()
         item = add_item(
             service,
             meeting,
