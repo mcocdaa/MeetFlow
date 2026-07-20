@@ -2,12 +2,18 @@ import os
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import inspect, text
 
-from app.database import Database
+from app.auth.models import User, UserRole, UserStatus
+from app.database import Database, migration_config_path
+from app.meetings.models import Meeting, MeetingSnapshot
+from app.projects.models import Project
 from app import schema_guard
 from app.schema_guard import LegacyDatabaseError, reject_legacy_schema
 
@@ -91,6 +97,54 @@ def test_fresh_database_with_percent_in_path_upgrades_to_head(tmp_path):
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "0001"
         )
+
+
+def test_downgrade_clears_current_snapshot_pointer_before_history_table(tmp_path):
+    database = Database(f"sqlite:///{tmp_path / 'downgrade.db'}")
+    database.migrate()
+    with database.session() as session:
+        user = User(
+            username="downgrade-admin",
+            display_name="Admin",
+            password_hash="unused",
+            role=UserRole.ADMIN,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(user)
+        session.flush()
+        project = Project(
+            name="Downgrade",
+            slug="downgrade",
+            lead_user_id=user.id,
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        session.add(project)
+        session.flush()
+        meeting = Meeting(
+            project_id=project.id,
+            title="Completed",
+            scheduled_start=datetime(2026, 8, 10, 9, tzinfo=timezone.utc),
+            scheduled_end=datetime(2026, 8, 10, 10, tzinfo=timezone.utc),
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        session.add(meeting)
+        session.flush()
+        snapshot = MeetingSnapshot(
+            meeting_id=meeting.id,
+            completion_number=1,
+            snapshot_json={"schema_version": 1},
+            created_by=user.id,
+        )
+        session.add(snapshot)
+        meeting.current_snapshot = snapshot
+        session.commit()
+
+    config = Config(migration_config_path())
+    config.set_main_option("sqlalchemy.url", str(database.engine.url))
+    command.downgrade(config, "base")
+    assert set(inspect(database.engine).get_table_names()) == {"alembic_version"}
 
 
 def test_v01_database_is_rejected_without_deletion(tmp_path):

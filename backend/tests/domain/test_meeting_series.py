@@ -10,7 +10,9 @@ from app.meetings.models import (
     ActionItem,
     Attachment,
     Meeting,
+    MeetingAmendment,
     MeetingSeries,
+    MeetingSnapshot,
     MeetingUpdate,
 )
 from app.meetings.schemas import (
@@ -478,8 +480,68 @@ def test_detail_serialization_has_bounded_relationship_queries(
         assert len(series_body["standing_items"]) == 2
         assert len(meeting_body["participants"]) == 2
         assert series_queries <= 3
-        # One base query plus bounded participant and agenda collection loads.
-        assert meeting_queries <= 3
+        # Detail uses select-in collection loads, avoiding Cartesian history rows.
+        assert meeting_queries <= 5
+
+
+def test_project_meeting_list_is_compact_and_uses_scalar_counts(
+    client, project, meeting_users
+):
+    admin, _, _ = meeting_users
+    database = client.app.state.database
+    with database.session() as seed:
+        meeting = MeetingService(seed).create_meeting(
+            project.id,
+            MeetingWrite(
+                title="Compact list",
+                scheduled_start=START,
+                scheduled_end=START + timedelta(minutes=30),
+            ),
+            admin,
+        )
+        seed.add_all(
+            [
+                MeetingSnapshot(
+                    meeting_id=meeting.id,
+                    completion_number=number,
+                    snapshot_json={"large": "x" * 10_000},
+                    created_by=admin.id,
+                )
+                for number in range(1, 4)
+            ]
+            + [
+                MeetingAmendment(
+                    meeting_id=meeting.id,
+                    reason=f"Correction {number}",
+                    content_markdown="fix",
+                    created_by=admin.id,
+                )
+                for number in range(2)
+            ]
+        )
+        seed.commit()
+        meeting_id = meeting.id
+
+    with database.session() as session:
+        statements = []
+
+        def count_query(_conn, _cursor, statement, _params, _context, _many):
+            statements.append(statement)
+
+        event.listen(database.engine, "before_cursor_execute", count_query)
+        try:
+            body = MeetingService(session).list_meetings(project.id)
+        finally:
+            event.remove(database.engine, "before_cursor_execute", count_query)
+
+        row = next(item for item in body if item["id"] == meeting_id)
+        assert row["agenda_count"] == 0
+        assert row["snapshot_count"] == 3
+        assert row["amendment_count"] == 2
+        assert "snapshots" not in row
+        assert "amendments" not in row
+        assert "agenda_items" not in row
+        assert len(statements) <= 2
 
 
 def test_series_atomic_two_session_conflict(client, project, meeting_users):

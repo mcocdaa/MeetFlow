@@ -824,6 +824,9 @@ def downgrade() -> None:
     with op.batch_alter_table("meeting_snapshots", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_meeting_snapshots_meeting_id"))
 
+    # Meetings point back to their latest immutable history row. Clear that
+    # reverse pointer before dropping the history table under FK enforcement.
+    op.execute(sa.text("UPDATE meetings SET current_snapshot_id = NULL"))
     op.drop_table("meeting_snapshots")
     op.drop_table("meeting_participants")
     with op.batch_alter_table("meeting_amendments", schema=None) as batch_op:

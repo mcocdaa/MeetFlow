@@ -21,6 +21,7 @@ from app.projects.models import Project
 
 if TYPE_CHECKING:
     from app.agendas.models import AgendaItem
+    from app.outcomes.models import ActionItem, Decision, OpenQuestion
 
 
 def utcnow() -> datetime:
@@ -205,6 +206,15 @@ class Meeting(Base):
         back_populates="meeting",
         cascade="all, delete-orphan",
         order_by="(AgendaItem.position, AgendaItem.id)",
+    )
+    decisions: Mapped[list["Decision"]] = relationship(
+        back_populates="meeting", foreign_keys="Decision.meeting_id"
+    )
+    actions: Mapped[list["ActionItem"]] = relationship(
+        back_populates="meeting", foreign_keys="ActionItem.meeting_id"
+    )
+    open_questions: Mapped[list["OpenQuestion"]] = relationship(
+        back_populates="meeting", foreign_keys="OpenQuestion.meeting_id"
     )
 
 

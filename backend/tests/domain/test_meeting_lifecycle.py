@@ -8,10 +8,15 @@ from sqlalchemy import func, select
 from app.agendas.models import AgendaItem
 from app.agendas.schemas import AgendaWrite
 from app.agendas.service import AgendaService
-from app.auth.models import User
+from app.auth.models import User, UserRole, UserStatus
 from app.domain.enums import AgendaStatus, MeetingStatus, ParticipationRole
 from app.errors import AppError
-from app.meetings.models import Meeting, MeetingAmendment, MeetingSnapshot
+from app.meetings.models import (
+    Meeting,
+    MeetingAmendment,
+    MeetingParticipant,
+    MeetingSnapshot,
+)
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -21,6 +26,15 @@ from app.meetings.schemas import (
 )
 from app.meetings.service import MeetingService
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer, OpenQuestion
+from app.outcomes.schemas import (
+    ActionEdit,
+    ActionWrite,
+    DecisionEdit,
+    DecisionWrite,
+    QuestionEdit,
+    QuestionWrite,
+)
+from app.outcomes.service import OutcomeService
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -154,6 +168,19 @@ def test_finish_snapshots_full_agenda_chain_and_refinish_is_immutable(
     with client.app.state.database.session() as session:
         actor = session.get(User, admin_id)
         meeting = session.get(Meeting, meeting_id)
+        tied_user = User(
+            username="snapshot-tie",
+            display_name="Tie",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(tied_user)
+        session.flush()
+        meeting.participants = [
+            MeetingParticipant(user_id=tied_user.id, position=0),
+            MeetingParticipant(user_id=admin_id, position=0),
+        ]
         agenda = AgendaService(session).create(
             meeting_id,
             AgendaWrite(
@@ -190,6 +217,31 @@ def test_finish_snapshots_full_agenda_chain_and_refinish_is_immutable(
                     owner_user_id=admin_id,
                     created_by=admin_id,
                 ),
+                Decision(
+                    project_id=project_id,
+                    meeting_id=meeting_id,
+                    agenda_item_id=None,
+                    title="Meeting-level decision",
+                    decision_markdown="Direct decision",
+                    created_by=admin_id,
+                    reviewers=[DecisionReviewer(user_id=admin_id)],
+                ),
+                ActionItem(
+                    project_id=project_id,
+                    meeting_id=meeting_id,
+                    agenda_item_id=None,
+                    content="Meeting-level action",
+                    owner_user_id=admin_id,
+                    created_by=admin_id,
+                ),
+                OpenQuestion(
+                    project_id=project_id,
+                    meeting_id=meeting_id,
+                    agenda_item_id=None,
+                    question_markdown="Meeting-level question?",
+                    owner_user_id=admin_id,
+                    created_by=admin_id,
+                ),
             ]
         )
         session.commit()
@@ -207,6 +259,9 @@ def test_finish_snapshots_full_agenda_chain_and_refinish_is_immutable(
             completed.current_snapshot.snapshot_json, sort_keys=True
         )
         document = completed.current_snapshot.snapshot_json
+        assert [
+            row["user_id"] for row in document["meeting"]["participants"]
+        ] == sorted([admin_id, tied_user.id])
         assert document["meeting"]["purpose_markdown"] == "  # purpose\n"
         assert document["agenda_items"][0]["id"] == agenda.id
         assert (
@@ -218,6 +273,14 @@ def test_finish_snapshots_full_agenda_chain_and_refinish_is_immutable(
             document["agenda_items"][0]["open_questions"][0]["question_markdown"]
             == "What next?"
         )
+        assert document["meeting_decisions"][0]["title"] == "Meeting-level decision"
+        assert document["meeting_decisions"][0]["reviewers"][0]["user_id"] == admin_id
+        assert document["meeting_actions"][0]["content"] == "Meeting-level action"
+        assert (
+            document["meeting_open_questions"][0]["question_markdown"]
+            == "Meeting-level question?"
+        )
+        assert len(document["agenda_items"][0]["decisions"]) == 1
         json.dumps(document)
 
         reopened = service.reopen(
@@ -514,3 +577,211 @@ def test_finish_and_cancel_race_has_one_trustworthy_winner(
             verify.scalar(select(func.count(MeetingSnapshot.id))) == expected_snapshots
         )
         assert bool(final.current_snapshot_id) is bool(expected_snapshots)
+
+
+def test_snapshot_history_pagination_can_reach_beyond_first_two_hundred(
+    client, lifecycle_context
+):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        session.add_all(
+            [
+                MeetingSnapshot(
+                    meeting_id=meeting_id,
+                    completion_number=number,
+                    snapshot_json={"number": number},
+                    created_by=admin_id,
+                )
+                for number in range(1, 202)
+            ]
+        )
+        session.commit()
+        page = MeetingService(session).list_snapshots(meeting_id, limit=2, offset=199)
+        assert [row.completion_number for row in page] == [200, 201]
+
+
+@pytest.mark.parametrize("kind", ["decision", "action", "question"])
+@pytest.mark.parametrize("winner", ["outcome", "finish"])
+def test_finish_races_meeting_bound_outcome_creation_atomically(
+    client, lifecycle_context, kind, winner
+):
+    admin_id, project_id, meeting_id = lifecycle_context
+    database = client.app.state.database
+    with database.session() as seed:
+        meeting = MeetingService(seed).start(
+            meeting_id, LifecycleCommand(expected_version=1), seed.get(User, admin_id)
+        )
+        expected = meeting.version
+
+    def create(service, actor):
+        if kind == "decision":
+            return service.create_decision(
+                project_id,
+                DecisionWrite(
+                    meeting_id=meeting_id, title="Race", decision_markdown="created"
+                ),
+                actor,
+            )
+        if kind == "action":
+            return service.create_action(
+                project_id,
+                ActionWrite(
+                    project_id=project_id,
+                    meeting_id=meeting_id,
+                    content="created",
+                ),
+                actor,
+            )
+        return service.create_question(
+            project_id,
+            QuestionWrite(meeting_id=meeting_id, question_markdown="created?"),
+            actor,
+        )
+
+    with database.session() as outcome_session, database.session() as finish_session:
+        outcome_service = OutcomeService(outcome_session)
+        finish_service = MeetingService(finish_session)
+        outcome_actor = outcome_session.get(User, admin_id)
+        finish_actor = finish_session.get(User, admin_id)
+        stale_meeting = outcome_session.get(Meeting, meeting_id)
+        assert stale_meeting.version == expected
+        finish_service._meeting_for_snapshot(meeting_id)
+        if winner == "outcome":
+            create(outcome_service, outcome_actor)
+            with pytest.raises(AppError) as conflict:
+                finish_service.finish(
+                    meeting_id,
+                    LifecycleCommand(expected_version=expected),
+                    finish_actor,
+                )
+        else:
+            finish_service.finish(
+                meeting_id, LifecycleCommand(expected_version=expected), finish_actor
+            )
+            with pytest.raises(AppError) as conflict:
+                create(outcome_service, outcome_actor)
+        assert conflict.value.code in {"version_conflict", "meeting_immutable"}
+        assert outcome_session.scalar(
+            select(Meeting.id).where(Meeting.id == meeting_id)
+        )
+
+    model = {"decision": Decision, "action": ActionItem, "question": OpenQuestion}[kind]
+    if winner == "finish":
+        with database.session() as retry:
+            with pytest.raises(AppError) as terminal:
+                create(OutcomeService(retry), retry.get(User, admin_id))
+            assert terminal.value.code == "meeting_immutable"
+    with database.session() as verify:
+        count = verify.scalar(select(func.count(model.id)))
+        assert count == (1 if winner == "outcome" else 0)
+        snapshots = verify.scalar(select(func.count(MeetingSnapshot.id)))
+        assert snapshots == (0 if winner == "outcome" else 1)
+
+
+@pytest.mark.parametrize("kind", ["decision", "action", "question"])
+@pytest.mark.parametrize("winner", ["outcome", "finish"])
+def test_finish_races_meeting_bound_outcome_update_atomically(
+    client, lifecycle_context, kind, winner
+):
+    admin_id, project_id, meeting_id = lifecycle_context
+    database = client.app.state.database
+    model = {"decision": Decision, "action": ActionItem, "question": OpenQuestion}[kind]
+    with database.session() as seed:
+        if kind == "decision":
+            row = Decision(
+                project_id=project_id,
+                meeting_id=meeting_id,
+                title="Before",
+                decision_markdown="before",
+                created_by=admin_id,
+            )
+        elif kind == "action":
+            row = ActionItem(
+                project_id=project_id,
+                meeting_id=meeting_id,
+                content="before",
+                created_by=admin_id,
+            )
+        else:
+            row = OpenQuestion(
+                project_id=project_id,
+                meeting_id=meeting_id,
+                question_markdown="before?",
+                created_by=admin_id,
+            )
+        seed.add(row)
+        seed.commit()
+        row_id = row.id
+        meeting = MeetingService(seed).start(
+            meeting_id, LifecycleCommand(expected_version=1), seed.get(User, admin_id)
+        )
+        expected = meeting.version
+
+    def update(service, actor):
+        if kind == "decision":
+            return service.update_decision(
+                row_id, DecisionEdit(expected_version=1, title="After"), actor
+            )
+        if kind == "action":
+            return service.update_action(
+                row_id, ActionEdit(expected_version=1, content="after"), actor
+            )
+        return service.update_question(
+            row_id, QuestionEdit(expected_version=1, question_markdown="after?"), actor
+        )
+
+    with database.session() as outcome_session, database.session() as finish_session:
+        outcome_service = OutcomeService(outcome_session)
+        finish_service = MeetingService(finish_session)
+        outcome_actor = outcome_session.get(User, admin_id)
+        finish_actor = finish_session.get(User, admin_id)
+        outcome_session.get(model, row_id)
+        stale_meeting = outcome_session.get(Meeting, meeting_id)
+        assert stale_meeting.version == expected
+        finish_service._meeting_for_snapshot(meeting_id)
+        if winner == "outcome":
+            update(outcome_service, outcome_actor)
+            with pytest.raises(AppError) as conflict:
+                finish_service.finish(
+                    meeting_id,
+                    LifecycleCommand(expected_version=expected),
+                    finish_actor,
+                )
+        else:
+            finish_service.finish(
+                meeting_id, LifecycleCommand(expected_version=expected), finish_actor
+            )
+            with pytest.raises(AppError) as conflict:
+                update(outcome_service, outcome_actor)
+        assert conflict.value.code == "version_conflict"
+        assert outcome_session.scalar(
+            select(Meeting.id).where(Meeting.id == meeting_id)
+        )
+
+    if winner == "finish":
+        with database.session() as retry:
+            update(OutcomeService(retry), retry.get(User, admin_id))
+
+    with database.session() as verify:
+        row = verify.get(model, row_id)
+        value = (
+            row.title
+            if kind == "decision"
+            else row.content if kind == "action" else row.question_markdown
+        )
+        before = {"decision": "Before", "action": "before", "question": "before?"}
+        after = {"decision": "After", "action": "after", "question": "after?"}
+        assert value == after[kind]
+        if winner == "finish":
+            snapshot = verify.scalar(select(MeetingSnapshot))
+            document = snapshot.snapshot_json
+            snapshot_value = (
+                document["meeting_decisions"][0]["title"]
+                if kind == "decision"
+                else (
+                    document["meeting_actions"][0]["content"]
+                    if kind == "action"
+                    else document["meeting_open_questions"][0]["question_markdown"]
+                )
+            )
+            assert snapshot_value == before[kind]

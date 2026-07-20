@@ -187,6 +187,9 @@ class MeetingSnapshotDocument(StrictSnapshotModel):
     schema_version: int = 1
     meeting: SnapshotMeeting
     agenda_items: list[SnapshotAgendaItem]
+    meeting_decisions: list[SnapshotDecision]
+    meeting_actions: list[SnapshotAction]
+    meeting_open_questions: list[SnapshotQuestion]
     amendments: list[SnapshotAmendment]
 
 

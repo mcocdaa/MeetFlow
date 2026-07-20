@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import current_user
@@ -180,12 +180,15 @@ def cancel_meeting(
 @router.get("/api/meetings/{meeting_id}/snapshots")
 def list_snapshots(
     meeting_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     service = MeetingService(session)
     return [
-        service.serialize_snapshot(row) for row in service.list_snapshots(meeting_id)
+        service.serialize_snapshot(row)
+        for row in service.list_snapshots(meeting_id, limit=limit, offset=offset)
     ]
 
 

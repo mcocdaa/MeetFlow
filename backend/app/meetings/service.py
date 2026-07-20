@@ -96,8 +96,8 @@ def meeting_relationship_options():
         joinedload(Meeting.creator),
         joinedload(Meeting.updater),
         selectinload(Meeting.participants).joinedload(MeetingParticipant.user),
-        joinedload(Meeting.snapshots),
-        joinedload(Meeting.amendments),
+        selectinload(Meeting.snapshots),
+        selectinload(Meeting.amendments),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.proposer),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.presenter),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.creator),
@@ -517,6 +517,9 @@ class MeetingService:
                 selectinload(Meeting.agenda_items).selectinload(
                     AgendaItem.open_questions
                 ),
+                selectinload(Meeting.decisions).selectinload(Decision.reviewers),
+                selectinload(Meeting.actions),
+                selectinload(Meeting.open_questions),
             )
         )
         if meeting is None:
@@ -527,6 +530,74 @@ class MeetingService:
     def _snapshot_document(meeting: Meeting) -> dict[str, Any]:
         def columns(item, names):
             return {name: getattr(item, name) for name in names}
+
+        def decision_document(decision):
+            result = columns(
+                decision,
+                (
+                    "id",
+                    "project_id",
+                    "meeting_id",
+                    "agenda_item_id",
+                    "title",
+                    "decision_markdown",
+                    "rationale_markdown",
+                    "status",
+                    "decided_by_user_id",
+                    "supersedes_decision_id",
+                    "version",
+                    "created_by",
+                    "created_at",
+                    "updated_at",
+                ),
+            )
+            result["reviewers"] = [
+                columns(row, ("user_id", "status", "responded_at", "comment"))
+                for row in sorted(decision.reviewers, key=lambda row: row.user_id)
+            ]
+            return result
+
+        def action_document(row):
+            return columns(
+                row,
+                (
+                    "id",
+                    "project_id",
+                    "meeting_id",
+                    "agenda_item_id",
+                    "content",
+                    "owner_user_id",
+                    "due_date",
+                    "priority",
+                    "status",
+                    "version",
+                    "created_by",
+                    "created_at",
+                    "updated_at",
+                    "completed_at",
+                ),
+            )
+
+        def question_document(row):
+            return columns(
+                row,
+                (
+                    "id",
+                    "project_id",
+                    "meeting_id",
+                    "agenda_item_id",
+                    "question_markdown",
+                    "owner_user_id",
+                    "status",
+                    "scheduled_meeting_id",
+                    "resolved_by_decision_id",
+                    "converted_from_agenda_item_id",
+                    "version",
+                    "created_by",
+                    "created_at",
+                    "updated_at",
+                ),
+            )
 
         agenda_documents = []
         for item in sorted(
@@ -558,75 +629,13 @@ class MeetingService:
             )
             item_data["decisions"] = []
             for decision in sorted(item.decisions, key=lambda row: row.id):
-                decision_data = columns(
-                    decision,
-                    (
-                        "id",
-                        "project_id",
-                        "meeting_id",
-                        "agenda_item_id",
-                        "title",
-                        "decision_markdown",
-                        "rationale_markdown",
-                        "status",
-                        "decided_by_user_id",
-                        "supersedes_decision_id",
-                        "version",
-                        "created_by",
-                        "created_at",
-                        "updated_at",
-                    ),
-                )
-                decision_data["reviewers"] = [
-                    columns(
-                        row,
-                        ("user_id", "status", "responded_at", "comment"),
-                    )
-                    for row in sorted(decision.reviewers, key=lambda row: row.user_id)
-                ]
-                item_data["decisions"].append(decision_data)
+                item_data["decisions"].append(decision_document(decision))
             item_data["actions"] = [
-                columns(
-                    row,
-                    (
-                        "id",
-                        "project_id",
-                        "meeting_id",
-                        "agenda_item_id",
-                        "content",
-                        "owner_user_id",
-                        "due_date",
-                        "priority",
-                        "status",
-                        "version",
-                        "created_by",
-                        "created_at",
-                        "updated_at",
-                        "completed_at",
-                    ),
-                )
+                action_document(row)
                 for row in sorted(item.actions, key=lambda row: row.id)
             ]
             item_data["open_questions"] = [
-                columns(
-                    row,
-                    (
-                        "id",
-                        "project_id",
-                        "meeting_id",
-                        "agenda_item_id",
-                        "question_markdown",
-                        "owner_user_id",
-                        "status",
-                        "scheduled_meeting_id",
-                        "resolved_by_decision_id",
-                        "converted_from_agenda_item_id",
-                        "version",
-                        "created_by",
-                        "created_at",
-                        "updated_at",
-                    ),
-                )
+                question_document(row)
                 for row in sorted(item.open_questions, key=lambda row: row.id)
             ]
             agenda_documents.append(item_data)
@@ -655,7 +664,9 @@ class MeetingService:
         meeting_data["version_before_completion"] = meeting.version
         meeting_data["participants"] = [
             columns(row, ("user_id", "participation_role", "position"))
-            for row in sorted(meeting.participants, key=lambda row: row.position)
+            for row in sorted(
+                meeting.participants, key=lambda row: (row.position, row.user_id)
+            )
         ]
         amendments = [
             columns(
@@ -668,6 +679,21 @@ class MeetingService:
         document = MeetingSnapshotDocument(
             meeting=meeting_data,
             agenda_items=agenda_documents,
+            meeting_decisions=[
+                decision_document(row)
+                for row in sorted(meeting.decisions, key=lambda row: row.id)
+                if row.agenda_item_id is None
+            ],
+            meeting_actions=[
+                action_document(row)
+                for row in sorted(meeting.actions, key=lambda row: row.id)
+                if row.agenda_item_id is None
+            ],
+            meeting_open_questions=[
+                question_document(row)
+                for row in sorted(meeting.open_questions, key=lambda row: row.id)
+                if row.agenda_item_id is None
+            ],
             amendments=amendments,
         )
         return document.model_dump(mode="json")
@@ -715,14 +741,17 @@ class MeetingService:
         meeting.updated_by = actor.id
         return self._commit_meeting_command(meeting, payload.expected_version)
 
-    def list_snapshots(self, meeting_id: str) -> list[MeetingSnapshot]:
+    def list_snapshots(
+        self, meeting_id: str, *, limit: int = 50, offset: int = 0
+    ) -> list[MeetingSnapshot]:
         self.get_meeting(meeting_id)
         return list(
             self.session.scalars(
                 select(MeetingSnapshot)
                 .where(MeetingSnapshot.meeting_id == meeting_id)
                 .order_by(MeetingSnapshot.completion_number, MeetingSnapshot.id)
-                .limit(200)
+                .limit(min(max(limit, 1), 200))
+                .offset(max(offset, 0))
             )
         )
 
@@ -890,16 +919,61 @@ class MeetingService:
 
     def list_meetings(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
+        agenda_count = (
+            select(func.count(AgendaItem.id))
+            .where(AgendaItem.meeting_id == Meeting.id)
+            .correlate(Meeting)
+            .scalar_subquery()
+        )
+        snapshot_count = (
+            select(func.count(MeetingSnapshot.id))
+            .where(MeetingSnapshot.meeting_id == Meeting.id)
+            .correlate(Meeting)
+            .scalar_subquery()
+        )
+        amendment_count = (
+            select(func.count(MeetingAmendment.id))
+            .where(MeetingAmendment.meeting_id == Meeting.id)
+            .correlate(Meeting)
+            .scalar_subquery()
+        )
         statement = (
-            select(Meeting)
+            select(Meeting, agenda_count, snapshot_count, amendment_count)
             .where(Meeting.project_id == project_id)
             .options(
-                *meeting_relationship_options(),
+                joinedload(Meeting.project),
+                joinedload(Meeting.series),
+                joinedload(Meeting.host),
+                joinedload(Meeting.recorder),
             )
             .order_by(Meeting.scheduled_start.desc(), Meeting.id)
         )
         return [
-            self.serialize_meeting(item) for item in self.session.scalars(statement)
+            {
+                "id": meeting.id,
+                "project": project_ref(meeting.project),
+                "series": (
+                    {"id": meeting.series.id, "title": meeting.series.title}
+                    if meeting.series is not None
+                    else None
+                ),
+                "title": meeting.title,
+                "scheduled_start": as_utc(meeting.scheduled_start),
+                "scheduled_end": as_utc(meeting.scheduled_end),
+                "status": meeting.status,
+                "host": user_ref(meeting.host),
+                "recorder": user_ref(meeting.recorder),
+                "current_snapshot_id": meeting.current_snapshot_id,
+                "version": meeting.version,
+                "started_at": meeting.started_at,
+                "completed_at": meeting.completed_at,
+                "agenda_count": agenda_total,
+                "snapshot_count": snapshot_total,
+                "amendment_count": amendment_total,
+            }
+            for meeting, agenda_total, snapshot_total, amendment_total in self.session.execute(
+                statement
+            )
         ]
 
     def series_detail(self, series_id: str) -> dict[str, Any]:

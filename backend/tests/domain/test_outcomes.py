@@ -910,7 +910,9 @@ def test_agenda_delete_guard_and_explicit_migration(client, outcome_context):
         assert session.scalar(select(Decision)).agenda_item_id == target_id
         assert session.scalar(select(ActionItem)).agenda_item_id == target_id
         assert session.scalar(select(OpenQuestion)).agenda_item_id == target_id
-        assert meeting.version == 4
+        # Each meeting-bound outcome creation and the migration advance the
+        # parent revision, so completion cannot race any of these writes.
+        assert meeting.version == 7
         audit = session.scalar(select(OutcomeMigrationRecord))
         assert outcomes.list_migration_records(agenda_id)[0].id == audit.id
         assert audit.source_agenda_id == agenda_id

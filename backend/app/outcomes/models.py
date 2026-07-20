@@ -76,7 +76,9 @@ class Decision(Base):
     __mapper_args__ = {"version_id_col": version, "version_id_generator": False}
 
     project: Mapped["Project"] = relationship(foreign_keys=[project_id])
-    meeting: Mapped["Meeting | None"] = relationship(foreign_keys=[meeting_id])
+    meeting: Mapped["Meeting | None"] = relationship(
+        back_populates="decisions", foreign_keys=[meeting_id]
+    )
     agenda_item: Mapped["AgendaItem | None"] = relationship(
         back_populates="decisions", foreign_keys=[agenda_item_id]
     )
@@ -152,7 +154,9 @@ class ActionItem(Base):
     __mapper_args__ = {"version_id_col": version, "version_id_generator": False}
 
     project: Mapped["Project"] = relationship(foreign_keys=[project_id])
-    meeting: Mapped["Meeting | None"] = relationship(foreign_keys=[meeting_id])
+    meeting: Mapped["Meeting | None"] = relationship(
+        back_populates="actions", foreign_keys=[meeting_id]
+    )
     agenda_item: Mapped["AgendaItem | None"] = relationship(
         back_populates="actions", foreign_keys=[agenda_item_id]
     )
@@ -211,7 +215,9 @@ class OpenQuestion(Base):
     __mapper_args__ = {"version_id_col": version, "version_id_generator": False}
 
     project: Mapped["Project"] = relationship(foreign_keys=[project_id])
-    meeting: Mapped["Meeting | None"] = relationship(foreign_keys=[meeting_id])
+    meeting: Mapped["Meeting | None"] = relationship(
+        back_populates="open_questions", foreign_keys=[meeting_id]
+    )
     agenda_item: Mapped["AgendaItem | None"] = relationship(
         back_populates="open_questions", foreign_keys=[agenda_item_id]
     )
