@@ -18,8 +18,6 @@ from app.meetings.schemas import (
 from app.meetings.service import MeetingService
 
 router = APIRouter(tags=["meetings"])
-# Kept as an empty compatibility router while v0.1 action routes are retired.
-actions_router = APIRouter()
 
 
 @router.get("/api/projects/{project_id}/meeting-series")

@@ -184,7 +184,9 @@ def delete_attachment(
     item = require_attachment(session, target_type, target_id, attachment_id)
     if item.created_by != user.id and user.role != UserRole.ADMIN:
         raise AppError(403, "attachment_delete_forbidden", "只能删除自己上传的附件")
-    path = attachment_file(request, item)
+    path = request.app.state.attachment_storage.attachment_path(
+        item.target_type, item.target_id, item.stored_name
+    )
     session.delete(item)
     session.commit()
     path.unlink(missing_ok=True)

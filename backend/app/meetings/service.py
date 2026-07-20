@@ -23,7 +23,7 @@ from app.meetings.models import (
     SeriesParticipant,
     StandingAgendaItem,
 )
-from app.outcomes.models import ActionItem, OpenQuestion
+from app.outcomes.models import ActionItem, DecisionReviewer, OpenQuestion
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -95,22 +95,35 @@ def meeting_relationship_options():
         joinedload(Meeting.creator),
         joinedload(Meeting.updater),
         selectinload(Meeting.participants).joinedload(MeetingParticipant.user),
-        selectinload(Meeting.snapshots),
-        joinedload(Meeting.current_snapshot),
-        selectinload(Meeting.amendments),
+        selectinload(Meeting.snapshots).joinedload(MeetingSnapshot.creator),
+        joinedload(Meeting.current_snapshot).joinedload(MeetingSnapshot.creator),
+        selectinload(Meeting.amendments).joinedload(MeetingAmendment.creator),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.proposer),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.presenter),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.creator),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.updater),
         selectinload(Meeting.agenda_items)
         .selectinload(AgendaItem.decisions)
-        .selectinload(Decision.reviewers),
+        .joinedload(Decision.creator),
+        selectinload(Meeting.agenda_items)
+        .selectinload(AgendaItem.decisions)
+        .joinedload(Decision.decided_by),
+        selectinload(Meeting.agenda_items)
+        .selectinload(AgendaItem.decisions)
+        .selectinload(Decision.reviewers)
+        .joinedload(DecisionReviewer.user),
         selectinload(Meeting.agenda_items)
         .selectinload(AgendaItem.actions)
         .joinedload(ActionItem.owner_user),
         selectinload(Meeting.agenda_items)
+        .selectinload(AgendaItem.actions)
+        .joinedload(ActionItem.creator),
+        selectinload(Meeting.agenda_items)
         .selectinload(AgendaItem.open_questions)
         .joinedload(OpenQuestion.owner_user),
+        selectinload(Meeting.agenda_items)
+        .selectinload(AgendaItem.open_questions)
+        .joinedload(OpenQuestion.creator),
     )
 
 
@@ -758,6 +771,7 @@ class MeetingService:
             self.session.scalars(
                 select(MeetingSnapshot)
                 .where(MeetingSnapshot.meeting_id == meeting_id)
+                .options(joinedload(MeetingSnapshot.creator))
                 .order_by(MeetingSnapshot.completion_number, MeetingSnapshot.id)
                 .limit(min(max(limit, 1), 200))
                 .offset(max(offset, 0))
@@ -791,7 +805,8 @@ class MeetingService:
             "meeting_id": item.meeting_id,
             "completion_number": item.completion_number,
             "snapshot": item.snapshot_json,
-            "created_by": item.created_by,
+            "created_by_user_id": item.created_by,
+            "created_by": user_ref(item.creator),
             "created_at": item.created_at,
         }
 
@@ -802,7 +817,8 @@ class MeetingService:
             "meeting_id": item.meeting_id,
             "reason": item.reason,
             "content_markdown": item.content_markdown,
-            "created_by": item.created_by,
+            "created_by_user_id": item.created_by,
+            "created_by": user_ref(item.creator),
             "created_at": item.created_at,
         }
 
@@ -846,6 +862,37 @@ class MeetingService:
     def serialize_meeting(self, meeting: Meeting) -> dict[str, Any]:
         from app.outcomes.service import OutcomeService
 
+        def decision_detail(item: Decision) -> dict[str, Any]:
+            result = OutcomeService.serialize(item)
+            result["created_by_user_id"] = item.created_by
+            result["created_by"] = user_ref(item.creator)
+            result["decided_by"] = user_ref(item.decided_by)
+            result["reviewers"] = [
+                {
+                    "user_id": row.user_id,
+                    "user": user_ref(row.user),
+                    "status": row.status,
+                    "responded_at": row.responded_at,
+                    "comment": row.comment,
+                }
+                for row in item.reviewers
+            ]
+            return result
+
+        def action_detail(item: ActionItem) -> dict[str, Any]:
+            result = OutcomeService.serialize(item)
+            result["created_by_user_id"] = item.created_by
+            result["created_by"] = user_ref(item.creator)
+            result["owner"] = user_ref(item.owner_user)
+            return result
+
+        def question_detail(item: OpenQuestion) -> dict[str, Any]:
+            result = OutcomeService.serialize(item)
+            result["created_by_user_id"] = item.created_by
+            result["created_by"] = user_ref(item.creator)
+            result["owner"] = user_ref(item.owner_user)
+            return result
+
         return {
             "id": meeting.id,
             "project": project_ref(meeting.project),
@@ -869,7 +916,8 @@ class MeetingService:
                     "id": meeting.current_snapshot.id,
                     "completion_number": meeting.current_snapshot.completion_number,
                     "snapshot_json": meeting.current_snapshot.snapshot_json,
-                    "created_by": meeting.current_snapshot.created_by,
+                    "created_by_user_id": meeting.current_snapshot.created_by,
+                    "created_by": user_ref(meeting.current_snapshot.creator),
                     "created_at": meeting.current_snapshot.created_at,
                 }
                 if meeting.current_snapshot is not None
@@ -879,7 +927,8 @@ class MeetingService:
                 {
                     "id": row.id,
                     "completion_number": row.completion_number,
-                    "created_by": row.created_by,
+                    "created_by_user_id": row.created_by,
+                    "created_by": user_ref(row.creator),
                     "created_at": row.created_at,
                 }
                 for row in meeting.snapshots
@@ -914,12 +963,10 @@ class MeetingService:
                     "updated_at": row.updated_at,
                     "started_at": row.started_at,
                     "completed_at": row.completed_at,
-                    "decisions": [
-                        OutcomeService.serialize(item) for item in row.decisions
-                    ],
-                    "actions": [OutcomeService.serialize(item) for item in row.actions],
+                    "decisions": [decision_detail(item) for item in row.decisions],
+                    "actions": [action_detail(item) for item in row.actions],
                     "open_questions": [
-                        OutcomeService.serialize(item) for item in row.open_questions
+                        question_detail(item) for item in row.open_questions
                     ],
                 }
                 for row in meeting.agenda_items
@@ -1110,10 +1157,7 @@ class MeetingService:
             .order_by(Attachment.created_at.desc(), Attachment.id.desc())
         )
         result["actions"] = [self.serialize_action(item) for item in actions]
-        result["updates"] = [
-            {**item, "created_by": self._actor(item["created_by"])}
-            for item in result["amendments"]
-        ]
+        result["updates"] = list(result["amendments"])
         result["attachments"] = [
             self.serialize_attachment(item) for item in attachments
         ]

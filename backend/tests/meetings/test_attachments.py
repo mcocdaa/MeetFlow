@@ -1,3 +1,8 @@
+from sqlalchemy import select
+
+from app.attachments.models import Attachment
+
+
 def upload(client, meeting_id, name="board.png", content=b"\x89PNG\r\n\x1a\nimage"):
     return client.post(
         f"/api/attachments/meeting/{meeting_id}",
@@ -76,3 +81,22 @@ def test_target_and_attachment_ids_cannot_escape_storage(
         "/api/attachments/meeting/..",
         files={"file": ("x.txt", b"x", "text/plain")},
     ).status_code in {404, 405}
+
+
+def test_delete_removes_metadata_when_file_is_already_missing(
+    authenticated_client, meeting_id
+):
+    item = upload(authenticated_client, meeting_id).json()
+    database = authenticated_client.app.state.database
+    with database.session() as session:
+        attachment = session.get(Attachment, item["id"])
+        path = authenticated_client.app.state.attachment_storage.attachment_path(
+            attachment.target_type, attachment.target_id, attachment.stored_name
+        )
+        path.unlink()
+
+    response = authenticated_client.delete(item["download_url"])
+    assert response.status_code == 204
+    with database.session() as session:
+        assert session.get(Attachment, item["id"]) is None
+        assert session.scalar(select(Attachment.id)) is None

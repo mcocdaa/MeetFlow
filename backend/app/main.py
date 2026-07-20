@@ -13,7 +13,7 @@ from app.auth.service import AuthService
 from app.config import Settings
 from app.database import Database
 from app.errors import install_error_handlers
-from app.meetings.router import actions_router, router as meetings_router
+from app.meetings.router import router as meetings_router
 from app.outcomes.router import router as outcomes_router
 from app.plugins.manager import PluginManager
 from app.plugins.router import (
@@ -62,7 +62,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(meetings_router)
     app.include_router(agendas_router)
-    app.include_router(actions_router)
     app.include_router(attachments_router)
     app.include_router(plugin_admin_router)
     app.include_router(plugin_actions_router)
