@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import current_user
@@ -38,8 +38,7 @@ def get_project(
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    service = ProjectService(session)
-    return service.serialize(service.require(project_id))
+    return ProjectService(session).detail(project_id)
 
 
 @router.put("/{project_id}")
@@ -65,12 +64,14 @@ def delete_project(
 @router.get("/{project_id}/updates")
 def list_project_updates(
     project_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     _user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    service = ProjectService(session)
-    project = service.require(project_id)
-    return [service.serialize_update(update) for update in project.updates]
+    return ProjectService(session).list_updates(
+        project_id, limit=limit, offset=offset
+    )
 
 
 @router.post("/{project_id}/updates", status_code=201)

@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from app.auth.models import User, UserRole, UserStatus
 from app.errors import AppError
@@ -130,6 +130,56 @@ def test_stale_project_update_is_rejected(client, users):
             "expected_version": 0,
             "actual_version": 1,
         }
+
+
+def test_concurrent_project_update_is_atomic(client, users):
+    admin, _, _ = users
+    database = client.app.state.database
+    with database.session() as seed_session:
+        project = ProjectService(seed_session).create(project_payload(admin), admin)
+        project_id = project.id
+
+    with database.session() as first_session, database.session() as second_session:
+        first = first_session.get(Project, project_id)
+        second = second_session.get(Project, project_id)
+        assert first.version == second.version == 1
+
+        ProjectService(first_session).update(
+            project_id,
+            ProjectEdit(expected_version=1, name="First writer"),
+            admin,
+        )
+        with pytest.raises(AppError) as error:
+            ProjectService(second_session).update(
+                project_id,
+                ProjectEdit(expected_version=1, name="Second writer"),
+                admin,
+            )
+
+        assert error.value.code == "version_conflict"
+        assert error.value.details == {
+            "expected_version": 1,
+            "actual_version": 2,
+        }
+        assert second_session.get(Project, project_id).name == "First writer"
+        assert second_session.scalar(select(func.count(Project.id))) == 1
+
+
+def test_empty_project_edit_is_a_noop(client, users):
+    admin, _, _ = users
+    with client.app.state.database.session() as session:
+        service = ProjectService(session)
+        project = service.create(project_payload(admin), admin)
+        original_updated_at = project.updated_at
+        original_updated_by = project.updated_by
+
+        unchanged = service.update(
+            project.id, ProjectEdit(expected_version=1), admin
+        )
+
+        assert unchanged.version == 1
+        assert unchanged.updated_at == original_updated_at
+        assert unchanged.updated_by == original_updated_by
 
 
 def test_project_update_keeps_human_or_applied_ai_source(client, users):
@@ -335,3 +385,62 @@ def test_project_api_serializes_members_and_updates(authenticated_client, users)
     detail = authenticated_client.get(f"/api/projects/{body['id']}")
     assert detail.status_code == 200
     assert detail.json()["updates"][0]["content_markdown"] == "Progress"
+
+
+def test_project_list_has_bounded_query_count_and_no_update_history(client, users):
+    admin, member, _ = users
+    database = client.app.state.database
+    with database.session() as session:
+        for index in range(4):
+            project = ProjectService(session).create(
+                project_payload(
+                    admin,
+                    member,
+                    name=f"Project {index}",
+                    slug=f"project-{index}",
+                ),
+                admin,
+            )
+            ProjectService(session).create_update(
+                project.id,
+                ProjectUpdateWrite(content_markdown=f"Update {index}"),
+                admin,
+            )
+
+        statements = []
+
+        def count_query(_conn, _cursor, statement, _parameters, _context, _many):
+            statements.append(statement)
+
+        event.listen(database.engine, "before_cursor_execute", count_query)
+        try:
+            results = ProjectService(session).list()
+        finally:
+            event.remove(database.engine, "before_cursor_execute", count_query)
+
+        assert len(results) == 4
+        assert len(statements) <= 3
+        assert all(item["updates"] == [] for item in results)
+
+
+def test_project_detail_and_update_listing_are_bounded(client, users):
+    admin, _, _ = users
+    with client.app.state.database.session() as session:
+        service = ProjectService(session)
+        project = service.create(project_payload(admin), admin)
+        for index in range(25):
+            service.create_update(
+                project.id,
+                ProjectUpdateWrite(content_markdown=f"Update {index:02d}"),
+                admin,
+            )
+
+        detail = service.detail(project.id)
+        first_page = service.list_updates(project.id, limit=10, offset=0)
+        second_page = service.list_updates(project.id, limit=10, offset=10)
+
+        assert len(detail["updates"]) == 20
+        assert len(first_page) == 10
+        assert len(second_page) == 10
+        assert first_page[0]["content_markdown"] == "Update 24"
+        assert second_page[0]["content_markdown"] == "Update 14"

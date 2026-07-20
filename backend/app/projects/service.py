@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.auth.models import User, UserRole, UserStatus
 from app.domain.versioning import require_version
@@ -117,6 +120,8 @@ class ProjectService:
             exclude={"expected_version", "member_ids"}, exclude_unset=True
         )
         member_ids = payload.member_ids
+        if not changes and member_ids is None:
+            return project
         lead_id = changes.get("lead_user_id", project.lead_user_id)
         if member_ids is not None:
             member_ids = self._validate_user_references(lead_id, member_ids)
@@ -131,6 +136,23 @@ class ProjectService:
         project.version += 1
         try:
             self.session.commit()
+        except StaleDataError as exc:
+            self.session.rollback()
+            actual_version = self.session.scalar(
+                select(Project.version).where(Project.id == project_id)
+            )
+            if actual_version is None:
+                raise AppError(404, "project_not_found", "项目不存在") from exc
+            require_version(payload.expected_version, actual_version)
+            raise AppError(
+                409,
+                "version_conflict",
+                "项目已被其他操作更新，请刷新后重试",
+                details={
+                    "expected_version": payload.expected_version,
+                    "actual_version": actual_version,
+                },
+            ) from exc
         except IntegrityError as exc:
             self.session.rollback()
             raise AppError(
@@ -224,7 +246,27 @@ class ProjectService:
             "updated_at": update.updated_at,
         }
 
-    def serialize(self, project: Project) -> dict[str, Any]:
+    def _updates(
+        self, project_id: str, *, limit: int, offset: int = 0
+    ) -> list[ProjectUpdate]:
+        statement = (
+            select(ProjectUpdate)
+            .where(ProjectUpdate.project_id == project_id)
+            .options(joinedload(ProjectUpdate.author))
+            .order_by(ProjectUpdate.created_at.desc(), ProjectUpdate.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(self.session.scalars(statement))
+
+    def serialize(
+        self,
+        project: Project,
+        *,
+        updates: list[ProjectUpdate] | None = None,
+    ) -> dict[str, Any]:
+        if updates is None:
+            updates = self._updates(project.id, limit=20)
         return {
             "id": project.id,
             "name": project.name,
@@ -243,9 +285,7 @@ class ProjectService:
                 }
                 for membership in project.memberships
             ],
-            "updates": [
-                self.serialize_update(update) for update in project.updates[:20]
-            ],
+            "updates": [self.serialize_update(update) for update in updates],
             "created_by": user_ref(project.creator),
             "updated_by": user_ref(project.updater),
             "created_at": project.created_at,
@@ -253,7 +293,42 @@ class ProjectService:
         }
 
     def list(self) -> list[dict[str, Any]]:
-        projects = self.session.scalars(
-            select(Project).order_by(Project.updated_at.desc())
+        statement = (
+            select(Project)
+            .options(
+                joinedload(Project.lead),
+                joinedload(Project.creator),
+                joinedload(Project.updater),
+                selectinload(Project.memberships).joinedload(ProjectMember.user),
+            )
+            .order_by(Project.updated_at.desc())
         )
-        return [self.serialize(project) for project in projects]
+        projects = self.session.scalars(statement)
+        return [self.serialize(project, updates=[]) for project in projects]
+
+    def detail(self, project_id: str) -> dict[str, Any]:
+        statement = (
+            select(Project)
+            .where(Project.id == project_id)
+            .options(
+                joinedload(Project.lead),
+                joinedload(Project.creator),
+                joinedload(Project.updater),
+                selectinload(Project.memberships).joinedload(ProjectMember.user),
+            )
+        )
+        project = self.session.scalar(statement)
+        if project is None:
+            raise AppError(404, "project_not_found", "项目不存在")
+        return self.serialize(
+            project, updates=self._updates(project_id, limit=20)
+        )
+
+    def list_updates(
+        self, project_id: str, *, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        self.require(project_id)
+        return [
+            self.serialize_update(update)
+            for update in self._updates(project_id, limit=limit, offset=offset)
+        ]
