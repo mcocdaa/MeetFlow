@@ -19,6 +19,7 @@ from app.plugins.router import (
     admin_router as plugin_admin_router,
     meeting_actions_router,
 )
+from app.projects.router import router as projects_router, updates_router
 from app.schema_guard import reject_legacy_schema
 
 
@@ -64,6 +65,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(plugin_admin_router)
     app.include_router(plugin_actions_router)
     app.include_router(meeting_actions_router)
+    app.include_router(projects_router)
+    app.include_router(updates_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(
