@@ -21,14 +21,12 @@ class AgendaWrite(StrictInput):
     estimated_minutes: int | None = Field(default=None, ge=1, le=480)
     notes_markdown: str = Field(default="", max_length=100_000)
     position: int | None = Field(default=None, ge=0)
-    carry_from_open_question_id: str | None = Field(default=None, max_length=64)
 
     @field_validator(
         "title",
         "agenda_type",
         "proposer_user_id",
         "presenter_user_id",
-        "carry_from_open_question_id",
         mode="before",
     )
     @classmethod
@@ -42,9 +40,7 @@ class AgendaWrite(StrictInput):
             raise ValueError("title must not be blank")
         return value
 
-    @field_validator(
-        "proposer_user_id", "presenter_user_id", "carry_from_open_question_id"
-    )
+    @field_validator("proposer_user_id", "presenter_user_id")
     @classmethod
     def reject_blank_reference(cls, value: str | None) -> str | None:
         if value == "":
@@ -60,14 +56,12 @@ class AgendaEdit(StrictInput):
     presenter_user_id: str | None = Field(default=None, max_length=64)
     estimated_minutes: int | None = Field(default=None, ge=1, le=480)
     notes_markdown: str | None = Field(default=None, max_length=100_000)
-    carry_from_open_question_id: str | None = Field(default=None, max_length=64)
 
     @field_validator(
         "title",
         "agenda_type",
         "proposer_user_id",
         "presenter_user_id",
-        "carry_from_open_question_id",
         mode="before",
     )
     @classmethod
@@ -81,9 +75,7 @@ class AgendaEdit(StrictInput):
             raise ValueError("title must not be blank")
         return value
 
-    @field_validator(
-        "proposer_user_id", "presenter_user_id", "carry_from_open_question_id"
-    )
+    @field_validator("proposer_user_id", "presenter_user_id")
     @classmethod
     def reject_blank_reference(cls, value: str | None) -> str | None:
         if value == "":
@@ -96,7 +88,6 @@ class AgendaEdit(StrictInput):
             "proposer_user_id",
             "presenter_user_id",
             "estimated_minutes",
-            "carry_from_open_question_id",
         }
         for name in self.model_fields_set - {"expected_version"} - nullable:
             if getattr(self, name) is None:

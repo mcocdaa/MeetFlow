@@ -4,6 +4,8 @@ from typing import Literal
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import event, func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
 from app.agendas.schemas import AgendaCommand, AgendaWrite
@@ -205,6 +207,52 @@ def test_decision_edit_finalize_pending_and_withdraw_preserve_history(
         assert withdrawn.status.value == "withdrawn"
 
 
+def test_decision_edit_retains_responded_reviewers_but_can_remove_pending(
+    client, outcome_context
+):
+    admin_id, reviewer_id, outsider_id, project_id, _, _, _, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        reviewer = session.get(User, reviewer_id)
+        service = OutcomeService(session)
+        decision = service.create_decision(
+            project_id,
+            DecisionWrite(
+                title="Review history",
+                decision_markdown="D",
+                reviewer_ids=[reviewer_id, outsider_id],
+            ),
+            actor,
+        )
+        reviewed = service.review_decision(
+            decision.id,
+            DecisionReviewWrite(
+                status="changes_requested",
+                comment="Keep this response",
+                expected_version=1,
+            ),
+            reviewer,
+        )
+        response_time = next(
+            row.responded_at for row in reviewed.reviewers if row.user_id == reviewer_id
+        )
+        edited = service.update_decision(
+            decision.id,
+            DecisionEdit(expected_version=2, reviewer_ids=[]),
+            actor,
+        )
+        assert len(edited.reviewers) == 1
+        retained = edited.reviewers[0]
+        assert retained.user_id == reviewer_id
+        assert retained.status.value == "changes_requested"
+        assert retained.comment == "Keep this response"
+        assert retained.responded_at == response_time
+        finalized = service.finalize_decision(
+            decision.id, DecisionFinalizeWrite(expected_version=3), actor
+        )
+        assert finalized.reviewers[0].responded_at == response_time
+
+
 def test_final_decision_can_be_superseded_without_losing_history(
     client, outcome_context
 ):
@@ -318,6 +366,43 @@ def test_action_completion_and_reopening_manage_timestamp(client, outcome_contex
             action.id, ActionEdit(expected_version=2, status="in_progress"), actor
         )
         assert reopened.completed_at is None
+
+
+def test_action_noops_and_done_edits_preserve_completion_timestamp(
+    client, outcome_context
+):
+    admin_id, _, _, project_id, _, _, _, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        service = OutcomeService(session)
+        action = service.create_action(
+            project_id,
+            ActionWrite(project_id=project_id, content="Ship"),
+            actor,
+        )
+        done = service.update_action(
+            action.id, ActionEdit(expected_version=1, status="done"), actor
+        )
+        completed_at = done.completed_at
+        repeated = service.update_action(
+            action.id, ActionEdit(expected_version=2, status="done"), actor
+        )
+        assert repeated.version == 2
+        assert repeated.completed_at == completed_at
+        edited = service.update_action(
+            action.id,
+            ActionEdit(expected_version=2, content="Ship with notes"),
+            actor,
+        )
+        assert edited.version == 3
+        assert edited.completed_at == completed_at
+        unchanged = service.update_action(
+            action.id,
+            ActionEdit(expected_version=3, content="Ship with notes"),
+            actor,
+        )
+        assert unchanged.version == 3
+        assert unchanged.completed_at == completed_at
 
 
 def test_edit_schemas_reject_null_nonnullable_fields_and_blank_markdown():
@@ -530,6 +615,198 @@ def test_project_question_rejects_past_and_immutable_schedule_targets(
                 actor,
             )
         assert immutable.value.code == "meeting_immutable"
+
+
+@pytest.mark.parametrize("terminal_status", ["completed", "canceled"])
+def test_terminal_meeting_rejects_all_meeting_linked_outcome_creation(
+    client, outcome_context, terminal_status
+):
+    admin_id, _, _, project_id, meeting_id, _, agenda_id, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        service = OutcomeService(session)
+        existing_action = service.create_action(
+            project_id,
+            ActionWrite(
+                project_id=project_id,
+                meeting_id=meeting_id,
+                agenda_item_id=agenda_id,
+                content="Existing action",
+            ),
+            actor,
+        )
+        meeting = session.get(Meeting, meeting_id)
+        meeting.status = terminal_status
+        meeting.version += 1
+        session.commit()
+        calls = (
+            lambda: service.create_decision(
+                project_id,
+                DecisionWrite(
+                    meeting_id=meeting_id,
+                    agenda_item_id=agenda_id,
+                    title="Blocked",
+                    decision_markdown="D",
+                ),
+                actor,
+            ),
+            lambda: service.create_action(
+                project_id,
+                ActionWrite(
+                    project_id=project_id,
+                    meeting_id=meeting_id,
+                    agenda_item_id=agenda_id,
+                    content="Blocked",
+                ),
+                actor,
+            ),
+            lambda: service.create_question(
+                project_id,
+                QuestionWrite(
+                    meeting_id=meeting_id,
+                    agenda_item_id=agenda_id,
+                    question_markdown="Blocked?",
+                ),
+                actor,
+            ),
+        )
+        for call in calls:
+            with pytest.raises(AppError) as error:
+                call()
+            assert error.value.code == "meeting_immutable"
+        assert session.scalar(select(func.count(Decision.id))) == 0
+        assert session.scalar(select(func.count(ActionItem.id))) == 1
+        assert session.scalar(select(func.count(OpenQuestion.id))) == 0
+        updated = service.update_action(
+            existing_action.id,
+            ActionEdit(expected_version=1, content="Still editable"),
+            actor,
+        )
+        assert updated.content == "Still editable"
+
+
+def test_terminal_meeting_rejects_migration_and_convert_without_partial_changes(
+    client, outcome_context
+):
+    admin_id, _, _, project_id, meeting_id, _, source_id, target_id = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        agenda_service = AgendaService(session)
+        source = session.get(AgendaItem, source_id)
+        agenda_service.skip(
+            source.id, AgendaCommand(expected_version=source.version), actor
+        )
+        service = OutcomeService(session)
+        decision = service.create_decision(
+            project_id,
+            DecisionWrite(
+                meeting_id=meeting_id,
+                agenda_item_id=source_id,
+                title="Must stay",
+                decision_markdown="D",
+            ),
+            actor,
+        )
+        meeting = session.get(Meeting, meeting_id)
+        meeting.status = "completed"
+        meeting.version += 1
+        session.commit()
+        source = session.get(AgendaItem, source_id)
+        target = session.get(AgendaItem, target_id)
+        with pytest.raises(AppError) as migration:
+            service.migrate_agenda_outcomes(
+                source_id,
+                AgendaOutcomeMigrationWrite(
+                    target_agenda_item_id=target_id,
+                    expected_source_version=source.version,
+                    expected_target_version=target.version,
+                    expected_source_meeting_version=meeting.version,
+                    expected_target_meeting_version=meeting.version,
+                ),
+                actor,
+            )
+        assert migration.value.code == "meeting_immutable"
+        assert session.get(Decision, decision.id).agenda_item_id == source_id
+        with pytest.raises(AppError) as conversion:
+            service.convert_agenda_to_question(
+                source_id,
+                AgendaConvertWrite(
+                    expected_source_version=source.version,
+                    expected_source_meeting_version=meeting.version,
+                ),
+                actor,
+            )
+        assert conversion.value.code == "meeting_immutable"
+        assert session.scalar(select(func.count(OpenQuestion.id))) == 0
+
+
+def test_terminal_target_meeting_rejects_migration_and_copy_without_partial_changes(
+    client, outcome_context
+):
+    admin_id, _, _, project_id, meeting_id, future_id, source_id, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        service = OutcomeService(session)
+        decision = service.create_decision(
+            project_id,
+            DecisionWrite(
+                meeting_id=meeting_id,
+                agenda_item_id=source_id,
+                title="Stay at source",
+                decision_markdown="D",
+            ),
+            actor,
+        )
+        source = session.get(AgendaItem, source_id)
+        AgendaService(session).skip(
+            source.id, AgendaCommand(expected_version=source.version), actor
+        )
+        future = session.get(Meeting, future_id)
+        target = AgendaService(session).create(
+            future_id,
+            AgendaWrite(title="Terminal target", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=future.version,
+        )
+        future.status = "canceled"
+        future.version += 1
+        session.commit()
+        source = session.get(AgendaItem, source_id)
+        source_meeting = session.get(Meeting, meeting_id)
+        with pytest.raises(AppError) as migration:
+            service.migrate_agenda_outcomes(
+                source_id,
+                AgendaOutcomeMigrationWrite(
+                    target_agenda_item_id=target.id,
+                    expected_source_version=source.version,
+                    expected_target_version=target.version,
+                    expected_source_meeting_version=source_meeting.version,
+                    expected_target_meeting_version=future.version,
+                ),
+                actor,
+            )
+        assert migration.value.code == "meeting_immutable"
+        assert session.get(Decision, decision.id).agenda_item_id == source_id
+        with pytest.raises(AppError) as copied:
+            service.copy_agenda_to_meeting(
+                source_id,
+                AgendaCopyWrite(
+                    target_meeting_id=future_id,
+                    expected_source_version=source.version,
+                    expected_source_meeting_version=source_meeting.version,
+                    expected_target_meeting_version=future.version,
+                ),
+                actor,
+            )
+        assert copied.value.code == "meeting_immutable"
+        assert (
+            session.scalar(
+                select(func.count(AgendaItem.id)).where(
+                    AgendaItem.copied_from_agenda_item_id == source_id
+                )
+            )
+            == 0
+        )
 
 
 def test_agenda_delete_guard_and_explicit_migration(client, outcome_context):
@@ -800,6 +1077,91 @@ def test_concurrent_convert_and_copy_map_to_stable_duplicate_errors(
                 AgendaItem.copied_from_agenda_item_id == agenda_id,
             )
         )
+
+
+@pytest.mark.parametrize("command", ["convert", "copy"])
+def test_nonduplicate_integrity_errors_are_not_mislabeled_as_version_conflicts(
+    client, outcome_context, monkeypatch, command
+):
+    admin_id, _, _, _, meeting_id, future_id, source_id, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        source = session.get(AgendaItem, source_id)
+        AgendaService(session).skip(
+            source.id, AgendaCommand(expected_version=source.version), actor
+        )
+        source = session.get(AgendaItem, source_id)
+        source_meeting = session.get(Meeting, meeting_id)
+        future = session.get(Meeting, future_id)
+
+        def fail_integrity():
+            raise IntegrityError("INSERT", {}, RuntimeError("foreign key failure"))
+
+        monkeypatch.setattr(session, "commit", fail_integrity)
+        service = OutcomeService(session)
+        with pytest.raises(AppError) as error:
+            if command == "convert":
+                service.convert_agenda_to_question(
+                    source_id,
+                    AgendaConvertWrite(
+                        expected_source_version=source.version,
+                        expected_source_meeting_version=source_meeting.version,
+                    ),
+                    actor,
+                )
+            else:
+                service.copy_agenda_to_meeting(
+                    source_id,
+                    AgendaCopyWrite(
+                        target_meeting_id=future_id,
+                        expected_source_version=source.version,
+                        expected_source_meeting_version=source_meeting.version,
+                        expected_target_meeting_version=future.version,
+                    ),
+                    actor,
+                )
+        assert error.value.code == "outcome_integrity_conflict"
+        assert session.scalar(select(AgendaItem.id).where(AgendaItem.id == source_id))
+
+
+def test_convert_stale_write_maps_exact_version_conflict_and_recovers_session(
+    client, outcome_context, monkeypatch
+):
+    admin_id, _, _, _, meeting_id, _, source_id, _ = outcome_context
+    database = client.app.state.database
+    with database.session() as session:
+        actor = session.get(User, admin_id)
+        source = session.get(AgendaItem, source_id)
+        AgendaService(session).skip(
+            source.id, AgendaCommand(expected_version=source.version), actor
+        )
+        source = session.get(AgendaItem, source_id)
+        source_meeting = session.get(Meeting, meeting_id)
+        expected_source_version = source.version
+
+        def fail_stale():
+            with database.session() as competing:
+                competing_source = competing.get(AgendaItem, source_id)
+                competing_source.version += 1
+                competing.commit()
+            raise StaleDataError("concurrent agenda update")
+
+        monkeypatch.setattr(session, "commit", fail_stale)
+        with pytest.raises(AppError) as conflict:
+            OutcomeService(session).convert_agenda_to_question(
+                source_id,
+                AgendaConvertWrite(
+                    expected_source_version=expected_source_version,
+                    expected_source_meeting_version=source_meeting.version,
+                ),
+                actor,
+            )
+        assert conflict.value.code == "version_conflict"
+        assert conflict.value.details == {
+            "expected_version": expected_source_version,
+            "actual_version": expected_source_version + 1,
+        }
+        assert session.scalar(select(AgendaItem.id).where(AgendaItem.id == source_id))
 
 
 def test_concurrent_migration_rolls_back_and_leaves_session_reusable(

@@ -109,6 +109,8 @@ class OutcomeService:
             raise AppError(422, "source_mismatch", "会议来源与项目不匹配")
         if agenda is not None and (meeting is None or agenda.meeting_id != meeting.id):
             raise AppError(422, "source_mismatch", "议题来源与会议不匹配")
+        if meeting is not None:
+            self._mutable_meeting(meeting)
         return project, meeting, agenda
 
     def _commit(
@@ -188,10 +190,17 @@ class OutcomeService:
         if reviewer_ids is not None:
             self._users(reviewer_ids)
             existing = {row.user_id: row for row in decision.reviewers}
-            decision.reviewers = [
+            selected = [
                 existing.get(value) or DecisionReviewer(user_id=value)
                 for value in reviewer_ids
             ]
+            retained_ids = set(reviewer_ids)
+            selected.extend(
+                row
+                for row in decision.reviewers
+                if row.user_id not in retained_ids and row.responded_at is not None
+            )
+            decision.reviewers = selected
         for key, value in changes.items():
             setattr(decision, key, value)
         if changes or reviewer_ids is not None:
@@ -327,15 +336,22 @@ class OutcomeService:
         self._require_active(actor)
         action = self._action(action_id)
         require_version(payload.expected_version, action.version)
-        changes = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
+        requested = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
+        changes = {
+            key: value
+            for key, value in requested.items()
+            if getattr(action, key) != value
+        }
         if "owner_user_id" in changes:
             self._users([changes["owner_user_id"]])
+        previous_status = action.status
         for key, value in changes.items():
             setattr(action, key, value)
         if "status" in changes:
-            action.completed_at = (
-                utcnow() if changes["status"] == ActionStatus.done else None
-            )
+            if changes["status"] == ActionStatus.done:
+                action.completed_at = utcnow()
+            elif previous_status == ActionStatus.done:
+                action.completed_at = None
         if changes:
             action.version += 1
             self._commit(
@@ -513,6 +529,9 @@ class OutcomeService:
             raise AppError(422, "source_mismatch", "议题不属于同一项目")
         source_meeting = source.meeting
         target_meeting = target.meeting
+        self._mutable_meeting(source_meeting)
+        if target_meeting.id != source_meeting.id:
+            self._mutable_meeting(target_meeting)
         actual_source_meeting_version = self.session.scalar(
             select(Meeting.version).where(Meeting.id == source_meeting.id)
         )
@@ -607,7 +626,7 @@ class OutcomeService:
         source_meeting.updated_by = actor.id
         try:
             self.session.commit()
-        except (IntegrityError, StaleDataError) as exc:
+        except IntegrityError as exc:
             self.session.rollback()
             duplicate = self.session.scalar(
                 select(OpenQuestion.id).where(
@@ -618,11 +637,23 @@ class OutcomeService:
                 raise AppError(
                     409, "agenda_already_converted", "议题已转为开放问题"
                 ) from exc
-            actual = self.session.scalar(
+            raise AppError(
+                409,
+                "outcome_integrity_conflict",
+                "开放问题写入违反数据完整性约束",
+            ) from exc
+        except StaleDataError as exc:
+            self.session.rollback()
+            actual_source = self.session.scalar(
                 select(AgendaItem.version).where(AgendaItem.id == source_id)
             )
-            if actual is not None:
-                require_version(payload.expected_source_version, actual)
+            if actual_source is not None:
+                require_version(payload.expected_source_version, actual_source)
+            actual_meeting = self.session.scalar(
+                select(Meeting.version).where(Meeting.id == source_meeting.id)
+            )
+            if actual_meeting is not None:
+                require_version(payload.expected_source_meeting_version, actual_meeting)
             raise AppError(409, "version_conflict", "议题或会议已更新") from exc
         self.session.refresh(question)
         return question
@@ -697,7 +728,7 @@ class OutcomeService:
             target.version -= 1
         try:
             self.session.commit()
-        except (IntegrityError, StaleDataError) as exc:
+        except IntegrityError as exc:
             self.session.rollback()
             duplicate = self.session.scalar(
                 select(AgendaItem.id).where(
@@ -709,11 +740,31 @@ class OutcomeService:
                 raise AppError(
                     409, "agenda_already_copied", "议题已复制到目标会议"
                 ) from exc
-            actual = self.session.scalar(
+            raise AppError(
+                409,
+                "outcome_integrity_conflict",
+                "复制议题违反数据完整性约束",
+            ) from exc
+        except StaleDataError as exc:
+            self.session.rollback()
+            actual_source = self.session.scalar(
                 select(AgendaItem.version).where(AgendaItem.id == source_id)
             )
-            if actual is not None:
-                require_version(payload.expected_source_version, actual)
+            if actual_source is not None:
+                require_version(payload.expected_source_version, actual_source)
+            actual_source_meeting = self.session.scalar(
+                select(Meeting.version).where(Meeting.id == source_meeting.id)
+            )
+            if actual_source_meeting is not None:
+                require_version(
+                    payload.expected_source_meeting_version,
+                    actual_source_meeting,
+                )
+            actual_target = self.session.scalar(
+                select(Meeting.version).where(Meeting.id == payload.target_meeting_id)
+            )
+            if actual_target is not None:
+                require_version(payload.expected_target_meeting_version, actual_target)
             raise AppError(409, "version_conflict", "议题或会议已更新") from exc
         self.session.refresh(item)
         return item

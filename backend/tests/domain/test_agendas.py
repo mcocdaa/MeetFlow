@@ -18,7 +18,6 @@ from app.errors import AppError
 from app.meetings.models import Meeting
 from app.meetings.schemas import MeetingWrite
 from app.meetings.service import MeetingService
-from app.outcomes.models import OpenQuestion
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -189,7 +188,6 @@ def test_schema_requires_type_rejects_blank_refs_and_allows_explicit_clear():
     for field in (
         "proposer_user_id",
         "presenter_user_id",
-        "carry_from_open_question_id",
     ):
         with pytest.raises(ValidationError):
             AgendaEdit(expected_version=1, **{field: "   "})
@@ -208,16 +206,6 @@ def test_edit_can_clear_optional_user_refs_without_poisoning_session(
     with client.app.state.database.session() as session:
         service = AgendaService(session)
         meeting = session.get(Meeting, meeting_id)
-        session.add(
-            OpenQuestion(
-                id="question-id",
-                project_id=meeting.project_id,
-                meeting_id=meeting.id,
-                question_markdown="Question used by the carry reference",
-                created_by=admin.id,
-            )
-        )
-        session.commit()
         item = add_item(
             service,
             meeting,
@@ -225,7 +213,6 @@ def test_edit_can_clear_optional_user_refs_without_poisoning_session(
             "Clear refs",
             proposer_user_id=presenter.id,
             presenter_user_id=presenter.id,
-            carry_from_open_question_id="question-id",
         )
         cleared = service.update(
             item.id,
@@ -233,14 +220,26 @@ def test_edit_can_clear_optional_user_refs_without_poisoning_session(
                 expected_version=1,
                 proposer_user_id=None,
                 presenter_user_id=None,
-                carry_from_open_question_id=None,
             ),
             admin,
         )
         assert cleared.proposer_user_id is None
         assert cleared.presenter_user_id is None
-        assert cleared.carry_from_open_question_id is None
         assert session.scalar(select(AgendaItem.id).where(AgendaItem.id == item.id))
+
+
+def test_public_agenda_schemas_forbid_internal_provenance_fields():
+    with pytest.raises(ValidationError):
+        AgendaWrite(
+            title="Internal carry",
+            agenda_type="discussion",
+            carry_from_open_question_id="question-id",
+        )
+    with pytest.raises(ValidationError):
+        AgendaEdit(
+            expected_version=1,
+            carry_from_open_question_id="question-id",
+        )
 
 
 def test_commands_set_status_timestamps_and_reject_invalid_transition(
