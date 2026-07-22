@@ -277,11 +277,11 @@ def upgrade() -> None:
             sa.Enum("human", "ai_draft_applied", name="projectupdatesource"),
             nullable=False,
         ),
-        sa.Column("created_by_user_id", sa.String(), nullable=False),
+        sa.Column("created_by", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
-            ["created_by_user_id"],
+            ["created_by"],
             ["users.id"],
         ),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),

@@ -101,7 +101,7 @@ class ProjectUpdate(Base):
     source: Mapped[ProjectUpdateSource] = mapped_column(
         Enum(ProjectUpdateSource), default=ProjectUpdateSource.human
     )
-    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
@@ -110,4 +110,4 @@ class ProjectUpdate(Base):
     )
 
     project: Mapped[Project] = relationship(back_populates="updates")
-    creator: Mapped[User] = relationship(foreign_keys=[created_by_user_id])
+    creator: Mapped[User] = relationship(foreign_keys=[created_by])

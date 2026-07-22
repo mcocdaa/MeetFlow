@@ -86,7 +86,8 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     project_update_columns = {
         column["name"] for column in inspector.get_columns("project_updates")
     }
-    assert "created_by_user_id" in project_update_columns
+    assert "created_by" in project_update_columns
+    assert "created_by_user_id" not in project_update_columns
     assert "author_id" not in project_update_columns
     assert {column["name"] for column in inspector.get_columns("attachments")} == {
         "id",

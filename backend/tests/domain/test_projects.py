@@ -219,10 +219,10 @@ def test_project_update_uses_created_by_audit_contract(client, users):
             admin,
         )
 
-        assert update.created_by_user_id == admin.id
+        assert update.created_by == admin.id
         serialized = service.serialize_update(update)
-        assert serialized["created_by_user_id"] == admin.id
         assert serialized["created_by"]["id"] == admin.id
+        assert "created_by_user_id" not in serialized
         assert "author" not in serialized
 
 

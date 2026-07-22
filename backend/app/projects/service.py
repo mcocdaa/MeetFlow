@@ -190,7 +190,7 @@ class ProjectService:
             )
         update = ProjectUpdate(
             project_id=project.id,
-            created_by_user_id=actor.id,
+            created_by=actor.id,
             **payload.model_dump(),
         )
         self.session.add(update)
@@ -206,7 +206,7 @@ class ProjectService:
     ) -> ProjectUpdate:
         self._require_active(actor)
         update = self.require_update(update_id)
-        if update.created_by_user_id != actor.id and actor.role != UserRole.ADMIN:
+        if update.created_by != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(
                 403,
                 "project_update_forbidden",
@@ -256,7 +256,6 @@ class ProjectService:
             "health": update.health,
             "content_markdown": update.content_markdown,
             "source": update.source,
-            "created_by_user_id": update.created_by_user_id,
             "created_by": user_ref(update.creator),
             "created_at": update.created_at,
             "updated_at": update.updated_at,
