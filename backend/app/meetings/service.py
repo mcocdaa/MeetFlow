@@ -441,7 +441,7 @@ class MeetingService:
     def _invalid_transition(meeting: Meeting, target: MeetingStatus) -> None:
         raise AppError(
             409,
-            "invalid_meeting_transition",
+            "invalid_state_transition",
             "会议状态不可执行此操作",
             details={"from": meeting.status.value, "to": target.value},
         )
@@ -467,6 +467,18 @@ class MeetingService:
         if meeting.status != MeetingStatus.draft:
             self._invalid_transition(meeting, MeetingStatus.ready)
         meeting.status = MeetingStatus.ready
+        meeting.updated_by = actor.id
+        return self._commit_meeting_command(meeting, payload.expected_version)
+
+    def mark_draft(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
+    ) -> Meeting:
+        self._require_active(actor)
+        meeting = self.get_meeting(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        if meeting.status != MeetingStatus.ready:
+            self._invalid_transition(meeting, MeetingStatus.draft)
+        meeting.status = MeetingStatus.draft
         meeting.updated_by = actor.id
         return self._commit_meeting_command(meeting, payload.expected_version)
 
@@ -707,6 +719,57 @@ class MeetingService:
         )
         return document.model_dump(mode="json")
 
+    @staticmethod
+    def _validate_outcome_source_chain(meeting: Meeting) -> None:
+        agenda_ids = {item.id for item in meeting.agenda_items}
+        candidates = (
+            [("decision", row) for row in meeting.decisions]
+            + [("action", row) for row in meeting.actions]
+            + [("open_question", row) for row in meeting.open_questions]
+        )
+        for agenda in meeting.agenda_items:
+            candidates.extend(("decision", row) for row in agenda.decisions)
+            candidates.extend(("action", row) for row in agenda.actions)
+            candidates.extend(("open_question", row) for row in agenda.open_questions)
+
+        invalid = []
+        seen = set()
+        for outcome_type, outcome in candidates:
+            key = (outcome_type, outcome.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            violations = []
+            if outcome.project_id != meeting.project_id:
+                violations.append("project_id")
+            if outcome.meeting_id != meeting.id:
+                violations.append("meeting_id")
+            if (
+                outcome.agenda_item_id is not None
+                and outcome.agenda_item_id not in agenda_ids
+            ):
+                violations.append("agenda_item_id")
+            if violations:
+                invalid.append(
+                    {
+                        "outcome_type": outcome_type,
+                        "outcome_id": outcome.id,
+                        "project_id": outcome.project_id,
+                        "meeting_id": outcome.meeting_id,
+                        "agenda_item_id": outcome.agenda_item_id,
+                        "violations": violations,
+                    }
+                )
+
+        if invalid:
+            invalid.sort(key=lambda row: (row["outcome_type"], row["outcome_id"]))
+            raise AppError(
+                409,
+                "invalid_outcome_source_chain",
+                "会议成果来源链不完整",
+                details={"outcomes": invalid},
+            )
+
     def finish(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
@@ -729,6 +792,7 @@ class MeetingService:
                 "会议仍有未处理议题",
                 details={"agenda_ids": unresolved},
             )
+        self._validate_outcome_source_chain(meeting)
         completion_number = (
             self.session.scalar(
                 select(func.max(MeetingSnapshot.completion_number)).where(

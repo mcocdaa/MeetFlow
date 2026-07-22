@@ -114,7 +114,7 @@ def test_transitions_are_versioned_and_invalid_transition_is_explicit(
 
         with pytest.raises(AppError) as error:
             service.mark_ready(meeting_id, LifecycleCommand(expected_version=3), actor)
-        assert error.value.code == "invalid_meeting_transition"
+        assert error.value.code == "invalid_state_transition"
         assert error.value.details == {"from": "in_progress", "to": "ready"}
 
         with pytest.raises(AppError) as stale:
@@ -122,6 +122,38 @@ def test_transitions_are_versioned_and_invalid_transition_is_explicit(
         assert stale.value.code == "version_conflict"
         assert stale.value.details == {"expected_version": 2, "actual_version": 3}
         assert session.scalar(select(Meeting.id).where(Meeting.id == meeting_id))
+
+
+def test_ready_transition_is_reversible_and_versioned(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        actor = session.get(User, admin_id)
+        ready = service.mark_ready(
+            meeting_id, LifecycleCommand(expected_version=1), actor
+        )
+
+        draft = service.mark_draft(
+            meeting_id, LifecycleCommand(expected_version=ready.version), actor
+        )
+
+        assert (draft.status, draft.version) == (MeetingStatus.draft, 3)
+        with pytest.raises(AppError) as stale:
+            service.mark_draft(meeting_id, LifecycleCommand(expected_version=2), actor)
+        assert stale.value.code == "version_conflict"
+
+
+def test_mark_draft_rejects_non_ready_state(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        actor = session.get(User, admin_id)
+
+        with pytest.raises(AppError) as error:
+            service.mark_draft(meeting_id, LifecycleCommand(expected_version=1), actor)
+
+        assert error.value.code == "invalid_state_transition"
+        assert error.value.details == {"from": "draft", "to": "draft"}
 
 
 def test_finish_rejects_unresolved_agenda_in_stable_order(client, lifecycle_context):
@@ -159,6 +191,113 @@ def test_finish_rejects_unresolved_agenda_in_stable_order(client, lifecycle_cont
         assert error.value.code == "meeting_has_unresolved_agenda"
         assert error.value.details == {"agenda_ids": [first.id, second.id]}
         assert session.scalar(select(func.count(MeetingSnapshot.id))) == 0
+
+
+def test_finish_rejects_invalid_outcome_source_chain_without_snapshot(
+    client, lifecycle_context
+):
+    admin_id, project_id, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = AgendaService(session).create(
+            meeting_id,
+            AgendaWrite(title="Current topic", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        agenda.status = AgendaStatus.completed
+        other_project = ProjectService(session).create(
+            ProjectWrite(
+                name="Other lifecycle",
+                slug="other-lifecycle",
+                status="active",
+                lead_user_id=admin_id,
+                member_ids=[admin_id],
+            ),
+            actor,
+        )
+        other_meeting = MeetingService(session).create_meeting(
+            other_project.id,
+            MeetingWrite(
+                title="Other meeting",
+                scheduled_start=START + timedelta(days=1),
+                scheduled_end=START + timedelta(days=1, hours=1),
+            ),
+            actor,
+        )
+        other_agenda = AgendaService(session).create(
+            other_meeting.id,
+            AgendaWrite(title="Other topic", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=other_meeting.version,
+        )
+        decision = Decision(
+            project_id=other_project.id,
+            meeting_id=meeting_id,
+            agenda_item_id=agenda.id,
+            title="Wrong project",
+            decision_markdown="invalid",
+            created_by=admin_id,
+        )
+        action = ActionItem(
+            project_id=project_id,
+            meeting_id=other_meeting.id,
+            agenda_item_id=agenda.id,
+            content="Wrong meeting",
+            created_by=admin_id,
+        )
+        question = OpenQuestion(
+            project_id=project_id,
+            meeting_id=meeting_id,
+            agenda_item_id=other_agenda.id,
+            question_markdown="Wrong agenda?",
+            created_by=admin_id,
+        )
+        session.add_all([decision, action, question])
+        session.commit()
+        session.refresh(meeting)
+        service = MeetingService(session)
+        started = service.start(
+            meeting_id, LifecycleCommand(expected_version=meeting.version), actor
+        )
+
+        with pytest.raises(AppError) as error:
+            service.finish(
+                meeting_id, LifecycleCommand(expected_version=started.version), actor
+            )
+
+        assert error.value.code == "invalid_outcome_source_chain"
+        assert error.value.details == {
+            "outcomes": [
+                {
+                    "outcome_type": "action",
+                    "outcome_id": action.id,
+                    "project_id": project_id,
+                    "meeting_id": other_meeting.id,
+                    "agenda_item_id": agenda.id,
+                    "violations": ["meeting_id"],
+                },
+                {
+                    "outcome_type": "decision",
+                    "outcome_id": decision.id,
+                    "project_id": other_project.id,
+                    "meeting_id": meeting_id,
+                    "agenda_item_id": agenda.id,
+                    "violations": ["project_id"],
+                },
+                {
+                    "outcome_type": "open_question",
+                    "outcome_id": question.id,
+                    "project_id": project_id,
+                    "meeting_id": meeting_id,
+                    "agenda_item_id": other_agenda.id,
+                    "violations": ["agenda_item_id"],
+                },
+            ]
+        }
+        assert session.scalar(select(func.count(MeetingSnapshot.id))) == 0
+        assert session.get(Meeting, meeting_id).status == MeetingStatus.in_progress
 
 
 def test_finish_snapshots_full_agenda_chain_and_refinish_is_immutable(
@@ -381,6 +520,12 @@ def test_lifecycle_routes_require_authentication(client, lifecycle_context):
     assert client.get(f"/api/meetings/{meeting_id}/snapshots").status_code == 401
     assert (
         client.post(
+            f"/api/meetings/{meeting_id}/draft", json={"expected_version": 1}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
             f"/api/meetings/{meeting_id}/reopen", json={"expected_version": 1}
         ).status_code
         == 401
@@ -405,12 +550,21 @@ def test_lifecycle_routes_return_records_and_status_codes(client, lifecycle_cont
     )
     assert ready.status_code == 200
     assert ready.json()["status"] == "ready"
+    draft = client.post(
+        f"/api/meetings/{meeting_id}/draft", json={"expected_version": 2}
+    )
+    assert draft.status_code == 200
+    assert draft.json()["status"] == "draft"
+    ready = client.post(
+        f"/api/meetings/{meeting_id}/ready", json={"expected_version": 3}
+    )
+    assert ready.status_code == 200
     started = client.post(
-        f"/api/meetings/{meeting_id}/start", json={"expected_version": 2}
+        f"/api/meetings/{meeting_id}/start", json={"expected_version": 4}
     )
     assert started.status_code == 200
     finished = client.post(
-        f"/api/meetings/{meeting_id}/finish", json={"expected_version": 3}
+        f"/api/meetings/{meeting_id}/finish", json={"expected_version": 5}
     )
     assert finished.status_code == 200
     assert finished.json()["status"] == "completed"
@@ -422,21 +576,30 @@ def test_lifecycle_routes_return_records_and_status_codes(client, lifecycle_cont
         json={
             "reason": "Correction",
             "content_markdown": "fixed",
-            "expected_version": 4,
+            "expected_version": 6,
         },
     )
     assert amended.status_code == 201
     reopened = client.post(
-        f"/api/meetings/{meeting_id}/reopen", json={"expected_version": 5}
+        f"/api/meetings/{meeting_id}/reopen", json={"expected_version": 7}
     )
     assert reopened.status_code == 200
     assert reopened.json()["status"] == "in_progress"
     canceled = client.post(
-        f"/api/meetings/{meeting_id}/cancel", json={"expected_version": 6}
+        f"/api/meetings/{meeting_id}/cancel", json={"expected_version": 8}
     )
     assert canceled.status_code == 200
     assert canceled.json()["status"] == "canceled"
     assert canceled.json()["completed_at"] is None
+    invalid = client.post(
+        f"/api/meetings/{meeting_id}/start", json={"expected_version": 9}
+    )
+    assert invalid.status_code == 409
+    assert invalid.json()["error"] == {
+        "code": "invalid_state_transition",
+        "message": "会议状态不可执行此操作",
+        "details": {"from": "canceled", "to": "in_progress"},
+    }
 
 
 def test_simultaneous_finish_creates_one_snapshot(client, lifecycle_context):
