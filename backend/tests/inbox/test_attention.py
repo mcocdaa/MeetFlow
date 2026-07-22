@@ -40,6 +40,21 @@ def test_attention_coalesces_domain_and_unread_reasons_and_tracks_reads(client):
             ),
             actor,
         )
+        writer = NotificationWriter(session)
+        for index in range(98):
+            writer.add(
+                user_id=admin.id,
+                actor_user_id=actor.id,
+                project_id=project.id,
+                meeting_id=None,
+                kind="test.bulk",
+                subject_type="project",
+                subject_id=project.id,
+                source_comment_id=None,
+                data={"index": index},
+                dedupe_key=f"attention-bulk-{index}",
+            )
+        session.commit()
         outcomes = OutcomeService(session)
         action = outcomes.create_action(
             project.id,
@@ -111,13 +126,14 @@ def test_attention_coalesces_domain_and_unread_reasons_and_tracks_reads(client):
         and "comment_mention" in item["reasons"]
         for item in body["items"]
     )
-    assert body["unread_count"] == 3
-    assert not body["truncated"]
-    assert {item["kind"] for item in body["notifications"]} == {
+    assert body["unread_count"] == 101
+    assert len(body["notifications"]) == 100
+    assert body["truncated"]
+    assert {
         "action.assigned",
         "decision.review_requested",
         "comment.mention",
-    }
+    } <= {item["kind"] for item in body["notifications"]}
     assert {item["id"] for item in body["mentions"]} == {
         item["id"]
         for item in body["notifications"]

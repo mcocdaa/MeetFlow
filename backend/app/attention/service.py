@@ -109,7 +109,7 @@ class AttentionService:
                 .limit(UNREAD_LIMIT)
             )
         )
-        return notifications, unread_count, unread_count > UNREAD_LIMIT
+        return notifications, unread_count, unread_count > NOTIFICATION_LIMIT
 
     def _domain_actions(
         self, user_id: str, horizon: date
