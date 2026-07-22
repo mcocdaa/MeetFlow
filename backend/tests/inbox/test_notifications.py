@@ -6,8 +6,10 @@ from sqlalchemy import select
 from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.schemas import CommentEdit, CommentWrite
 from app.collaboration.service import CommentService
+from app.errors import AppError
 from app.inbox.models import Notification
 from app.inbox.service import NotificationWriter
+from app.outcomes.models import ActionItem
 from app.outcomes.schemas import ActionEdit, ActionWrite, DecisionEdit, DecisionWrite
 from app.outcomes.service import OutcomeService
 from app.projects.schemas import ProjectWrite
@@ -133,6 +135,7 @@ def test_domain_notifications_reach_only_new_direct_recipients_and_dedupe(
             ActionEdit(expected_version=action.version, owner_user_id=other_id),
             admin,
         )
+        action_id = action.id
         self_action = outcomes.create_action(
             context["project_id"],
             ActionWrite(
@@ -251,6 +254,50 @@ def test_domain_notifications_reach_only_new_direct_recipients_and_dedupe(
                 )
             )
             == 1
+        )
+
+    database = client.app.state.database
+    with database.session() as stale, database.session() as winner:
+        stale_actor = stale.get(User, context["admin_id"])
+        winner_actor = winner.get(User, context["admin_id"])
+        stale_action = stale.get(ActionItem, action_id)
+        expected_version = stale_action.version
+
+        winner_action = OutcomeService(winner).update_action(
+            action_id,
+            ActionEdit(
+                expected_version=expected_version,
+                content="Winner action content",
+            ),
+            winner_actor,
+        )
+        assert winner_action.version == expected_version + 1
+
+        with pytest.raises(AppError) as conflict:
+            OutcomeService(stale).update_action(
+                action_id,
+                ActionEdit(
+                    expected_version=expected_version,
+                    owner_user_id=third_id,
+                ),
+                stale_actor,
+            )
+        assert conflict.value.status_code == 409
+        assert conflict.value.code == "version_conflict"
+
+    with database.session() as independent:
+        persisted = independent.get(ActionItem, action_id)
+        assert persisted.content == "Winner action content"
+        assert persisted.version == expected_version + 1
+        assert (
+            independent.scalar(
+                select(Notification.id).where(
+                    Notification.kind == "action.assigned",
+                    Notification.subject_id == action_id,
+                    Notification.user_id == third_id,
+                )
+            )
+            is None
         )
 
 

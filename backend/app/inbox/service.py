@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, joinedload
 
 from app.errors import AppError
@@ -46,35 +47,33 @@ class NotificationWriter:
     ) -> Notification | None:
         if actor_user_id == user_id:
             return None
-        for pending in self.session.new:
-            if (
-                isinstance(pending, Notification)
-                and pending.user_id == user_id
-                and pending.dedupe_key == dedupe_key
-            ):
-                return pending
-        existing = self.session.scalar(
-            select(Notification).where(
-                Notification.user_id == user_id,
-                Notification.dedupe_key == dedupe_key,
+        statement = (
+            sqlite_insert(Notification)
+            .values(
+                user_id=user_id,
+                actor_user_id=actor_user_id,
+                project_id=project_id,
+                meeting_id=meeting_id,
+                kind=kind,
+                subject_type=subject_type,
+                subject_id=subject_id,
+                source_comment_id=source_comment_id,
+                data_json=data,
+                dedupe_key=dedupe_key,
             )
+            .on_conflict_do_nothing(index_elements=["user_id", "dedupe_key"])
+            .returning(Notification)
         )
-        if existing is not None:
-            return existing
-        notification = Notification(
-            user_id=user_id,
-            actor_user_id=actor_user_id,
-            project_id=project_id,
-            meeting_id=meeting_id,
-            kind=kind,
-            subject_type=subject_type,
-            subject_id=subject_id,
-            source_comment_id=source_comment_id,
-            data_json=data,
-            dedupe_key=dedupe_key,
-        )
-        self.session.add(notification)
-        return notification
+        with self.session.no_autoflush:
+            notification = self.session.scalars(statement).first()
+            if notification is not None:
+                return notification
+            return self.session.scalar(
+                select(Notification).where(
+                    Notification.user_id == user_id,
+                    Notification.dedupe_key == dedupe_key,
+                )
+            )
 
 
 class InboxService:
