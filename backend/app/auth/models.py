@@ -7,6 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
+DEFAULT_AVATAR_COLOR = "#64748b"
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -32,6 +34,9 @@ class User(Base):
     )
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(120))
+    avatar_color: Mapped[str] = mapped_column(
+        String(7), default=DEFAULT_AVATAR_COLOR, server_default=DEFAULT_AVATAR_COLOR
+    )
     password_hash: Mapped[str] = mapped_column(String(255))
     session_version: Mapped[int] = mapped_column(Integer, default=1)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole))

@@ -6,7 +6,10 @@ def test_admin_can_login_and_read_session(client):
 
     assert login.status_code == 200
     assert login.json()["role"] == "admin"
-    assert client.get("/api/auth/me").json()["username"] == "admin"
+    assert login.json()["avatar_color"] == "#64748b"
+    current_user = client.get("/api/auth/me").json()
+    assert current_user["username"] == "admin"
+    assert current_user["avatar_color"] == "#64748b"
 
 
 def test_registration_creates_pending_user_without_logging_in(client):

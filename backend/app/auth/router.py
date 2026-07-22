@@ -27,6 +27,7 @@ def public_user(user: User) -> UserResponse:
         id=user.id,
         username=user.username,
         display_name=user.display_name,
+        avatar_color=user.avatar_color,
         role=user.role.value,
         status=user.status.value,
     )

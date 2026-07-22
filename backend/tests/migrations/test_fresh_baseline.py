@@ -80,6 +80,14 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     tables = set(inspect(database.engine).get_table_names())
     assert tables == APPLICATION_TABLES | {"alembic_version"}
     inspector = inspect(database.engine)
+    user_columns = {column["name"]: column for column in inspector.get_columns("users")}
+    assert "avatar_color" in user_columns
+    assert user_columns["avatar_color"]["nullable"] is False
+    project_update_columns = {
+        column["name"] for column in inspector.get_columns("project_updates")
+    }
+    assert "created_by_user_id" in project_update_columns
+    assert "author_id" not in project_update_columns
     assert {column["name"] for column in inspector.get_columns("attachments")} == {
         "id",
         "target_type",

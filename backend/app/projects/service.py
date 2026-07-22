@@ -28,6 +28,7 @@ def user_ref(user: User | None) -> dict[str, str] | None:
         "id": user.id,
         "username": user.username,
         "display_name": user.display_name,
+        "avatar_color": user.avatar_color,
     }
 
 
@@ -189,7 +190,7 @@ class ProjectService:
             )
         update = ProjectUpdate(
             project_id=project.id,
-            author_id=actor.id,
+            created_by_user_id=actor.id,
             **payload.model_dump(),
         )
         self.session.add(update)
@@ -205,7 +206,7 @@ class ProjectService:
     ) -> ProjectUpdate:
         self._require_active(actor)
         update = self.require_update(update_id)
-        if update.author_id != actor.id and actor.role != UserRole.ADMIN:
+        if update.created_by_user_id != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(
                 403,
                 "project_update_forbidden",
@@ -255,7 +256,8 @@ class ProjectService:
             "health": update.health,
             "content_markdown": update.content_markdown,
             "source": update.source,
-            "author": user_ref(update.author),
+            "created_by_user_id": update.created_by_user_id,
+            "created_by": user_ref(update.creator),
             "created_at": update.created_at,
             "updated_at": update.updated_at,
         }
@@ -266,7 +268,7 @@ class ProjectService:
         statement = (
             select(ProjectUpdate)
             .where(ProjectUpdate.project_id == project_id)
-            .options(joinedload(ProjectUpdate.author))
+            .options(joinedload(ProjectUpdate.creator))
             .order_by(ProjectUpdate.created_at.desc(), ProjectUpdate.id.desc())
             .limit(limit)
             .offset(offset)
@@ -373,6 +375,25 @@ class ProjectService:
                 .order_by(Attachment.created_at.desc(), Attachment.id.desc())
             )
         )
+        counts = self.session.execute(
+            select(
+                select(func.count(Meeting.id))
+                .where(Meeting.project_id == project_id)
+                .scalar_subquery()
+                .label("meeting_count"),
+                select(func.count(Decision.id))
+                .where(Decision.project_id == project_id)
+                .scalar_subquery()
+                .label("decision_count"),
+                select(func.count(ActionItem.id))
+                .where(
+                    ActionItem.project_id == project_id,
+                    ActionItem.status.in_(["open", "in_progress"]),
+                )
+                .scalar_subquery()
+                .label("open_action_count"),
+            )
+        ).one()
         result.update(
             {
                 "next_meeting": (
@@ -388,15 +409,9 @@ class ProjectService:
                 "recent_decisions": [
                     OutcomeService.serialize(item) for item in recent_decisions
                 ],
-                "open_action_count": self.session.scalar(
-                    select(func.count())
-                    .select_from(ActionItem)
-                    .where(
-                        ActionItem.project_id == project_id,
-                        ActionItem.status.in_(["open", "in_progress"]),
-                    )
-                )
-                or 0,
+                "meeting_count": counts.meeting_count,
+                "decision_count": counts.decision_count,
+                "open_action_count": counts.open_action_count,
                 "series_summaries": [
                     {
                         "id": item.id,

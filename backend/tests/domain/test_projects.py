@@ -6,6 +6,7 @@ from sqlalchemy import event, func, select
 from app.auth.models import User, UserRole, UserStatus
 from app.errors import AppError
 from app.meetings.models import Meeting
+from app.outcomes.models import ActionItem, Decision
 from app.projects.models import Project
 from app.projects.schemas import ProjectEdit, ProjectUpdateWrite, ProjectWrite
 from app.projects.service import ProjectService
@@ -205,6 +206,84 @@ def test_project_update_keeps_human_or_applied_ai_source(client, users):
         assert human.source.value == "human"
         assert human.content_markdown == "  Human markdown  \n"
         assert ai.source.value == "ai_draft_applied"
+
+
+def test_project_update_uses_created_by_audit_contract(client, users):
+    admin, _, _ = users
+    with client.app.state.database.session() as session:
+        service = ProjectService(session)
+        project = service.create(project_payload(admin), admin)
+        update = service.create_update(
+            project.id,
+            ProjectUpdateWrite(content_markdown="Audited update"),
+            admin,
+        )
+
+        assert update.created_by_user_id == admin.id
+        serialized = service.serialize_update(update)
+        assert serialized["created_by_user_id"] == admin.id
+        assert serialized["created_by"]["id"] == admin.id
+        assert "author" not in serialized
+
+
+def test_project_overview_counts_each_domain_row_once(client, users):
+    admin, _, _ = users
+    with client.app.state.database.session() as session:
+        service = ProjectService(session)
+        project = service.create(project_payload(admin), admin)
+        session.add_all(
+            [
+                Meeting(
+                    project_id=project.id,
+                    title=f"Meeting {index}",
+                    scheduled_start=datetime(
+                        2026, 7, 20 + index, 10, tzinfo=timezone.utc
+                    ),
+                    scheduled_end=datetime(
+                        2026, 7, 20 + index, 11, tzinfo=timezone.utc
+                    ),
+                    created_by=admin.id,
+                    updated_by=admin.id,
+                )
+                for index in range(2)
+            ]
+            + [
+                Decision(
+                    project_id=project.id,
+                    title=f"Decision {index}",
+                    decision_markdown=f"Decision body {index}",
+                    created_by=admin.id,
+                )
+                for index in range(3)
+            ]
+            + [
+                ActionItem(
+                    project_id=project.id,
+                    content="Open action",
+                    status="open",
+                    created_by=admin.id,
+                ),
+                ActionItem(
+                    project_id=project.id,
+                    content="In-progress action",
+                    status="in_progress",
+                    created_by=admin.id,
+                ),
+                ActionItem(
+                    project_id=project.id,
+                    content="Closed action",
+                    status="done",
+                    created_by=admin.id,
+                ),
+            ]
+        )
+        session.commit()
+
+        overview = service.detail(project.id)
+
+        assert overview["meeting_count"] == 2
+        assert overview["decision_count"] == 3
+        assert overview["open_action_count"] == 2
 
 
 def test_http_conflict_includes_version_details(authenticated_client, users):

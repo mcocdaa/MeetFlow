@@ -37,5 +37,6 @@ class UserResponse(BaseModel):
     id: str
     username: str
     display_name: str
+    avatar_color: str
     role: str
     status: str
