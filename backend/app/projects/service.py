@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.auth.models import User, UserRole, UserStatus
+from app.collaboration.activity import ActivityRecorder
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import Meeting
@@ -105,6 +106,15 @@ class ProjectService:
         )
         self.session.add(project)
         try:
+            self.session.flush()
+            ActivityRecorder(self.session).record(
+                project_id=project.id,
+                actor_user_id=actor.id,
+                event_type="project.created",
+                subject_type="project",
+                subject_id=project.id,
+                payload={"name": project.name},
+            )
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
@@ -139,6 +149,14 @@ class ProjectService:
             project.memberships = self._memberships(member_ids)
         project.updated_by = actor.id
         project.version += 1
+        ActivityRecorder(self.session).record(
+            project_id=project.id,
+            actor_user_id=actor.id,
+            event_type="project.updated",
+            subject_type="project",
+            subject_id=project.id,
+            payload={"name": project.name},
+        )
         try:
             self.session.commit()
         except StaleDataError as exc:
@@ -194,6 +212,15 @@ class ProjectService:
             **payload.model_dump(),
         )
         self.session.add(update)
+        self.session.flush()
+        ActivityRecorder(self.session).record(
+            project_id=project.id,
+            actor_user_id=actor.id,
+            event_type="project.progress_posted",
+            subject_type="project_update",
+            subject_id=update.id,
+            payload={"health": update.health.value},
+        )
         self.session.commit()
         self.session.refresh(update)
         return update

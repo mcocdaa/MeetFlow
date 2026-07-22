@@ -10,6 +10,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
+from app.collaboration.activity import ActivityRecorder
 from app.domain.enums import AgendaStatus, MeetingStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
@@ -373,6 +374,15 @@ class MeetingService:
             for position, row in enumerate(series.standing_items)
         ]
         meeting_id = meeting.id
+        ActivityRecorder(self.session).record(
+            project_id=meeting.project_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor.id,
+            event_type="meeting.created",
+            subject_type="meeting",
+            subject_id=meeting.id,
+            payload={"title": meeting.title},
+        )
         self.session.commit()
         return self._reload_meeting(meeting_id)
 
@@ -399,6 +409,15 @@ class MeetingService:
         self.session.add(meeting)
         self.session.flush()
         meeting_id = meeting.id
+        ActivityRecorder(self.session).record(
+            project_id=meeting.project_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor.id,
+            event_type="meeting.created",
+            subject_type="meeting",
+            subject_id=meeting.id,
+            payload={"title": meeting.title},
+        )
         self.session.commit()
         return self._reload_meeting(meeting_id)
 
@@ -453,6 +472,15 @@ class MeetingService:
             meeting.participants = self._meeting_participants(participants)
         meeting.updated_by = actor.id
         meeting.version += 1
+        ActivityRecorder(self.session).record(
+            project_id=meeting.project_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor.id,
+            event_type="meeting.updated",
+            subject_type="meeting",
+            subject_id=meeting.id,
+            payload={"title": meeting.title},
+        )
         try:
             self.session.commit()
         except StaleDataError as exc:
@@ -466,6 +494,17 @@ class MeetingService:
             "invalid_state_transition",
             "会议状态不可执行此操作",
             details={"from": meeting.status.value, "to": target.value},
+        )
+
+    def _record_meeting(self, meeting: Meeting, actor: User, event_type: str) -> None:
+        ActivityRecorder(self.session).record(
+            project_id=meeting.project_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor.id,
+            event_type=event_type,
+            subject_type="meeting",
+            subject_id=meeting.id,
+            payload={"title": meeting.title},
         )
 
     def _commit_meeting_command(
@@ -489,6 +528,7 @@ class MeetingService:
             self._invalid_transition(meeting, MeetingStatus.ready)
         meeting.status = MeetingStatus.ready
         meeting.updated_by = actor.id
+        self._record_meeting(meeting, actor, "meeting.ready")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def mark_draft(
@@ -501,6 +541,7 @@ class MeetingService:
             self._invalid_transition(meeting, MeetingStatus.draft)
         meeting.status = MeetingStatus.draft
         meeting.updated_by = actor.id
+        self._record_meeting(meeting, actor, "meeting.returned_to_draft")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def start(self, meeting_id: str, payload: LifecycleCommand, actor: User) -> Meeting:
@@ -512,6 +553,7 @@ class MeetingService:
         meeting.status = MeetingStatus.in_progress
         meeting.started_at = meeting.started_at or utcnow()
         meeting.updated_by = actor.id
+        self._record_meeting(meeting, actor, "meeting.started")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def cancel(
@@ -529,6 +571,7 @@ class MeetingService:
         meeting.status = MeetingStatus.canceled
         meeting.completed_at = None
         meeting.updated_by = actor.id
+        self._record_meeting(meeting, actor, "meeting.canceled")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def reopen(
@@ -543,6 +586,7 @@ class MeetingService:
         meeting.started_at = meeting.started_at or utcnow()
         meeting.completed_at = None
         meeting.updated_by = actor.id
+        self._record_meeting(meeting, actor, "meeting.reopened")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def _meeting_for_snapshot(self, meeting_id: str) -> Meeting:
@@ -833,6 +877,7 @@ class MeetingService:
         meeting.status = MeetingStatus.completed
         meeting.completed_at = utcnow()
         meeting.updated_by = actor.id
+        self._record_meeting(meeting, actor, "meeting.finished")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def list_snapshots(
@@ -865,7 +910,17 @@ class MeetingService:
             created_by=actor.id,
         )
         self.session.add(amendment)
+        self.session.flush()
         meeting.updated_by = actor.id
+        ActivityRecorder(self.session).record(
+            project_id=meeting.project_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor.id,
+            event_type="meeting.amended",
+            subject_type="meeting_amendment",
+            subject_id=amendment.id,
+            payload={"reason": amendment.reason},
+        )
         self._commit_meeting_command(meeting, payload.expected_version)
         self.session.refresh(amendment)
         return amendment

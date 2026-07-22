@@ -11,6 +11,7 @@ from app.schema_guard import LegacyDatabaseError, reject_legacy_schema
 
 APPLICATION_TABLES = {
     "action_items",
+    "activity_events",
     "agenda_items",
     "attachments",
     "decision_reviewers",
@@ -68,6 +69,33 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         index["column_names"] == ["target_type", "target_id"]
         for index in inspector.get_indexes("attachments")
     )
+    activity_columns = {
+        column["name"]: column for column in inspector.get_columns("activity_events")
+    }
+    assert activity_columns["id"]["primary_key"] == 1
+    activity_indexes = {
+        tuple(index["column_names"])
+        for index in inspector.get_indexes("activity_events")
+    }
+    assert {
+        ("project_id",),
+        ("meeting_id",),
+        ("event_type",),
+        ("subject_id",),
+        ("created_at",),
+    } <= activity_indexes
+    activity_foreign_keys = {
+        foreign_key["constrained_columns"][0]: foreign_key
+        for foreign_key in inspector.get_foreign_keys("activity_events")
+    }
+    assert {
+        key: value["options"].get("ondelete")
+        for key, value in activity_foreign_keys.items()
+    } == {
+        "actor_user_id": "SET NULL",
+        "meeting_id": "SET NULL",
+        "project_id": "SET NULL",
+    }
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "0001"

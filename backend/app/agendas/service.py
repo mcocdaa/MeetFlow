@@ -16,6 +16,7 @@ from app.agendas.schemas import (
     AgendaWrite,
 )
 from app.auth.models import User, UserStatus
+from app.collaboration.activity import ActivityRecorder
 from app.domain.enums import AgendaStatus, MeetingStatus, OpenQuestionStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
@@ -34,6 +35,17 @@ def _aware(value: datetime) -> datetime:
 class AgendaService:
     def __init__(self, session: Session):
         self.session = session
+
+    def _record(self, item: AgendaItem, actor: User, event_type: str) -> None:
+        ActivityRecorder(self.session).record(
+            project_id=item.meeting.project_id,
+            meeting_id=item.meeting_id,
+            actor_user_id=actor.id,
+            event_type=event_type,
+            subject_type="agenda_item",
+            subject_id=item.id,
+            payload={"title": item.title},
+        )
 
     @staticmethod
     def _require_active(actor: User) -> None:
@@ -214,6 +226,8 @@ class AgendaService:
         meeting.version += 1
         meeting.updated_by = actor.id
         try:
+            self.session.flush()
+            self._record(item, actor, "agenda.created")
             self.session.commit()
         except StaleDataError as exc:
             self._raise_meeting_stale(meeting_id, expected_meeting_version, exc)
@@ -315,6 +329,12 @@ class AgendaService:
         item.version += 1
         meeting.updated_by = actor.id
         meeting.version += 1
+        event_type = {
+            AgendaStatus.completed: "agenda.completed",
+            AgendaStatus.skipped: "agenda.skipped",
+            AgendaStatus.canceled: "agenda.canceled",
+        }[target]
+        self._record(item, actor, event_type)
         try:
             self.session.commit()
         except StaleDataError as exc:
@@ -347,6 +367,7 @@ class AgendaService:
         item.version += 1
         meeting.updated_by = actor.id
         meeting.version += 1
+        self._record(item, actor, "agenda.started")
         try:
             self.session.commit()
         except StaleDataError as exc:
@@ -466,6 +487,7 @@ class AgendaService:
         source.updated_by = actor.id
         target.version += 1
         target.updated_by = actor.id
+        self._record(item, actor, "agenda.moved")
         try:
             self.session.commit()
         except StaleDataError as exc:

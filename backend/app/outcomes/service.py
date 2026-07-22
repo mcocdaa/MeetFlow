@@ -10,6 +10,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
+from app.collaboration.activity import ActivityRecorder
 from app.domain.enums import (
     ActionPriority,
     ActionStatus,
@@ -58,6 +59,27 @@ def _aware(value: datetime) -> datetime:
 class OutcomeService:
     def __init__(self, session: Session):
         self.session = session
+
+    def _record(
+        self,
+        *,
+        project_id: str,
+        meeting_id: str | None,
+        actor: User,
+        event_type: str,
+        subject_type: str,
+        subject_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        ActivityRecorder(self.session).record(
+            project_id=project_id,
+            meeting_id=meeting_id,
+            actor_user_id=actor.id,
+            event_type=event_type,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            payload=payload,
+        )
 
     @staticmethod
     def _require_active(actor: User) -> None:
@@ -190,6 +212,16 @@ class OutcomeService:
             ],
         )
         self.session.add(decision)
+        self.session.flush()
+        self._record(
+            project_id=decision.project_id,
+            meeting_id=decision.meeting_id,
+            actor=actor,
+            event_type="decision.created",
+            subject_type="decision",
+            subject_id=decision.id,
+            payload={"title": decision.title},
+        )
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
         self._commit(entity="决策", meeting_versions=meeting_versions)
         return self._decision(decision.id)
@@ -227,6 +259,15 @@ class OutcomeService:
         if changes or reviewer_ids is not None:
             meeting_versions = self._touch_meetings(actor, decision.meeting_id)
             decision.version += 1
+            self._record(
+                project_id=decision.project_id,
+                meeting_id=decision.meeting_id,
+                actor=actor,
+                event_type="decision.updated",
+                subject_type="decision",
+                subject_id=decision.id,
+                payload={"title": decision.title},
+            )
             self._commit(
                 entity="决策",
                 model=Decision,
@@ -256,6 +297,15 @@ class OutcomeService:
         reviewer.responded_at = utcnow()
         meeting_versions = self._touch_meetings(actor, decision.meeting_id)
         decision.version += 1
+        self._record(
+            project_id=decision.project_id,
+            meeting_id=decision.meeting_id,
+            actor=actor,
+            event_type="decision.reviewed",
+            subject_type="decision",
+            subject_id=decision.id,
+            payload={"title": decision.title, "status": payload.status},
+        )
         self._commit(
             entity="决策",
             model=Decision,
@@ -277,6 +327,15 @@ class OutcomeService:
         decision.decided_by_user_id = actor.id
         meeting_versions = self._touch_meetings(actor, decision.meeting_id)
         decision.version += 1
+        self._record(
+            project_id=decision.project_id,
+            meeting_id=decision.meeting_id,
+            actor=actor,
+            event_type="decision.finalized",
+            subject_type="decision",
+            subject_id=decision.id,
+            payload={"title": decision.title},
+        )
         self._commit(
             entity="决策",
             model=Decision,
@@ -297,6 +356,15 @@ class OutcomeService:
         decision.status = DecisionStatus.withdrawn
         meeting_versions = self._touch_meetings(actor, decision.meeting_id)
         decision.version += 1
+        self._record(
+            project_id=decision.project_id,
+            meeting_id=decision.meeting_id,
+            actor=actor,
+            event_type="decision.withdrawn",
+            subject_type="decision",
+            subject_id=decision.id,
+            payload={"title": decision.title},
+        )
         self._commit(
             entity="决策",
             model=Decision,
@@ -329,6 +397,15 @@ class OutcomeService:
         new.supersedes_decision_id = old.id
         new.version += 1
         meeting_versions = self._touch_meetings(actor, old.meeting_id, new.meeting_id)
+        self._record(
+            project_id=old.project_id,
+            meeting_id=old.meeting_id,
+            actor=actor,
+            event_type="decision.superseded",
+            subject_type="decision",
+            subject_id=old.id,
+            payload={"title": old.title, "replacement_id": new.id},
+        )
         self._commit(entity="决策", meeting_versions=meeting_versions)
         return self._decision(new.id)
 
@@ -356,6 +433,16 @@ class OutcomeService:
             created_by=actor.id,
         )
         self.session.add(action)
+        self.session.flush()
+        self._record(
+            project_id=action.project_id,
+            meeting_id=action.meeting_id,
+            actor=actor,
+            event_type="action.created",
+            subject_type="action_item",
+            subject_id=action.id,
+            payload={"content": action.content[:200]},
+        )
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
         self._commit(entity="行动项", meeting_versions=meeting_versions)
         self.session.refresh(action)
@@ -386,6 +473,26 @@ class OutcomeService:
         if changes:
             meeting_versions = self._touch_meetings(actor, action.meeting_id)
             action.version += 1
+            event_type = "action.updated"
+            if "status" in changes:
+                event_type = (
+                    "action.completed"
+                    if changes["status"] == ActionStatus.done
+                    else (
+                        "action.reopened"
+                        if previous_status == ActionStatus.done
+                        else "action.status_changed"
+                    )
+                )
+            self._record(
+                project_id=action.project_id,
+                meeting_id=action.meeting_id,
+                actor=actor,
+                event_type=event_type,
+                subject_type="action_item",
+                subject_id=action.id,
+                payload={"content": action.content[:200]},
+            )
             self._commit(
                 entity="行动项",
                 model=ActionItem,
@@ -414,6 +521,16 @@ class OutcomeService:
             project_id=project_id, **payload.model_dump(), created_by=actor.id
         )
         self.session.add(question)
+        self.session.flush()
+        self._record(
+            project_id=question.project_id,
+            meeting_id=question.meeting_id,
+            actor=actor,
+            event_type="question.created",
+            subject_type="open_question",
+            subject_id=question.id,
+            payload={"question": question.question_markdown[:200]},
+        )
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
         self._commit(entity="开放问题", meeting_versions=meeting_versions)
         self.session.refresh(question)
@@ -433,6 +550,15 @@ class OutcomeService:
         if changes:
             meeting_versions = self._touch_meetings(actor, question.meeting_id)
             question.version += 1
+            self._record(
+                project_id=question.project_id,
+                meeting_id=question.meeting_id,
+                actor=actor,
+                event_type="question.updated",
+                subject_type="open_question",
+                subject_id=question.id,
+                payload={"question": question.question_markdown[:200]},
+            )
             self._commit(
                 entity="开放问题",
                 model=OpenQuestion,
@@ -499,6 +625,15 @@ class OutcomeService:
         question.scheduled_meeting_id = meeting.id
         question.version += 1
         meeting_versions = self._touch_meetings(actor, question.meeting_id, meeting.id)
+        self._record(
+            project_id=question.project_id,
+            meeting_id=meeting.id,
+            actor=actor,
+            event_type="question.scheduled",
+            subject_type="open_question",
+            subject_id=question.id,
+            payload={"question": question.question_markdown[:200]},
+        )
         self._commit(entity="开放问题或会议", meeting_versions=meeting_versions)
         self.session.refresh(item)
         return item
@@ -524,6 +659,15 @@ class OutcomeService:
         question.resolved_by_decision_id = payload.decision_id
         meeting_versions = self._touch_meetings(actor, question.meeting_id)
         question.version += 1
+        self._record(
+            project_id=question.project_id,
+            meeting_id=question.meeting_id,
+            actor=actor,
+            event_type="question.resolved",
+            subject_type="open_question",
+            subject_id=question.id,
+            payload={"question": question.question_markdown[:200]},
+        )
         self._commit(
             entity="开放问题",
             model=OpenQuestion,

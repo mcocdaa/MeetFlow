@@ -98,6 +98,7 @@ with database.engine.connect() as connection:
         f"sqlite:///{database}",
         {
             "action_items",
+            "activity_events",
             "agenda_items",
             "alembic_version",
             "attachments",
