@@ -352,7 +352,7 @@ def test_simultaneous_finish_creates_one_snapshot(client, lifecycle_context):
     with database.session() as stale, database.session() as winner:
         stale_service = MeetingService(stale)
         stale_actor = stale.get(User, admin_id)
-        stale_meeting = stale_service._meeting_for_snapshot(meeting_id)
+        stale_meeting = stale_service.get_meeting(meeting_id)
         winner_service = MeetingService(winner)
         winner_result = winner_service.finish(
             meeting_id,
@@ -389,7 +389,7 @@ def test_finish_loses_atomically_to_concurrent_agenda_write(client, lifecycle_co
     with database.session() as stale, database.session() as winner:
         stale_service = MeetingService(stale)
         stale_actor = stale.get(User, admin_id)
-        stale_service._meeting_for_snapshot(meeting_id)
+        stale_service.get_meeting(meeting_id)
         winner_meeting = winner.get(Meeting, meeting_id)
         AgendaService(winner).create(
             meeting_id,
@@ -427,8 +427,8 @@ def test_finish_and_cancel_race_has_one_trustworthy_winner(
         second_service = MeetingService(second)
         first_actor = first.get(User, admin_id)
         second_actor = second.get(User, admin_id)
-        first_service._meeting_for_snapshot(meeting_id)
-        second_service._meeting_for_snapshot(meeting_id)
+        first_service.get_meeting(meeting_id)
+        second_service.get_meeting(meeting_id)
 
         if winner == "finish":
             won = first_service.finish(

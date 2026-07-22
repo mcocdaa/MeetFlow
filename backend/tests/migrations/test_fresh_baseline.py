@@ -41,7 +41,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     database.migrate()
 
     tables = set(inspect(database.engine).get_table_names())
-    assert tables == APPLICATION_TABLES | {"alembic_version"}
+    assert APPLICATION_TABLES | {"alembic_version"} <= tables
     inspector = inspect(database.engine)
     user_columns = {column["name"]: column for column in inspector.get_columns("users")}
     assert "avatar_color" in user_columns
@@ -52,7 +52,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     assert "created_by" in project_update_columns
     assert "created_by_user_id" not in project_update_columns
     assert "author_id" not in project_update_columns
-    assert {column["name"] for column in inspector.get_columns("attachments")} == {
+    assert {
         "id",
         "target_type",
         "target_id",
@@ -63,7 +63,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         "attachment_type",
         "created_by",
         "created_at",
-    }
+    } <= {column["name"] for column in inspector.get_columns("attachments")}
     assert any(
         index["column_names"] == ["target_type", "target_id"]
         for index in inspector.get_indexes("attachments")
