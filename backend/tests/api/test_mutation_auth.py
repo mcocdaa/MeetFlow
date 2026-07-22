@@ -9,6 +9,7 @@ def test_representative_mutation_routes_require_authentication(client):
                 "scheduled_end": "2026-07-22T10:00:00Z",
             },
         ),
+        ("/api/meetings/meeting-id/start", {"expected_version": 1}),
         (
             "/api/meetings/meeting-id/agenda-items?expected_meeting_version=1",
             {"title": "Private topic", "agenda_type": "discussion"},
