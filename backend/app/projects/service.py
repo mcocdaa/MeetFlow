@@ -110,7 +110,7 @@ class ProjectService:
             self.session.rollback()
             raise AppError(
                 409,
-                "project_slug_conflict",
+                "project_slug_taken",
                 "项目标识已存在",
                 details={"slug": payload.slug},
             ) from exc
@@ -162,7 +162,7 @@ class ProjectService:
             self.session.rollback()
             raise AppError(
                 409,
-                "project_slug_conflict",
+                "project_slug_taken",
                 "项目标识已存在",
                 details={"slug": changes.get("slug", project.slug)},
             ) from exc

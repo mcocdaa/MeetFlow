@@ -334,8 +334,28 @@ def test_duplicate_slug_leaves_session_reusable(client, users):
         service.create(project_payload(admin), admin)
         with pytest.raises(AppError) as error:
             service.create(project_payload(admin, name="Duplicate"), admin)
-        assert error.value.code == "project_slug_conflict"
+        assert error.value.code == "project_slug_taken"
         assert session.scalar(select(func.count(Project.id))) == 1
+
+
+def test_duplicate_slug_update_uses_public_error_contract(client, users):
+    admin, _, _ = users
+    with client.app.state.database.session() as session:
+        service = ProjectService(session)
+        first = service.create(project_payload(admin), admin)
+        second = service.create(
+            project_payload(admin, name="Second", slug="second-project"), admin
+        )
+
+        with pytest.raises(AppError) as error:
+            service.update(
+                second.id,
+                ProjectEdit(expected_version=second.version, slug=first.slug),
+                admin,
+            )
+
+        assert error.value.code == "project_slug_taken"
+        assert error.value.details == {"slug": first.slug}
 
 
 def test_membership_replacement_increments_version_once(client, users):
