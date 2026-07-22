@@ -52,6 +52,13 @@ def comment_options():
 class CommentThreadPage:
     items: list[Comment]
     replies_by_parent: dict[str, list[Comment]]
+    reply_next_cursor_by_parent: dict[str, str | None]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
+class CommentReplyPage:
+    items: list[Comment]
     next_cursor: str | None
 
 
@@ -290,7 +297,7 @@ class CommentService:
         has_more = len(roots) > limit
         items = roots[:limit]
         next_cursor = items[-1].id if has_more and items else None
-        replies_by_parent = {item.id: [] for item in items}
+        reply_rows_by_parent = {item.id: [] for item in items}
         root_ids = [item.id for item in items]
         if root_ids:
             ranked_replies = (
@@ -312,16 +319,67 @@ class CommentService:
                     ranked_replies,
                     ranked_replies.c.comment_id == Comment.id,
                 )
-                .where(ranked_replies.c.reply_number <= reply_limit)
+                .where(ranked_replies.c.reply_number <= reply_limit + 1)
                 .options(*comment_options())
                 .order_by(Comment.parent_id, Comment.created_at, Comment.id)
             )
             for reply in replies:
-                replies_by_parent[reply.parent_id].append(reply)
+                reply_rows_by_parent[reply.parent_id].append(reply)
+        replies_by_parent = {}
+        reply_next_cursor_by_parent = {}
+        for root_id, rows in reply_rows_by_parent.items():
+            has_more_replies = len(rows) > reply_limit
+            replies_by_parent[root_id] = rows[:reply_limit]
+            reply_next_cursor_by_parent[root_id] = (
+                replies_by_parent[root_id][-1].id
+                if has_more_replies and replies_by_parent[root_id]
+                else None
+            )
         return CommentThreadPage(
             items=items,
             replies_by_parent=replies_by_parent,
+            reply_next_cursor_by_parent=reply_next_cursor_by_parent,
             next_cursor=next_cursor,
+        )
+
+    def list_replies(
+        self,
+        root_id: str,
+        *,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> CommentReplyPage:
+        root = self._get_loaded(root_id)
+        if root.parent_id is not None:
+            raise AppError(422, "comment_root_required", "只能分页读取根评论的回复")
+        filters = [Comment.parent_id == root.id]
+        if after is not None:
+            cursor = self.session.get(Comment, after)
+            if cursor is None or cursor.parent_id != root.id:
+                raise AppError(422, "invalid_comment_cursor", "评论游标无效")
+            filters.append(
+                or_(
+                    Comment.created_at > cursor.created_at,
+                    and_(
+                        Comment.created_at == cursor.created_at,
+                        Comment.id > cursor.id,
+                    ),
+                )
+            )
+        rows = list(
+            self.session.scalars(
+                select(Comment)
+                .where(*filters)
+                .options(*comment_options())
+                .order_by(Comment.created_at, Comment.id)
+                .limit(limit + 1)
+            )
+        )
+        has_more = len(rows) > limit
+        items = rows[:limit]
+        return CommentReplyPage(
+            items=items,
+            next_cursor=items[-1].id if has_more and items else None,
         )
 
     @staticmethod
@@ -330,6 +388,7 @@ class CommentService:
         actor: User,
         *,
         replies: list[Comment] | None = None,
+        reply_next_cursor: str | None = None,
     ) -> dict[str, Any]:
         can_change = comment.created_by == actor.id or actor.role == UserRole.ADMIN
         result = {
@@ -349,6 +408,7 @@ class CommentService:
             "can_edit": can_change and comment.deleted_at is None,
             "can_delete": can_change,
             "replies": [],
+            "reply_next_cursor": reply_next_cursor,
         }
         if replies is not None:
             result["replies"] = [

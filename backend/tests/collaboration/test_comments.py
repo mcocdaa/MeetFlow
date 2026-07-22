@@ -235,7 +235,7 @@ def test_reply_flatten_edit_permissions_and_delete_tombstone_keep_context(
             ),
             admin,
         )
-        service.create(
+        second_reply = service.create(
             CommentWrite(
                 target_type="meeting",
                 target_id=context["meeting_id"],
@@ -333,7 +333,29 @@ def test_reply_flatten_edit_permissions_and_delete_tombstone_keep_context(
     assert len(response.json()["items"]) == 3
     root_body = next(item for item in response.json()["items"] if item["id"] == root.id)
     assert len(root_body["replies"]) == 1
+    assert root_body["reply_next_cursor"] == root_body["replies"][0]["id"]
     assert response.json()["next_cursor"] is None
+
+    remaining = authenticated_client.get(
+        f"/api/comments/{root.id}/replies",
+        params={"after": root_body["reply_next_cursor"], "limit": 1},
+    )
+    assert remaining.status_code == 200
+    remaining_body = remaining.json()
+    assert len(remaining_body["items"]) == 1
+    assert remaining_body["items"][0]["id"] not in {
+        item["id"] for item in root_body["replies"]
+    }
+    assert remaining_body["items"][0]["replies"] == []
+    assert remaining_body["items"][0]["reply_next_cursor"] is None
+    assert remaining_body["next_cursor"] is None
+
+    invalid_cursor = authenticated_client.get(
+        f"/api/comments/{root.id}/replies",
+        params={"after": second_reply.id, "limit": 1},
+    )
+    assert invalid_cursor.status_code == 422
+    assert invalid_cursor.json()["error"]["code"] == "invalid_comment_cursor"
 
 
 def test_mentions_are_explicit_active_atomic_and_activity_omits_body(

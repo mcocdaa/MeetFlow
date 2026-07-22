@@ -76,9 +76,26 @@ def list_comments(
                 comment,
                 user,
                 replies=page.replies_by_parent[comment.id],
+                reply_next_cursor=page.reply_next_cursor_by_parent[comment.id],
             )
             for comment in page.items
         ],
+        "next_cursor": page.next_cursor,
+    }
+
+
+@comments_router.get("/{comment_id}/replies")
+def list_comment_replies(
+    comment_id: str,
+    after: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    service = CommentService(session)
+    page = service.list_replies(comment_id, after=after, limit=limit)
+    return {
+        "items": [service.serialize(comment, user) for comment in page.items],
         "next_cursor": page.next_cursor,
     }
 
