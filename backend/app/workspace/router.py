@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -6,12 +6,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.agendas.models import AgendaItem
+from app.attention.service import AttentionService
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
 from app.domain.enums import (
     ActionStatus,
-    DecisionReviewerStatus,
     DecisionStatus,
     MeetingStatus,
 )
@@ -24,7 +24,6 @@ from app.meetings.models import (
 from app.meetings.service import as_utc, project_ref, user_ref
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.outcomes.service import OutcomeService
-from app.projects.models import Project
 
 router = APIRouter(tags=["workspace"])
 
@@ -195,113 +194,9 @@ def global_meetings(
     }
 
 
-def _attention_item(
-    subject_type: str,
-    subject_id: str,
-    project: Project,
-    title: str,
-    reason: str,
-    **values,
-) -> dict[str, Any]:
-    return {
-        "subject_type": subject_type,
-        "subject_id": subject_id,
-        "project": {"id": project.id, "name": project.name, "slug": project.slug},
-        "title": title,
-        "reasons": [reason],
-        **values,
-    }
-
-
 @router.get("/api/attention")
 def attention(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    today = datetime.now(timezone.utc).date()
-    horizon = today + timedelta(days=7)
-    rows: dict[tuple[str, str], dict[str, Any]] = {}
-
-    actions = session.scalars(
-        select(ActionItem)
-        .where(
-            ActionItem.owner_user_id == user.id,
-            ActionItem.status.in_([ActionStatus.open, ActionStatus.in_progress]),
-            ActionItem.due_date.is_not(None),
-            ActionItem.due_date <= horizon,
-        )
-        .options(joinedload(ActionItem.project))
-    )
-    for action in actions:
-        reason = "action_overdue" if action.due_date < today else "action_due_soon"
-        rows[("action", action.id)] = _attention_item(
-            "action",
-            action.id,
-            action.project,
-            action.content,
-            reason,
-            due_date=action.due_date,
-            status=action.status,
-        )
-
-    decisions = session.scalars(
-        select(Decision)
-        .join(DecisionReviewer)
-        .where(
-            DecisionReviewer.user_id == user.id,
-            DecisionReviewer.status == DecisionReviewerStatus.pending,
-            Decision.status == DecisionStatus.proposed,
-        )
-        .options(joinedload(Decision.project))
-    )
-    for decision in decisions:
-        rows[("decision", decision.id)] = _attention_item(
-            "decision",
-            decision.id,
-            decision.project,
-            decision.title,
-            "decision_review_pending",
-            status=decision.status,
-        )
-
-    now = datetime.now(timezone.utc)
-    upcoming = now + timedelta(days=7)
-    meetings = session.scalars(
-        select(Meeting)
-        .outerjoin(MeetingParticipant)
-        .where(
-            Meeting.scheduled_start >= now,
-            Meeting.scheduled_start <= upcoming,
-            Meeting.status.in_([MeetingStatus.draft, MeetingStatus.ready]),
-            (
-                (Meeting.host_user_id == user.id)
-                | (Meeting.recorder_user_id == user.id)
-                | (MeetingParticipant.user_id == user.id)
-            ),
-        )
-        .options(joinedload(Meeting.project), selectinload(Meeting.agenda_items))
-        .distinct()
-    )
-    for meeting in meetings:
-        key = ("meeting", meeting.id)
-        row = _attention_item(
-            "meeting",
-            meeting.id,
-            meeting.project,
-            meeting.title,
-            "meeting_upcoming",
-            scheduled_start=meeting.scheduled_start,
-            status=meeting.status,
-        )
-        if meeting.status in {MeetingStatus.draft, MeetingStatus.ready} and any(
-            item.status.value in {"planned", "in_progress"}
-            for item in meeting.agenda_items
-        ):
-            row["reasons"].append("meeting_needs_preparation")
-        rows[key] = row
-
-    order = {"action": 0, "decision": 1, "meeting": 2}
-    items = sorted(
-        rows.values(), key=lambda item: (order[item["subject_type"]], item["title"])
-    )
-    return {"items": items, "notifications": [], "mentions": []}
+    return AttentionService(session).for_user(user)
