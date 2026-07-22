@@ -22,6 +22,7 @@ from app.domain.enums import (
 )
 from app.domain.versioning import require_version
 from app.errors import AppError
+from app.inbox.service import NotificationWriter
 from app.meetings.models import Meeting
 from app.outcomes.models import (
     ActionItem,
@@ -81,6 +82,47 @@ class OutcomeService:
             subject_id=subject_id,
             payload=payload,
         )
+
+    def _notify_action_assignment(self, action: ActionItem, actor: User) -> None:
+        if action.owner_user_id is None:
+            return
+        NotificationWriter(self.session).add(
+            user_id=action.owner_user_id,
+            actor_user_id=actor.id,
+            project_id=action.project_id,
+            meeting_id=action.meeting_id,
+            kind="action.assigned",
+            subject_type="action_item",
+            subject_id=action.id,
+            source_comment_id=None,
+            data={
+                "owner_user_id": action.owner_user_id,
+                "version": action.version,
+            },
+            dedupe_key=(
+                f"action-assigned:{action.id}:{action.owner_user_id}:{action.version}"
+            ),
+        )
+
+    def _notify_decision_review(
+        self, decision: Decision, actor: User, reviewer_ids: Iterable[str]
+    ) -> None:
+        writer = NotificationWriter(self.session)
+        for reviewer_id in reviewer_ids:
+            writer.add(
+                user_id=reviewer_id,
+                actor_user_id=actor.id,
+                project_id=decision.project_id,
+                meeting_id=decision.meeting_id,
+                kind="decision.review_requested",
+                subject_type="decision",
+                subject_id=decision.id,
+                source_comment_id=None,
+                data={"version": decision.version},
+                dedupe_key=(
+                    f"decision-review:{decision.id}:{reviewer_id}:{decision.version}"
+                ),
+            )
 
     @staticmethod
     def _action_payload(action: ActionItem) -> dict[str, Any]:
@@ -239,6 +281,7 @@ class OutcomeService:
             subject_id=decision.id,
             payload={"title": decision.title},
         )
+        self._notify_decision_review(decision, actor, payload.reviewer_ids)
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
         self._commit(entity="决策", meeting_versions=meeting_versions)
         return self._decision(decision.id)
@@ -257,6 +300,7 @@ class OutcomeService:
         reviewer_ids = (
             payload.reviewer_ids if "reviewer_ids" in payload.model_fields_set else None
         )
+        existing_reviewer_ids = {row.user_id for row in decision.reviewers}
         if reviewer_ids is not None:
             self._users(reviewer_ids)
             existing = {row.user_id: row for row in decision.reviewers}
@@ -285,6 +329,12 @@ class OutcomeService:
                 subject_id=decision.id,
                 payload={"title": decision.title},
             )
+            if reviewer_ids is not None:
+                self._notify_decision_review(
+                    decision,
+                    actor,
+                    set(reviewer_ids) - existing_reviewer_ids,
+                )
             self._commit(
                 entity="决策",
                 model=Decision,
@@ -460,6 +510,7 @@ class OutcomeService:
             subject_id=action.id,
             payload=self._action_payload(action),
         )
+        self._notify_action_assignment(action, actor)
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
         self._commit(entity="行动项", meeting_versions=meeting_versions)
         self.session.refresh(action)
@@ -471,6 +522,7 @@ class OutcomeService:
         self._require_active(actor)
         action = self._action(action_id)
         require_version(payload.expected_version, action.version)
+        previous_owner_user_id = action.owner_user_id
         requested = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
         changes = {
             key: value
@@ -510,6 +562,11 @@ class OutcomeService:
                 subject_id=action.id,
                 payload=self._action_payload(action),
             )
+            if (
+                "owner_user_id" in changes
+                and action.owner_user_id != previous_owner_user_id
+            ):
+                self._notify_action_assignment(action, actor)
             self._commit(
                 entity="行动项",
                 model=ActionItem,

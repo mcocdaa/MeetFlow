@@ -111,6 +111,7 @@ with database.engine.connect() as connection:
             "meeting_series",
             "meeting_snapshots",
             "meetings",
+            "notifications",
             "open_questions",
             "outcome_migration_records",
             "plugin_configs",

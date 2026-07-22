@@ -15,6 +15,7 @@ from app.collaboration.models import Comment, CommentMention
 from app.collaboration.schemas import CommentCommand, CommentEdit, CommentWrite
 from app.domain.versioning import require_version
 from app.errors import AppError
+from app.inbox.service import NotificationWriter
 from app.meetings.models import Meeting
 from app.outcomes.models import ActionItem, Decision
 from app.projects.models import Project
@@ -165,6 +166,7 @@ class CommentService:
             payload.target_type, payload.target_id
         )
         parent_id = None
+        root = None
         if payload.parent_id is not None:
             parent = self._get_loaded(payload.parent_id)
             if (
@@ -177,6 +179,7 @@ class CommentService:
                     "回复必须属于同一评论目标",
                 )
             parent_id = parent.parent_id or parent.id
+            root = self._get_loaded(parent_id)
         mentions = self._mentions(payload.mention_user_ids, actor)
         comment = Comment(
             project_id=project_id,
@@ -198,6 +201,43 @@ class CommentService:
                 actor,
                 "comment.replied" if parent_id is not None else "comment.created",
             )
+            writer = NotificationWriter(self.session)
+            for mention in mentions:
+                writer.add(
+                    user_id=mention.user_id,
+                    actor_user_id=actor.id,
+                    project_id=comment.project_id,
+                    meeting_id=comment.meeting_id,
+                    kind="comment.mention",
+                    subject_type=comment.target_type,
+                    subject_id=comment.target_id,
+                    source_comment_id=comment.id,
+                    data={
+                        "target_type": comment.target_type,
+                        "target_id": comment.target_id,
+                        "version": comment.version,
+                    },
+                    dedupe_key=(
+                        f"mention:{comment.id}:{mention.user_id}:{comment.version}"
+                    ),
+                )
+            if root is not None:
+                writer.add(
+                    user_id=root.created_by,
+                    actor_user_id=actor.id,
+                    project_id=comment.project_id,
+                    meeting_id=comment.meeting_id,
+                    kind="comment.reply",
+                    subject_type=comment.target_type,
+                    subject_id=comment.target_id,
+                    source_comment_id=comment.id,
+                    data={
+                        "target_type": comment.target_type,
+                        "target_id": comment.target_id,
+                        "parent_id": root.id,
+                    },
+                    dedupe_key=f"reply:{comment.id}:{root.created_by}",
+                )
             self.session.commit()
         except Exception:
             self.session.rollback()
@@ -212,12 +252,34 @@ class CommentService:
         require_version(payload.expected_version, comment.version)
         if comment.deleted_at is not None:
             raise AppError(409, "comment_deleted", "已删除评论不可编辑")
+        existing_mention_ids = {row.user_id for row in comment.mentions}
         mentions = self._mentions(payload.mention_user_ids, actor)
         comment.body_markdown = payload.body_markdown
         comment.mentions = mentions
         comment.edited_at = utcnow()
         comment.version += 1
         self._record(comment, actor, "comment.updated")
+        writer = NotificationWriter(self.session)
+        for mention in mentions:
+            if mention.user_id not in existing_mention_ids:
+                writer.add(
+                    user_id=mention.user_id,
+                    actor_user_id=actor.id,
+                    project_id=comment.project_id,
+                    meeting_id=comment.meeting_id,
+                    kind="comment.mention",
+                    subject_type=comment.target_type,
+                    subject_id=comment.target_id,
+                    source_comment_id=comment.id,
+                    data={
+                        "target_type": comment.target_type,
+                        "target_id": comment.target_id,
+                        "version": comment.version,
+                    },
+                    dedupe_key=(
+                        f"mention:{comment.id}:{mention.user_id}:{comment.version}"
+                    ),
+                )
         try:
             self.session.commit()
         except StaleDataError as exc:

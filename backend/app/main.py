@@ -14,6 +14,7 @@ from app.config import Settings
 from app.collaboration.router import comments_router, router as collaboration_router
 from app.database import Database
 from app.errors import install_error_handlers
+from app.inbox.router import router as inbox_router
 from app.meetings.router import router as meetings_router
 from app.outcomes.router import router as outcomes_router
 from app.plugins.manager import PluginManager
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(workspace_router)
     app.include_router(collaboration_router)
     app.include_router(comments_router)
+    app.include_router(inbox_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(request: Request, call_next):
