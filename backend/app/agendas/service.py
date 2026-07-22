@@ -16,7 +16,7 @@ from app.agendas.schemas import (
     AgendaWrite,
 )
 from app.auth.models import User, UserStatus
-from app.domain.enums import AgendaStatus, MeetingStatus
+from app.domain.enums import AgendaStatus, MeetingStatus, OpenQuestionStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import Meeting
@@ -25,6 +25,10 @@ from app.meetings.service import user_ref
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 class AgendaService:
@@ -380,6 +384,34 @@ class AgendaService:
         require_version(payload.expected_target_meeting_version, target.version)
         if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
             raise AppError(409, "invalid_agenda_transition", "已结束的议题不能移动")
+
+        # Imported lazily to avoid a model import cycle.
+        from app.outcomes.models import ActionItem, Decision, OpenQuestion
+
+        carried_question = None
+        if item.carry_from_open_question_id:
+            carried_question = self.session.get(
+                OpenQuestion, item.carry_from_open_question_id
+            )
+            if carried_question is None:
+                raise AppError(404, "source_not_found", "来源开放问题不存在")
+            if (
+                carried_question.project_id != source.project_id
+                or carried_question.status != OpenQuestionStatus.scheduled
+                or carried_question.scheduled_meeting_id != source_id
+            ):
+                raise AppError(
+                    422,
+                    "source_mismatch",
+                    "来源开放问题与当前排期不一致",
+                )
+            earliest = utcnow()
+            if carried_question.meeting is not None:
+                earliest = max(
+                    earliest, _aware(carried_question.meeting.scheduled_start)
+                )
+            if _aware(target.scheduled_start) <= earliest:
+                raise AppError(422, "meeting_not_future", "开放问题只能排入之后的会议")
         if item.copied_from_agenda_item_id:
             duplicate = self.session.scalar(
                 select(AgendaItem.id).where(
@@ -416,16 +448,19 @@ class AgendaService:
         item.updated_by = actor.id
         item.version += 1
 
+        if carried_question is not None:
+            carried_question.scheduled_meeting_id = target_id
+            carried_question.version += 1
+
         # Moving the agenda preserves each outcome's agenda source while keeping
         # its denormalized meeting source chain internally consistent.
-        from app.outcomes.models import ActionItem, Decision, OpenQuestion
-
         for model in (Decision, ActionItem, OpenQuestion):
             for outcome in self.session.scalars(
                 select(model).where(model.agenda_item_id == item.id)
             ):
                 outcome.meeting_id = target_id
-                outcome.version += 1
+                if outcome is not carried_question:
+                    outcome.version += 1
 
         source.version += 1
         source.updated_by = actor.id

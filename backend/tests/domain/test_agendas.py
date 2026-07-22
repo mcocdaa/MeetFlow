@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import event, select
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
 from app.agendas.schemas import (
@@ -394,6 +395,167 @@ def test_move_preserves_item_and_outcomes_and_repairs_both_queues(
             assert outcome.meeting_id == target.id
             assert outcome.agenda_item_id == moved.id
             assert outcome.version == 2
+
+
+def _add_carried_question(session, service, source, actor, title="Carry me"):
+    question = OpenQuestion(
+        project_id=source.project_id,
+        question_markdown=title,
+        status="scheduled",
+        scheduled_meeting_id=source.id,
+        created_by=actor.id,
+    )
+    session.add(question)
+    session.flush()
+    item = add_item(service, source, actor, title)
+    item.carry_from_open_question_id = question.id
+    session.commit()
+    session.refresh(source)
+    session.refresh(item)
+    session.refresh(question)
+    return item, question
+
+
+def test_move_carried_agenda_updates_question_schedule_atomically(
+    client, agenda_context
+):
+    admin, _, source_meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        source = session.get(Meeting, source_meeting_id)
+        future_start = datetime.now(timezone.utc) + timedelta(days=2)
+        target = MeetingService(session).create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="Carry target",
+                scheduled_start=future_start,
+                scheduled_end=future_start + timedelta(hours=1),
+            ),
+            admin,
+        )
+        service = AgendaService(session)
+        item, question = _add_carried_question(session, service, source, admin)
+
+        moved = service.move(
+            item.id,
+            AgendaMove(
+                target_meeting_id=target.id,
+                expected_version=item.version,
+                expected_source_meeting_version=source.version,
+                expected_target_meeting_version=target.version,
+            ),
+            admin,
+        )
+
+        session.refresh(question)
+        assert moved.meeting_id == target.id
+        assert question.scheduled_meeting_id == target.id
+        assert question.version == 2
+
+
+def test_move_carried_agenda_stale_question_rolls_back_whole_move(
+    client, agenda_context, monkeypatch
+):
+    admin, _, source_meeting_id = agenda_context
+    database = client.app.state.database
+    with database.session() as session:
+        source = session.get(Meeting, source_meeting_id)
+        future_start = datetime.now(timezone.utc) + timedelta(days=2)
+        target = MeetingService(session).create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="Concurrent carry target",
+                scheduled_start=future_start,
+                scheduled_end=future_start + timedelta(hours=1),
+            ),
+            admin,
+        )
+        service = AgendaService(session)
+        item, question = _add_carried_question(session, service, source, admin)
+
+        def fail_stale():
+            raise StaleDataError("concurrent carried-question update")
+
+        monkeypatch.setattr(session, "commit", fail_stale)
+        with pytest.raises(AppError) as error:
+            service.move(
+                item.id,
+                AgendaMove(
+                    target_meeting_id=target.id,
+                    expected_version=item.version,
+                    expected_source_meeting_version=source.version,
+                    expected_target_meeting_version=target.version,
+                ),
+                admin,
+            )
+
+        assert error.value.code == "version_conflict"
+        assert session.get(AgendaItem, item.id).meeting_id == source.id
+        persisted_question = session.get(OpenQuestion, question.id)
+        assert persisted_question.scheduled_meeting_id == source.id
+        assert persisted_question.version == 1
+
+
+def test_move_carried_agenda_rejects_past_target_and_inconsistent_question(
+    client, agenda_context
+):
+    admin, _, source_meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        source = session.get(Meeting, source_meeting_id)
+        past_start = datetime.now(timezone.utc) - timedelta(days=1)
+        past = MeetingService(session).create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="Past carry target",
+                scheduled_start=past_start,
+                scheduled_end=past_start + timedelta(hours=1),
+            ),
+            admin,
+        )
+        service = AgendaService(session)
+        item, question = _add_carried_question(session, service, source, admin)
+
+        with pytest.raises(AppError) as past_error:
+            service.move(
+                item.id,
+                AgendaMove(
+                    target_meeting_id=past.id,
+                    expected_version=item.version,
+                    expected_source_meeting_version=source.version,
+                    expected_target_meeting_version=past.version,
+                ),
+                admin,
+            )
+        assert past_error.value.code == "meeting_not_future"
+        assert item.meeting_id == source.id
+        assert question.scheduled_meeting_id == source.id
+
+        future_start = datetime.now(timezone.utc) + timedelta(days=2)
+        future = MeetingService(session).create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="Future carry target",
+                scheduled_start=future_start,
+                scheduled_end=future_start + timedelta(hours=1),
+            ),
+            admin,
+        )
+        question.scheduled_meeting_id = future.id
+        session.commit()
+        session.refresh(source)
+        session.refresh(future)
+        with pytest.raises(AppError) as inconsistent:
+            service.move(
+                item.id,
+                AgendaMove(
+                    target_meeting_id=future.id,
+                    expected_version=item.version,
+                    expected_source_meeting_version=source.version,
+                    expected_target_meeting_version=future.version,
+                ),
+                admin,
+            )
+        assert inconsistent.value.code == "source_mismatch"
+        assert item.meeting_id == source.id
 
 
 def test_move_clamps_position_and_rejects_same_or_cross_project_or_locked_target(
