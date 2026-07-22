@@ -159,6 +159,28 @@ class MeetingService:
             raise AppError(404, "meeting_not_found", "会议不存在")
         return meeting
 
+    def _reload_series(self, series_id: str) -> MeetingSeries:
+        series = self.session.scalar(
+            select(MeetingSeries)
+            .where(MeetingSeries.id == series_id)
+            .options(*series_relationship_options())
+            .execution_options(populate_existing=True)
+        )
+        if series is None:
+            raise AppError(404, "meeting_series_not_found", "会议系列不存在")
+        return series
+
+    def _reload_meeting(self, meeting_id: str) -> Meeting:
+        meeting = self.session.scalar(
+            select(Meeting)
+            .where(Meeting.id == meeting_id)
+            .options(*meeting_relationship_options())
+            .execution_options(populate_existing=True)
+        )
+        if meeting is None:
+            raise AppError(404, "meeting_not_found", "会议不存在")
+        return meeting
+
     # Transitional name used by attachment/plugin integration.
     require = get_meeting
 
@@ -230,9 +252,10 @@ class MeetingService:
             standing_items=self._standing_items(payload.standing_items),
         )
         self.session.add(series)
+        self.session.flush()
+        series_id = series.id
         self.session.commit()
-        self.session.refresh(series)
-        return series
+        return self._reload_series(series_id)
 
     def _raise_series_stale(
         self, series_id: str, expected_version: int, exc: Exception
@@ -261,7 +284,7 @@ class MeetingService:
             and payload.participants is None
             and payload.standing_items is None
         ):
-            return series
+            return self._reload_series(series.id)
 
         participants = payload.participants
         if participants is None:
@@ -303,8 +326,7 @@ class MeetingService:
             self.session.commit()
         except StaleDataError as exc:
             self._raise_series_stale(series_id, payload.expected_version, exc)
-        self.session.refresh(series)
-        return series
+        return self._reload_series(series_id)
 
     def create_occurrence(
         self, series_id: str, payload: OccurrenceWrite, actor: User
@@ -350,9 +372,9 @@ class MeetingService:
             )
             for position, row in enumerate(series.standing_items)
         ]
+        meeting_id = meeting.id
         self.session.commit()
-        self.session.refresh(meeting)
-        return meeting
+        return self._reload_meeting(meeting_id)
 
     def create_meeting(
         self, project_id: str, payload: MeetingWrite, actor: User
@@ -375,9 +397,10 @@ class MeetingService:
             participants=self._meeting_participants(participants),
         )
         self.session.add(meeting)
+        self.session.flush()
+        meeting_id = meeting.id
         self.session.commit()
-        self.session.refresh(meeting)
-        return meeting
+        return self._reload_meeting(meeting_id)
 
     def _raise_meeting_stale(
         self, meeting_id: str, expected_version: int, exc: Exception
@@ -403,7 +426,7 @@ class MeetingService:
             exclude={"expected_version", "participants"}, exclude_unset=True
         )
         if not changes and payload.participants is None:
-            return meeting
+            return self._reload_meeting(meeting.id)
         start = as_utc(changes.get("scheduled_start", meeting.scheduled_start))
         end = as_utc(changes.get("scheduled_end", meeting.scheduled_end))
         if end <= start:
@@ -434,8 +457,7 @@ class MeetingService:
             self.session.commit()
         except StaleDataError as exc:
             self._raise_meeting_stale(meeting_id, payload.expected_version, exc)
-        self.session.refresh(meeting)
-        return meeting
+        return self._reload_meeting(meeting_id)
 
     @staticmethod
     def _invalid_transition(meeting: Meeting, target: MeetingStatus) -> None:
@@ -455,8 +477,7 @@ class MeetingService:
             self.session.commit()
         except (StaleDataError, IntegrityError) as exc:
             self._raise_meeting_stale(meeting_id, expected_version, exc)
-        self.session.refresh(meeting)
-        return meeting
+        return self._reload_meeting(meeting_id)
 
     def mark_ready(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
