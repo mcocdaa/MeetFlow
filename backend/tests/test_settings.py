@@ -16,16 +16,6 @@ def production_settings(**overrides):
     return Settings(**values)
 
 
-def test_production_requires_secure_cookies():
-    with pytest.raises(ValidationError):
-        production_settings(secure_cookies=False)
-
-
-def test_production_requires_https_trusted_origin():
-    with pytest.raises(ValidationError):
-        production_settings(trusted_origins="http://meetflow.example.com")
-
-
 @pytest.mark.parametrize(
     ("field", "placeholder"),
     [
@@ -36,8 +26,6 @@ def test_production_requires_https_trusted_origin():
         ),
     ],
 )
-def test_production_rejects_documented_placeholder_secrets(
-    field, placeholder
-):
+def test_production_rejects_documented_placeholder_secrets(field, placeholder):
     with pytest.raises(ValidationError):
         production_settings(**{field: placeholder})

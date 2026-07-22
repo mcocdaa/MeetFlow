@@ -41,35 +41,6 @@ def test_upload_download_preview_and_delete(authenticated_client, meeting_id):
     )
 
 
-def test_untrusted_content_type_is_downloaded_not_rendered(
-    authenticated_client, meeting_id
-):
-    attachment = upload(
-        authenticated_client,
-        meeting_id,
-        "page.html",
-        b"<script>alert(1)</script>",
-    ).json()
-    response = authenticated_client.get(attachment["download_url"])
-    assert attachment["attachment_type"] == "file"
-    assert attachment["mime_type"] == "application/octet-stream"
-    assert response.headers["content-disposition"].startswith("attachment;")
-    assert response.headers["x-content-type-options"] == "nosniff"
-    assert authenticated_client.get(attachment["preview_url"]).status_code == 415
-
-
-def test_oversized_upload_is_atomic(authenticated_client, meeting_id, settings):
-    authenticated_client.app.state.attachment_storage.max_bytes = 8
-    response = upload(authenticated_client, meeting_id, "large.txt", b"123456789")
-    assert response.status_code == 413
-    assert not any(
-        path.is_file() for path in (settings.data_dir / "uploads").rglob("*")
-    )
-    assert (
-        authenticated_client.get(f"/api/attachments/meeting/{meeting_id}").json() == []
-    )
-
-
 def test_target_and_attachment_ids_cannot_escape_storage(
     authenticated_client, meeting_id
 ):

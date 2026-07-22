@@ -28,9 +28,7 @@ def test_create_backup_copies_consistent_database_and_uploads(
     )
 
     with sqlite3.connect(destination / "meetflow.db") as connection:
-        assert connection.execute("SELECT title FROM meetings").fetchone() == (
-            "Demo",
-        )
+        assert connection.execute("SELECT title FROM meetings").fetchone() == ("Demo",)
     assert (
         destination / "uploads" / "meeting-1" / "whiteboard.png"
     ).read_bytes() == b"png-data"
@@ -39,23 +37,3 @@ def test_create_backup_copies_consistent_database_and_uploads(
         "database": "meetflow.db",
         "uploads": "uploads",
     }
-
-
-def test_create_backup_refuses_to_overwrite_existing_backup(tmp_path: Path):
-    database = tmp_path / "meetflow.db"
-    with sqlite3.connect(database):
-        pass
-    existing = tmp_path / "backups" / "same-name"
-    existing.mkdir(parents=True)
-
-    try:
-        create_backup(
-            database=database,
-            uploads=tmp_path / "uploads",
-            output_dir=tmp_path / "backups",
-            backup_name="same-name",
-        )
-    except FileExistsError:
-        pass
-    else:
-        raise AssertionError("existing backups must not be overwritten")

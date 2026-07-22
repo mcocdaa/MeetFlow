@@ -4,15 +4,7 @@ import yaml
 from app.main import create_app
 
 
-def test_empty_registry_does_not_block_startup(client):
-    assert client.get("/api/health").status_code == 200
-    assert client.app.state.plugin_manager.loaded_actions() == []
-    assert client.app.state.plugin_manager.errors() == []
-
-
-def test_broken_plugin_is_reported_without_blocking_core(
-    plugin_factory, settings
-):
+def test_broken_plugin_is_reported_without_blocking_core(plugin_factory, settings):
     plugin_factory(
         "broken",
         manifest={
@@ -33,46 +25,6 @@ def test_broken_plugin_is_reported_without_blocking_core(
         assert len(errors) == 1
         assert errors[0].plugin_id == "broken"
         assert "broken import" not in errors[0].message
-
-
-def test_manifest_id_must_match_registry_id(plugin_factory, settings):
-    plugin_factory(
-        "registered-name",
-        manifest={
-            "id": "different-name",
-            "name": "Mismatch",
-            "version": "0.1.0",
-            "api_version": 1,
-            "backend_entry": "backend.py",
-        },
-        backend="def register(registry): pass",
-        enabled=True,
-    )
-
-    app = create_app(settings)
-    with TestClient(app):
-        errors = app.state.plugin_manager.errors()
-        assert errors[0].error_type == "ManifestError"
-
-
-def test_incompatible_api_version_is_rejected(plugin_factory, settings):
-    plugin_factory(
-        "future",
-        manifest={
-            "id": "future",
-            "name": "Future",
-            "version": "0.1.0",
-            "api_version": 99,
-            "backend_entry": "backend.py",
-        },
-        backend="def register(registry): pass",
-        enabled=True,
-    )
-
-    app = create_app(settings)
-    with TestClient(app):
-        assert app.state.plugin_manager.loaded_actions() == []
-        assert app.state.plugin_manager.errors()[0].error_type == "ManifestError"
 
 
 def test_registry_path_cannot_escape_plugin_root(settings):

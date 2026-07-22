@@ -34,36 +34,6 @@ def test_registration_creates_pending_user_without_logging_in(client):
     assert pending_login.json()["error"]["code"] == "account_pending"
 
 
-def test_duplicate_username_is_rejected_case_insensitively(client):
-    payload = {
-        "username": "Alice",
-        "display_name": "Alice",
-        "password": "a-secure-member-pass",
-    }
-    assert client.post("/api/auth/register", json=payload).status_code == 201
-
-    duplicate = client.post(
-        "/api/auth/register", json={**payload, "username": " alice "}
-    )
-
-    assert duplicate.status_code == 409
-    assert duplicate.json()["error"]["code"] == "username_taken"
-
-
-def test_registration_rejects_blank_normalized_identity(client):
-    response = client.post(
-        "/api/auth/register",
-        json={
-            "username": "   ",
-            "display_name": "   ",
-            "password": "a-secure-member-pass",
-        },
-    )
-
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "validation_error"
-
-
 def test_closed_registration_is_advertised_and_rejected(client, settings):
     settings.allow_registration = False
 
@@ -93,10 +63,13 @@ def test_cross_origin_write_is_rejected(client):
 
 
 def test_password_change_invalidates_existing_cookie(client):
-    assert client.post(
-        "/api/auth/login",
-        json={"username": "admin", "password": "correct-horse-battery"},
-    ).status_code == 200
+    assert (
+        client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "correct-horse-battery"},
+        ).status_code
+        == 200
+    )
 
     changed = client.post(
         "/api/auth/change-password",

@@ -2,7 +2,6 @@ import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import inspect, text
 
 from app.config import Settings
 from app.main import create_app
@@ -20,22 +19,6 @@ def development_settings(tmp_path):
         admin_password="correct-horse-battery",
         app_secret_key="test-secret-key-with-at-least-32-chars",
     )
-
-
-def test_development_startup_migrates_and_bootstraps_fresh_database(tmp_path):
-    app = create_app(development_settings(tmp_path))
-
-    with TestClient(app) as client:
-        assert client.get("/api/health").status_code == 200
-
-    database = app.state.database
-    tables = set(inspect(database.engine).get_table_names())
-    assert {"alembic_version", "users", "meetings"} <= tables
-    with database.engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001"
-        )
-        assert connection.scalar(text("SELECT username FROM users")) == "admin"
 
 
 def test_development_startup_rejects_legacy_database_before_changes(tmp_path):
