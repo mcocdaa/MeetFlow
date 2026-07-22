@@ -1,8 +1,12 @@
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import StaleDataError
+import pytest
+from sqlalchemy import select
 
+from app.auth.models import User
 from app.collaboration.models import ActivityEvent
+from app.errors import AppError
+from app.projects.models import Project
+from app.projects.schemas import ProjectEdit
+from app.projects.service import ProjectService
 
 
 def _create_project(client, *, name: str, slug: str) -> dict:
@@ -22,53 +26,62 @@ def _create_project(client, *, name: str, slug: str) -> dict:
 
 
 def test_activity_is_committed_with_mutation_but_not_stale_failure(
-    authenticated_client, monkeypatch
+    authenticated_client,
 ):
     actor = authenticated_client.get("/api/auth/me").json()
     project = _create_project(
         authenticated_client, name="Atomic activity", slug="atomic-activity"
     )
 
-    updated = authenticated_client.put(
-        f"/api/projects/{project['id']}",
-        json={"expected_version": project["version"], "summary": "Visible change"},
-    )
-    assert updated.status_code == 200
-
     activity = authenticated_client.get(f"/api/projects/{project['id']}/activity")
     assert activity.status_code == 200
     items = activity.json()["items"]
-    assert items[0]["event_type"] == "project.updated"
+    assert items[0]["event_type"] == "project.created"
     assert items[0]["actor"]["id"] == actor["id"]
     assert items[0]["subject"] == {"type": "project", "id": project["id"]}
 
     database = authenticated_client.app.state.database
-    with database.session() as independent:
-        before_count = independent.scalar(select(func.count(ActivityEvent.id)))
+    with database.session() as stale, database.session() as winner:
+        stale_actor = stale.get(User, actor["id"])
+        winner_actor = winner.get(User, actor["id"])
+        stale_project = ProjectService(stale).require(project["id"])
+        assert stale_project.version == 1
 
-    original_commit = Session.commit
-    saw_pending_event = False
-
-    def fail_after_recording(session):
-        nonlocal saw_pending_event
-        saw_pending_event = any(
-            isinstance(value, ActivityEvent) for value in session.new
+        winner_project = ProjectService(winner).update(
+            project["id"],
+            ProjectEdit(expected_version=1, summary="Winner change"),
+            winner_actor,
         )
-        raise StaleDataError("simulated concurrent write")
+        assert winner_project.version == 2
 
-    monkeypatch.setattr(Session, "commit", fail_after_recording)
-    stale = authenticated_client.put(
-        f"/api/projects/{project['id']}",
-        json={
-            "expected_version": updated.json()["version"],
-            "summary": "Concurrent change",
-        },
-    )
-    monkeypatch.setattr(Session, "commit", original_commit)
-    assert stale.status_code == 409
-    assert saw_pending_event
+        with pytest.raises(AppError) as conflict:
+            ProjectService(stale).update(
+                project["id"],
+                ProjectEdit(expected_version=1, summary="Stale change"),
+                stale_actor,
+            )
+        assert conflict.value.code == "version_conflict"
+        assert conflict.value.details == {
+            "expected_version": 1,
+            "actual_version": 2,
+        }
+
     with database.session() as independent:
-        assert independent.scalar(select(func.count(ActivityEvent.id))) == before_count
+        persisted = independent.get(Project, project["id"])
+        assert persisted.summary == "Winner change"
+        assert persisted.version == 2
+        events = list(
+            independent.scalars(
+                select(ActivityEvent)
+                .where(ActivityEvent.project_id == project["id"])
+                .order_by(ActivityEvent.id)
+            )
+        )
+        assert [event.event_type for event in events] == [
+            "project.created",
+            "project.updated",
+        ]
+        assert all(event.payload_json["name"] == project["name"] for event in events)
 
 
 def test_activity_api_is_project_scoped_and_gap_free(authenticated_client, client):

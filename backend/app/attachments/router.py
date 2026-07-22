@@ -222,26 +222,27 @@ def delete_attachment(
     path = request.app.state.attachment_storage.attachment_path(
         item.target_type, item.target_id, item.stored_name
     )
-    tombstone = path.with_name(f".delete-{uuid.uuid4()}") if path.is_file() else None
-    if tombstone is not None:
-        path.replace(tombstone)
-    session.delete(item)
     project_id, meeting_id = activity_context(target)
-    ActivityRecorder(session).record(
-        project_id=project_id,
-        meeting_id=meeting_id,
-        actor_user_id=user.id,
-        event_type="attachment.deleted",
-        subject_type="attachment",
-        subject_id=item.id,
-        payload={
-            "filename": item.original_name,
-            "size": item.size,
-            "target_type": item.target_type,
-            "target_id": item.target_id,
-        },
-    )
+    activity_payload = {
+        "filename": item.original_name,
+        "size": item.size,
+        "target_type": item.target_type,
+        "target_id": item.target_id,
+    }
+    tombstone = path.with_name(f".delete-{uuid.uuid4()}") if path.is_file() else None
     try:
+        if tombstone is not None:
+            path.replace(tombstone)
+        session.delete(item)
+        ActivityRecorder(session).record(
+            project_id=project_id,
+            meeting_id=meeting_id,
+            actor_user_id=user.id,
+            event_type="attachment.deleted",
+            subject_type="attachment",
+            subject_id=item.id,
+            payload=activity_payload,
+        )
         session.commit()
     except Exception:
         session.rollback()

@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 import pytest
 
 from app.attachments.models import Attachment
+from app.collaboration.activity import ActivityRecorder
+from app.collaboration.models import ActivityEvent
 
 
 def upload(client, meeting_id, name="board.png", content=b"\x89PNG\r\n\x1a\nimage"):
@@ -89,9 +91,46 @@ def test_delete_commit_failure_restores_file_and_row(
             )
         )
 
-    original_commit = Session.commit
+    original_record = ActivityRecorder.record
+    saw_pending_event = False
 
-    def fail_commit(_session):
+    def fail_activity_record(recorder, **values):
+        nonlocal saw_pending_event
+        event = original_record(recorder, **values)
+        saw_pending_event = isinstance(event, ActivityEvent)
+        raise RuntimeError("activity unavailable")
+
+    monkeypatch.setattr(ActivityRecorder, "record", fail_activity_record)
+    with pytest.raises(RuntimeError, match="activity unavailable"):
+        authenticated_client.delete(item["download_url"])
+    monkeypatch.setattr(ActivityRecorder, "record", original_record)
+
+    assert saw_pending_event
+    assert original_path.is_file()
+    assert not list(original_path.parent.glob(".delete-*"))
+    with database.session() as session:
+        assert session.get(Attachment, item["id"]) is not None
+        assert (
+            session.scalar(
+                select(ActivityEvent.id).where(
+                    ActivityEvent.event_type == "attachment.deleted",
+                    ActivityEvent.subject_id == item["id"],
+                )
+            )
+            is None
+        )
+
+    original_commit = Session.commit
+    saw_event_at_commit = False
+
+    def fail_commit(session):
+        nonlocal saw_event_at_commit
+        saw_event_at_commit = any(
+            isinstance(value, ActivityEvent)
+            and value.event_type == "attachment.deleted"
+            and value.subject_id == item["id"]
+            for value in session.new
+        )
         raise RuntimeError("database unavailable")
 
     monkeypatch.setattr(Session, "commit", fail_commit)
@@ -99,10 +138,20 @@ def test_delete_commit_failure_restores_file_and_row(
         authenticated_client.delete(item["download_url"])
     monkeypatch.setattr(Session, "commit", original_commit)
 
+    assert saw_event_at_commit
     assert original_path.is_file()
     assert not list(original_path.parent.glob(".delete-*"))
     with database.session() as session:
         assert session.get(Attachment, item["id"]) is not None
+        assert (
+            session.scalar(
+                select(ActivityEvent.id).where(
+                    ActivityEvent.event_type == "attachment.deleted",
+                    ActivityEvent.subject_id == item["id"],
+                )
+            )
+            is None
+        )
         session.commit()
 
 
