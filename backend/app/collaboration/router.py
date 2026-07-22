@@ -56,15 +56,30 @@ def list_project_activity(
 def list_comments(
     target_type: str = Query(min_length=1, max_length=40),
     target_id: str = Query(min_length=1, max_length=36),
+    before: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    reply_limit: int = Query(default=50, ge=1, le=100),
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
+    page = service.list_for_target(
+        target_type,
+        target_id,
+        before=before,
+        limit=limit,
+        reply_limit=reply_limit,
+    )
     return {
         "items": [
-            service.serialize(comment, user, include_replies=True)
-            for comment in service.list_for_target(target_type, target_id)
-        ]
+            service.serialize(
+                comment,
+                user,
+                replies=page.replies_by_parent[comment.id],
+            )
+            for comment in page.items
+        ],
+        "next_cursor": page.next_cursor,
     }
 
 
@@ -75,7 +90,7 @@ def create_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(service.create(payload, user), user, include_replies=False)
+    return service.serialize(service.create(payload, user), user)
 
 
 @comments_router.put("/{comment_id}")
@@ -86,9 +101,7 @@ def update_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(
-        service.update(comment_id, payload, user), user, include_replies=False
-    )
+    return service.serialize(service.update(comment_id, payload, user), user)
 
 
 @comments_router.delete("/{comment_id}", status_code=204)

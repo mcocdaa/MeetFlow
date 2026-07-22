@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -40,21 +41,18 @@ def user_ref(user: User) -> dict[str, str]:
     }
 
 
-def comment_options(*, include_replies: bool = False):
-    options = [
+def comment_options():
+    return (
         joinedload(Comment.creator),
         selectinload(Comment.mentions).joinedload(CommentMention.user),
-    ]
-    if include_replies:
-        options.extend(
-            [
-                selectinload(Comment.replies).joinedload(Comment.creator),
-                selectinload(Comment.replies)
-                .selectinload(Comment.mentions)
-                .joinedload(CommentMention.user),
-            ]
-        )
-    return tuple(options)
+    )
+
+
+@dataclass(frozen=True)
+class CommentThreadPage:
+    items: list[Comment]
+    replies_by_parent: dict[str, list[Comment]]
+    next_cursor: str | None
 
 
 class CommentService:
@@ -108,11 +106,11 @@ class CommentService:
             )
         return [CommentMention(user_id=user_id) for user_id in ids]
 
-    def _get_loaded(self, comment_id: str, *, include_replies: bool = False) -> Comment:
+    def _get_loaded(self, comment_id: str) -> Comment:
         comment = self.session.scalar(
             select(Comment)
             .where(Comment.id == comment_id)
-            .options(*comment_options(include_replies=include_replies))
+            .options(*comment_options())
             .execution_options(populate_existing=True)
         )
         if comment is None:
@@ -227,9 +225,12 @@ class CommentService:
         comment = self._get_loaded(comment_id)
         if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(403, "comment_delete_forbidden", "只能删除自己的评论")
-        require_version(payload.expected_version, comment.version)
         if comment.deleted_at is not None:
-            return comment
+            if payload.expected_version in {comment.version, comment.version - 1}:
+                return comment
+            require_version(payload.expected_version, comment.version)
+        else:
+            require_version(payload.expected_version, comment.version)
         comment.body_markdown = None
         comment.mentions = []
         comment.deleted_at = utcnow()
@@ -244,24 +245,91 @@ class CommentService:
             raise
         return self._get_loaded(comment_id)
 
-    def list_for_target(self, target_type: str, target_id: str) -> list[Comment]:
+    def list_for_target(
+        self,
+        target_type: str,
+        target_id: str,
+        *,
+        before: str | None = None,
+        limit: int = 20,
+        reply_limit: int = 50,
+    ) -> CommentThreadPage:
         self._target_context(target_type, target_id)
-        return list(
+        filters = [
+            Comment.target_type == target_type,
+            Comment.target_id == target_id,
+            Comment.parent_id.is_(None),
+        ]
+        if before is not None:
+            cursor = self.session.get(Comment, before)
+            if (
+                cursor is None
+                or cursor.target_type != target_type
+                or cursor.target_id != target_id
+                or cursor.parent_id is not None
+            ):
+                raise AppError(422, "invalid_comment_cursor", "评论游标无效")
+            filters.append(
+                or_(
+                    Comment.created_at < cursor.created_at,
+                    and_(
+                        Comment.created_at == cursor.created_at,
+                        Comment.id < cursor.id,
+                    ),
+                )
+            )
+        roots = list(
             self.session.scalars(
                 select(Comment)
-                .where(
-                    Comment.target_type == target_type,
-                    Comment.target_id == target_id,
-                    Comment.parent_id.is_(None),
-                )
-                .options(*comment_options(include_replies=True))
-                .order_by(Comment.created_at, Comment.id)
+                .where(*filters)
+                .options(*comment_options())
+                .order_by(Comment.created_at.desc(), Comment.id.desc())
+                .limit(limit + 1)
             )
+        )
+        has_more = len(roots) > limit
+        items = roots[:limit]
+        next_cursor = items[-1].id if has_more and items else None
+        replies_by_parent = {item.id: [] for item in items}
+        root_ids = [item.id for item in items]
+        if root_ids:
+            ranked_replies = (
+                select(
+                    Comment.id.label("comment_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=Comment.parent_id,
+                        order_by=(Comment.created_at.asc(), Comment.id.asc()),
+                    )
+                    .label("reply_number"),
+                )
+                .where(Comment.parent_id.in_(root_ids))
+                .subquery()
+            )
+            replies = self.session.scalars(
+                select(Comment)
+                .join(
+                    ranked_replies,
+                    ranked_replies.c.comment_id == Comment.id,
+                )
+                .where(ranked_replies.c.reply_number <= reply_limit)
+                .options(*comment_options())
+                .order_by(Comment.parent_id, Comment.created_at, Comment.id)
+            )
+            for reply in replies:
+                replies_by_parent[reply.parent_id].append(reply)
+        return CommentThreadPage(
+            items=items,
+            replies_by_parent=replies_by_parent,
+            next_cursor=next_cursor,
         )
 
     @staticmethod
     def serialize(
-        comment: Comment, actor: User, *, include_replies: bool
+        comment: Comment,
+        actor: User,
+        *,
+        replies: list[Comment] | None = None,
     ) -> dict[str, Any]:
         can_change = comment.created_by == actor.id or actor.role == UserRole.ADMIN
         result = {
@@ -282,9 +350,8 @@ class CommentService:
             "can_delete": can_change,
             "replies": [],
         }
-        if include_replies:
+        if replies is not None:
             result["replies"] = [
-                CommentService.serialize(reply, actor, include_replies=False)
-                for reply in comment.replies
+                CommentService.serialize(reply, actor) for reply in replies
             ]
         return result

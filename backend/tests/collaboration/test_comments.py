@@ -179,12 +179,22 @@ def test_comments_support_five_targets_and_reject_invalid_context(
             )
         assert mismatch.value.code == "comment_parent_mismatch"
 
+        with pytest.raises(AppError) as cursor:
+            service.list_for_target(
+                "meeting",
+                context["meeting_id"],
+                before=created["project"].id,
+                limit=2,
+                reply_limit=1,
+            )
+        assert cursor.value.code == "invalid_comment_cursor"
+
 
 def test_reply_flatten_edit_permissions_and_delete_tombstone_keep_context(
-    client, comment_context
+    authenticated_client, comment_context
 ):
     context = comment_context
-    with client.app.state.database.session() as session:
+    with authenticated_client.app.state.database.session() as session:
         admin = session.get(User, context["admin_id"])
         member = session.get(User, context["member_id"])
         other = session.get(User, context["other_id"])
@@ -217,6 +227,31 @@ def test_reply_flatten_edit_permissions_and_delete_tombstone_keep_context(
         )
         assert reply.parent_id == root.id
         assert nested.parent_id == root.id
+        second_root = service.create(
+            CommentWrite(
+                target_type="meeting",
+                target_id=context["meeting_id"],
+                body_markdown="Second root",
+            ),
+            admin,
+        )
+        service.create(
+            CommentWrite(
+                target_type="meeting",
+                target_id=context["meeting_id"],
+                parent_id=second_root.id,
+                body_markdown="Second reply",
+            ),
+            member,
+        )
+        third_root = service.create(
+            CommentWrite(
+                target_type="meeting",
+                target_id=context["meeting_id"],
+                body_markdown="Third root",
+            ),
+            admin,
+        )
 
         with pytest.raises(AppError) as forbidden:
             service.update(
@@ -232,9 +267,8 @@ def test_reply_flatten_edit_permissions_and_delete_tombstone_keep_context(
             admin,
         )
         assert edited.edited_at is not None
-        deleted = service.delete(
-            root.id, CommentCommand(expected_version=root.version), admin
-        )
+        delete_command = CommentCommand(expected_version=root.version)
+        deleted = service.delete(root.id, delete_command, admin)
         assert deleted.body_markdown is None
         assert deleted.deleted_at is not None
         deleted_event_count = len(
@@ -247,9 +281,7 @@ def test_reply_flatten_edit_permissions_and_delete_tombstone_keep_context(
                 )
             )
         )
-        same = service.delete(
-            root.id, CommentCommand(expected_version=deleted.version), admin
-        )
+        same = service.delete(root.id, delete_command, admin)
         assert same.version == deleted.version
         assert (
             len(
@@ -264,13 +296,44 @@ def test_reply_flatten_edit_permissions_and_delete_tombstone_keep_context(
             )
             == deleted_event_count
         )
-        thread = service.list_for_target("meeting", context["meeting_id"])
-        assert len(thread) == 1
-        assert thread[0].body_markdown is None
-        assert [item.body_markdown for item in thread[0].replies] == [
-            "Edited reply",
-            "Flattened",
-        ]
+        first_page = service.list_for_target(
+            "meeting", context["meeting_id"], limit=2, reply_limit=1
+        )
+        second_page = service.list_for_target(
+            "meeting",
+            context["meeting_id"],
+            before=first_page.next_cursor,
+            limit=2,
+            reply_limit=1,
+        )
+        first_ids = {item.id for item in first_page.items}
+        second_ids = {item.id for item in second_page.items}
+        assert first_ids.isdisjoint(second_ids)
+        assert first_ids | second_ids == {root.id, second_root.id, third_root.id}
+        assert first_page.next_cursor is not None
+        assert second_page.next_cursor is None
+        assert all(
+            len(replies) <= 1
+            for replies in (
+                list(first_page.replies_by_parent.values())
+                + list(second_page.replies_by_parent.values())
+            )
+        )
+
+    response = authenticated_client.get(
+        "/api/comments",
+        params={
+            "target_type": "meeting",
+            "target_id": context["meeting_id"],
+            "limit": 3,
+            "reply_limit": 1,
+        },
+    )
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 3
+    root_body = next(item for item in response.json()["items"] if item["id"] == root.id)
+    assert len(root_body["replies"]) == 1
+    assert response.json()["next_cursor"] is None
 
 
 def test_mentions_are_explicit_active_atomic_and_activity_omits_body(
@@ -374,22 +437,43 @@ def test_comment_api_auth_versions_and_agenda_delete_guard(
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "version_conflict"
 
+    delete_payload = {"expected_version": body["version"]}
     deleted = authenticated_client.request(
         "DELETE",
         f"/api/comments/{body['id']}",
-        json={"expected_version": body["version"]},
+        json=delete_payload,
     )
     assert deleted.status_code == 204
+    replay = authenticated_client.request(
+        "DELETE",
+        f"/api/comments/{body['id']}",
+        json=delete_payload,
+    )
+    assert replay.status_code == 204
     thread = authenticated_client.get(
         "/api/comments",
         params={"target_type": "agenda_item", "target_id": context["agenda_id"]},
     ).json()["items"]
     assert thread[0]["body_markdown"] is None
+    assert thread[0]["version"] == body["version"] + 1
 
     meeting = authenticated_client.get(f"/api/meetings/{context['meeting_id']}").json()
     with client.app.state.database.session() as session:
         agenda = session.get(Comment, body["id"])
         assert agenda.deleted_at is not None
+        assert (
+            len(
+                list(
+                    session.scalars(
+                        select(ActivityEvent).where(
+                            ActivityEvent.event_type == "comment.deleted",
+                            ActivityEvent.subject_id == body["id"],
+                        )
+                    )
+                )
+            )
+            == 1
+        )
         item_version = session.execute(
             select(Comment.target_id).where(Comment.id == body["id"])
         ).scalar_one()
