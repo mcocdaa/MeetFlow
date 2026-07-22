@@ -1,5 +1,5 @@
 from app.auth.models import User
-from app.collaboration.models import ActivityEvent
+from app.collaboration.models import ActivityEvent, Comment, CommentMention
 from app.attachments.models import Attachment
 from app.agendas.models import AgendaItem
 from app.meetings.models import (
@@ -26,6 +26,8 @@ __all__ = [
     "ActivityEvent",
     "AgendaItem",
     "Attachment",
+    "Comment",
+    "CommentMention",
     "Decision",
     "DecisionReviewer",
     "Meeting",

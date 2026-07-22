@@ -11,7 +11,7 @@ from app.attachments.storage import AttachmentStorage
 from app.auth.router import admin_router, router as auth_router
 from app.auth.service import AuthService
 from app.config import Settings
-from app.collaboration.router import router as collaboration_router
+from app.collaboration.router import comments_router, router as collaboration_router
 from app.database import Database
 from app.errors import install_error_handlers
 from app.meetings.router import router as meetings_router
@@ -72,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(outcomes_router)
     app.include_router(workspace_router)
     app.include_router(collaboration_router)
+    app.include_router(comments_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(request: Request, call_next):

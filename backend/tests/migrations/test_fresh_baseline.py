@@ -14,6 +14,8 @@ APPLICATION_TABLES = {
     "activity_events",
     "agenda_items",
     "attachments",
+    "comment_mentions",
+    "comments",
     "decision_reviewers",
     "decisions",
     "meeting_amendments",
@@ -95,6 +97,25 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         "actor_user_id": "SET NULL",
         "meeting_id": "SET NULL",
         "project_id": "SET NULL",
+    }
+    comment_indexes = {
+        tuple(index["column_names"]) for index in inspector.get_indexes("comments")
+    }
+    assert {
+        ("project_id",),
+        ("meeting_id",),
+        ("target_type", "target_id"),
+    } <= comment_indexes
+    comment_foreign_keys = {
+        foreign_key["constrained_columns"][0]: foreign_key
+        for foreign_key in inspector.get_foreign_keys("comments")
+    }
+    assert {
+        ("project_id", "CASCADE"),
+        ("meeting_id", "SET NULL"),
+    } <= {
+        (key, value["options"].get("ondelete"))
+        for key, value in comment_foreign_keys.items()
     }
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (

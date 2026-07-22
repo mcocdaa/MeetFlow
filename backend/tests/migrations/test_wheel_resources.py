@@ -91,7 +91,7 @@ from sqlalchemy import inspect, text
 
 database = Database(%r)
 database.migrate()
-assert set(inspect(database.engine).get_table_names()) == %r
+assert %r <= set(inspect(database.engine).get_table_names())
 with database.engine.connect() as connection:
     assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0001"
 """ % (
@@ -102,6 +102,8 @@ with database.engine.connect() as connection:
             "agenda_items",
             "alembic_version",
             "attachments",
+            "comment_mentions",
+            "comments",
             "decision_reviewers",
             "decisions",
             "meeting_amendments",

@@ -5,11 +5,19 @@ from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.collaboration.activity import ActivityRecorder
 from app.collaboration.models import ActivityEvent
-from app.collaboration.schemas import ActivityItem, ActivityPageResponse
+from app.collaboration.schemas import (
+    ActivityItem,
+    ActivityPageResponse,
+    CommentCommand,
+    CommentEdit,
+    CommentWrite,
+)
+from app.collaboration.service import CommentService
 from app.database import get_session
 from app.projects.service import ProjectService, user_ref
 
 router = APIRouter(prefix="/api/projects", tags=["collaboration"])
+comments_router = APIRouter(prefix="/api/comments", tags=["comments"])
 
 
 def _serialize(item: ActivityEvent) -> ActivityItem:
@@ -42,3 +50,52 @@ def list_project_activity(
         items=[_serialize(item) for item in page.items],
         next_cursor=page.next_cursor,
     )
+
+
+@comments_router.get("")
+def list_comments(
+    target_type: str = Query(min_length=1, max_length=40),
+    target_id: str = Query(min_length=1, max_length=36),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    service = CommentService(session)
+    return {
+        "items": [
+            service.serialize(comment, user, include_replies=True)
+            for comment in service.list_for_target(target_type, target_id)
+        ]
+    }
+
+
+@comments_router.post("", status_code=201)
+def create_comment(
+    payload: CommentWrite,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    service = CommentService(session)
+    return service.serialize(service.create(payload, user), user, include_replies=False)
+
+
+@comments_router.put("/{comment_id}")
+def update_comment(
+    comment_id: str,
+    payload: CommentEdit,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    service = CommentService(session)
+    return service.serialize(
+        service.update(comment_id, payload, user), user, include_replies=False
+    )
+
+
+@comments_router.delete("/{comment_id}", status_code=204)
+def delete_comment(
+    comment_id: str,
+    payload: CommentCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> None:
+    CommentService(session).delete(comment_id, payload, user)

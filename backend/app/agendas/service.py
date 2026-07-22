@@ -545,6 +545,18 @@ class AgendaService:
         )
         if has_attachment:
             raise AppError(409, "agenda_has_attachments", "议题已有附件，不能直接删除")
+        from app.collaboration.models import Comment
+
+        has_comment = self.session.scalar(
+            select(Comment.id)
+            .where(
+                Comment.target_type == "agenda_item",
+                Comment.target_id == item.id,
+            )
+            .limit(1)
+        )
+        if has_comment:
+            raise AppError(409, "agenda_has_comments", "议题已有评论，不能直接删除")
         following = list(
             self.session.scalars(
                 select(AgendaItem).where(
