@@ -110,3 +110,23 @@ class AgendaReorder(StrictInput):
 
 class AgendaCommand(StrictInput):
     expected_version: int = Field(ge=1)
+
+
+class AgendaMove(StrictInput):
+    target_meeting_id: str = Field(min_length=1, max_length=64)
+    position: int | None = Field(default=None, ge=0, le=500)
+    expected_version: int = Field(ge=1)
+    expected_source_meeting_version: int = Field(ge=1)
+    expected_target_meeting_version: int = Field(ge=1)
+
+    @field_validator("target_meeting_id", mode="before")
+    @classmethod
+    def normalize_target(cls, value: Any) -> Any:
+        return _strip(value)
+
+    @field_validator("target_meeting_id")
+    @classmethod
+    def reject_blank_target(cls, value: str) -> str:
+        if not value:
+            raise ValueError("target_meeting_id must not be blank")
+        return value

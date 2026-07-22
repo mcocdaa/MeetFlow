@@ -9,6 +9,7 @@ from app.agendas.models import AgendaItem
 from app.agendas.schemas import (
     AgendaCommand,
     AgendaEdit,
+    AgendaMove,
     AgendaReorder,
     AgendaWrite,
 )
@@ -18,6 +19,7 @@ from app.errors import AppError
 from app.meetings.models import Meeting
 from app.meetings.schemas import MeetingWrite
 from app.meetings.service import MeetingService
+from app.outcomes.models import ActionItem, Decision, OpenQuestion
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -275,6 +277,272 @@ def test_commands_set_status_timestamps_and_reject_invalid_transition(
         assert error.value.code == "invalid_agenda_transition"
 
 
+def test_start_requires_active_meeting_and_only_transitions_planned_item(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(service, meeting, admin, "Current topic")
+
+        with pytest.raises(AppError) as error:
+            service.start(item.id, AgendaCommand(expected_version=item.version), admin)
+        assert error.value.code == "meeting_not_in_progress"
+
+        meeting.status = "in_progress"
+        meeting.version += 1
+        session.commit()
+        started = service.start(
+            item.id, AgendaCommand(expected_version=item.version), admin
+        )
+        assert started.status.value == "in_progress"
+        assert started.started_at is not None
+        assert started.completed_at is None
+        assert started.version == 2
+
+        with pytest.raises(AppError) as error:
+            service.start(
+                item.id, AgendaCommand(expected_version=started.version), admin
+            )
+        assert error.value.code == "invalid_agenda_transition"
+
+
+def test_move_preserves_item_and_outcomes_and_repairs_both_queues(
+    client, agenda_context
+):
+    admin, _, source_meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        source = session.get(Meeting, source_meeting_id)
+        target = meetings.create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="Target meeting",
+                scheduled_start=START + timedelta(days=1),
+                scheduled_end=START + timedelta(days=1, hours=1),
+            ),
+            admin,
+        )
+        service = AgendaService(session)
+        before = add_item(service, source, admin, "Before")
+        session.refresh(source)
+        moved = add_item(service, source, admin, "Move me")
+        session.refresh(source)
+        after = add_item(service, source, admin, "After")
+        target_tail = add_item(service, target, admin, "Target tail")
+        session.refresh(source)
+        session.refresh(target)
+
+        outcomes = [
+            Decision(
+                project_id=source.project_id,
+                meeting_id=source.id,
+                agenda_item_id=moved.id,
+                title="Decision",
+                decision_markdown="Keep source",
+                created_by=admin.id,
+            ),
+            ActionItem(
+                project_id=source.project_id,
+                meeting_id=source.id,
+                agenda_item_id=moved.id,
+                content="Do it",
+                created_by=admin.id,
+            ),
+            OpenQuestion(
+                project_id=source.project_id,
+                meeting_id=source.id,
+                agenda_item_id=moved.id,
+                question_markdown="Why?",
+                created_by=admin.id,
+            ),
+        ]
+        session.add_all(outcomes)
+        session.commit()
+        source_version = source.version
+        target_version = target.version
+
+        result = service.move(
+            moved.id,
+            AgendaMove(
+                target_meeting_id=target.id,
+                position=0,
+                expected_version=moved.version,
+                expected_source_meeting_version=source_version,
+                expected_target_meeting_version=target_version,
+            ),
+            admin,
+        )
+
+        assert result.id == moved.id
+        assert result.meeting_id == target.id
+        assert result.position == 0
+        assert result.status.value == "planned"
+        assert result.started_at is None
+        assert result.completed_at is None
+        assert [row.id for row in service.list(source.id)] == [before.id, after.id]
+        assert [row.position for row in service.list(source.id)] == [0, 1]
+        assert [row.id for row in service.list(target.id)] == [moved.id, target_tail.id]
+        assert [row.position for row in service.list(target.id)] == [0, 1]
+        assert result.version == 2
+        assert session.get(Meeting, source.id).version == source_version + 1
+        assert session.get(Meeting, target.id).version == target_version + 1
+        for outcome in outcomes:
+            session.refresh(outcome)
+            assert outcome.project_id == source.project_id
+            assert outcome.meeting_id == target.id
+            assert outcome.agenda_item_id == moved.id
+            assert outcome.version == 2
+
+
+def test_move_clamps_position_and_rejects_same_or_cross_project_or_locked_target(
+    client, agenda_context
+):
+    admin, _, source_meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        source = session.get(Meeting, source_meeting_id)
+        meetings = MeetingService(session)
+        target = meetings.create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="Editable target",
+                scheduled_start=START + timedelta(days=1),
+                scheduled_end=START + timedelta(days=1, hours=1),
+            ),
+            admin,
+        )
+        service = AgendaService(session)
+        moved = add_item(service, source, admin, "Move")
+        target_first = add_item(service, target, admin, "Target first")
+        session.refresh(source)
+        session.refresh(target)
+
+        with pytest.raises(AppError) as error:
+            service.move(
+                moved.id,
+                AgendaMove(
+                    target_meeting_id=source.id,
+                    expected_version=moved.version,
+                    expected_source_meeting_version=source.version,
+                    expected_target_meeting_version=source.version,
+                ),
+                admin,
+            )
+        assert error.value.code == "source_mismatch"
+
+        other_project = ProjectService(session).create(
+            ProjectWrite(
+                name="Other",
+                slug="agenda-other",
+                status="active",
+                lead_user_id=admin.id,
+                member_ids=[admin.id],
+            ),
+            admin,
+        )
+        cross_project = meetings.create_meeting(
+            other_project.id,
+            MeetingWrite(
+                title="Wrong project",
+                scheduled_start=START + timedelta(days=2),
+                scheduled_end=START + timedelta(days=2, hours=1),
+            ),
+            admin,
+        )
+        with pytest.raises(AppError) as error:
+            service.move(
+                moved.id,
+                AgendaMove(
+                    target_meeting_id=cross_project.id,
+                    expected_version=moved.version,
+                    expected_source_meeting_version=source.version,
+                    expected_target_meeting_version=cross_project.version,
+                ),
+                admin,
+            )
+        assert error.value.code == "source_mismatch"
+
+        target.status = "completed"
+        session.commit()
+        with pytest.raises(AppError) as error:
+            service.move(
+                moved.id,
+                AgendaMove(
+                    target_meeting_id=target.id,
+                    position=500,
+                    expected_version=moved.version,
+                    expected_source_meeting_version=source.version,
+                    expected_target_meeting_version=target.version,
+                ),
+                admin,
+            )
+        assert error.value.code == "meeting_completed"
+
+        target.status = "draft"
+        session.commit()
+        session.refresh(source)
+        session.refresh(target)
+        moved = service.move(
+            moved.id,
+            AgendaMove(
+                target_meeting_id=target.id,
+                position=500,
+                expected_version=moved.version,
+                expected_source_meeting_version=source.version,
+                expected_target_meeting_version=target.version,
+            ),
+            admin,
+        )
+        assert moved.position == 1
+        assert [row.id for row in service.list(target.id)] == [
+            target_first.id,
+            moved.id,
+        ]
+
+
+@pytest.mark.parametrize("stale_side", ["source", "target"])
+def test_move_rejects_stale_meeting_version_without_partial_changes(
+    client, agenda_context, stale_side
+):
+    admin, _, source_meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        source = session.get(Meeting, source_meeting_id)
+        target = MeetingService(session).create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="Move target",
+                scheduled_start=START + timedelta(days=1),
+                scheduled_end=START + timedelta(days=1, hours=1),
+            ),
+            admin,
+        )
+        service = AgendaService(session)
+        moved = add_item(service, source, admin, "Move")
+        target_item = add_item(service, target, admin, "Target")
+        session.refresh(source)
+        session.refresh(target)
+        expected_source = source.version - (1 if stale_side == "source" else 0)
+        expected_target = target.version - (1 if stale_side == "target" else 0)
+
+        with pytest.raises(AppError) as error:
+            service.move(
+                moved.id,
+                AgendaMove(
+                    target_meeting_id=target.id,
+                    position=0,
+                    expected_version=moved.version,
+                    expected_source_meeting_version=expected_source,
+                    expected_target_meeting_version=expected_target,
+                ),
+                admin,
+            )
+        assert error.value.code == "version_conflict"
+        assert moved.meeting_id == source.id
+        assert [row.id for row in service.list(source.id)] == [moved.id]
+        assert [row.id for row in service.list(target.id)] == [target_item.id]
+
+
 def test_complete_preserves_existing_started_at(client, agenda_context):
     admin, _, meeting_id = agenda_context
     started = datetime(2026, 7, 22, 9, 15, tzinfo=timezone.utc)
@@ -518,6 +786,78 @@ def test_agenda_routes_require_auth_and_serialize(authenticated_client, agenda_c
             json={"title": "No auth", "agenda_type": "discussion"},
         )
     assert response.status_code == 401
+
+
+def test_start_and_move_routes_require_auth_and_return_updated_agenda(
+    authenticated_client, agenda_context
+):
+    client = authenticated_client
+    admin, _, source_meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        source = session.get(Meeting, source_meeting_id)
+        target = MeetingService(session).create_meeting(
+            source.project_id,
+            MeetingWrite(
+                title="API target",
+                scheduled_start=START + timedelta(days=1),
+                scheduled_end=START + timedelta(days=1, hours=1),
+            ),
+            admin,
+        )
+        item = add_item(AgendaService(session), source, admin, "API flow")
+        source.status = "in_progress"
+        source.version += 1
+        session.commit()
+        item_id = item.id
+        target_id = target.id
+        item_version = item.version
+
+    response = client.post(
+        f"/api/agenda-items/{item_id}/start",
+        json={"expected_version": item_version},
+    )
+    assert response.status_code == 200
+    started = response.json()
+    assert started["status"] == "in_progress"
+    assert started["started_at"] is not None
+
+    with client.app.state.database.session() as session:
+        source_version = session.get(Meeting, source_meeting_id).version
+        target_version = session.get(Meeting, target_id).version
+
+    response = client.post(
+        f"/api/agenda-items/{item_id}/move",
+        json={
+            "target_meeting_id": target_id,
+            "position": 0,
+            "expected_version": started["version"],
+            "expected_source_meeting_version": source_version,
+            "expected_target_meeting_version": target_version,
+        },
+    )
+    assert response.status_code == 200
+    moved = response.json()
+    assert moved["meeting_id"] == target_id
+    assert moved["status"] == "planned"
+
+    unauthenticated = TestClient(client.app)
+    with unauthenticated:
+        for path, body in (
+            (
+                f"/api/agenda-items/{item_id}/start",
+                {"expected_version": moved["version"]},
+            ),
+            (
+                f"/api/agenda-items/{item_id}/move",
+                {
+                    "target_meeting_id": source_meeting_id,
+                    "expected_version": moved["version"],
+                    "expected_source_meeting_version": target_version + 1,
+                    "expected_target_meeting_version": source_version + 1,
+                },
+            ),
+        ):
+            assert unauthenticated.post(path, json=body).status_code == 401
 
 
 def test_all_agenda_mutation_routes_have_auth_and_expected_status_codes(

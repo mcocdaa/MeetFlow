@@ -3,7 +3,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.agendas.schemas import AgendaCommand, AgendaEdit, AgendaReorder, AgendaWrite
+from app.agendas.schemas import (
+    AgendaCommand,
+    AgendaEdit,
+    AgendaMove,
+    AgendaReorder,
+    AgendaWrite,
+)
 from app.agendas.service import AgendaService
 from app.auth.dependencies import current_user
 from app.auth.models import User
@@ -85,6 +91,9 @@ def _command(name: str):
 
 
 router.add_api_route(
+    "/api/agenda-items/{item_id}/start", _command("start"), methods=["POST"]
+)
+router.add_api_route(
     "/api/agenda-items/{item_id}/complete",
     _command("complete"),
     methods=["POST"],
@@ -95,3 +104,14 @@ router.add_api_route(
 router.add_api_route(
     "/api/agenda-items/{item_id}/cancel", _command("cancel"), methods=["POST"]
 )
+
+
+@router.post("/api/agenda-items/{item_id}/move")
+def move_agenda_item(
+    item_id: str,
+    payload: AgendaMove,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    service = AgendaService(session)
+    return service.detail(service.move(item_id, payload, user).id)

@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
-from app.agendas.schemas import AgendaCommand, AgendaEdit, AgendaReorder, AgendaWrite
+from app.agendas.schemas import (
+    AgendaCommand,
+    AgendaEdit,
+    AgendaMove,
+    AgendaReorder,
+    AgendaWrite,
+)
 from app.auth.models import User, UserStatus
 from app.domain.enums import AgendaStatus, MeetingStatus
 from app.domain.versioning import require_version
@@ -130,6 +136,34 @@ class AgendaService:
                 409, "meeting_immutable", "当前会议状态不可修改议程"
             ) from exc
         require_version(expected_meeting_version, actual_meeting_version)
+        actual_item_version = self.session.scalar(
+            select(AgendaItem.version).where(AgendaItem.id == item_id)
+        )
+        if actual_item_version is None:
+            raise AppError(404, "agenda_item_not_found", "议题不存在") from exc
+        require_version(expected_item_version, actual_item_version)
+        raise AppError(
+            409, "version_conflict", "议题或会议已更新，请刷新后重试"
+        ) from exc
+
+    def _raise_move_stale(
+        self,
+        *,
+        item_id: str,
+        expected_item_version: int,
+        source_meeting_id: str,
+        expected_source_meeting_version: int,
+        target_meeting_id: str,
+        expected_target_meeting_version: int,
+        exc: Exception,
+    ) -> None:
+        self.session.rollback()
+        source = self._meeting(source_meeting_id)
+        target = self._meeting(target_meeting_id)
+        self._require_mutable(source)
+        self._require_mutable(target)
+        require_version(expected_source_meeting_version, source.version)
+        require_version(expected_target_meeting_version, target.version)
         actual_item_version = self.session.scalar(
             select(AgendaItem.version).where(AgendaItem.id == item_id)
         )
@@ -293,11 +327,124 @@ class AgendaService:
     def complete(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
         return self._transition(item_id, payload, actor, AgendaStatus.completed)
 
+    def start(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
+        self._require_active(actor)
+        item = self.get(item_id)
+        meeting = item.meeting
+        if meeting.status != MeetingStatus.in_progress:
+            raise AppError(409, "meeting_not_in_progress", "会议尚未开始")
+        expected_meeting_version = meeting.version
+        require_version(payload.expected_version, item.version)
+        if item.status != AgendaStatus.planned:
+            raise AppError(409, "invalid_agenda_transition", "只有待处理议题可以开始")
+        item.status = AgendaStatus.in_progress
+        item.started_at = utcnow()
+        item.updated_by = actor.id
+        item.version += 1
+        meeting.updated_by = actor.id
+        meeting.version += 1
+        try:
+            self.session.commit()
+        except StaleDataError as exc:
+            self._raise_item_or_meeting_stale(
+                item_id=item_id,
+                expected_item_version=payload.expected_version,
+                meeting_id=meeting.id,
+                expected_meeting_version=expected_meeting_version,
+                exc=exc,
+            )
+        self.session.refresh(item)
+        return item
+
     def skip(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
         return self._transition(item_id, payload, actor, AgendaStatus.skipped)
 
     def cancel(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
         return self._transition(item_id, payload, actor, AgendaStatus.canceled)
+
+    def move(self, item_id: str, payload: AgendaMove, actor: User) -> AgendaItem:
+        self._require_active(actor)
+        item = self.get(item_id)
+        source = item.meeting
+        target = self._meeting(payload.target_meeting_id)
+        source_id = source.id
+        target_id = target.id
+        if source_id == target_id:
+            raise AppError(422, "source_mismatch", "目标会议必须与原会议不同")
+        if source.project_id != target.project_id:
+            raise AppError(422, "source_mismatch", "议题只能移动到同一项目的会议")
+        self._require_mutable(source)
+        self._require_mutable(target)
+        require_version(payload.expected_version, item.version)
+        require_version(payload.expected_source_meeting_version, source.version)
+        require_version(payload.expected_target_meeting_version, target.version)
+        if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
+            raise AppError(409, "invalid_agenda_transition", "已结束的议题不能移动")
+        if item.copied_from_agenda_item_id:
+            duplicate = self.session.scalar(
+                select(AgendaItem.id).where(
+                    AgendaItem.meeting_id == target.id,
+                    AgendaItem.copied_from_agenda_item_id
+                    == item.copied_from_agenda_item_id,
+                )
+            )
+            if duplicate:
+                raise AppError(409, "agenda_already_copied", "目标会议已有该议题副本")
+
+        source_items = self.list(source_id)
+        target_items = self.list(target_id)
+        position = (
+            len(target_items)
+            if payload.position is None
+            else min(payload.position, len(target_items))
+        )
+        for other in source_items:
+            if other.id != item.id and other.position > item.position:
+                other.position -= 1
+                other.version += 1
+                other.updated_by = actor.id
+        for other in target_items[position:]:
+            other.position += 1
+            other.version += 1
+            other.updated_by = actor.id
+
+        item.meeting_id = target_id
+        item.position = position
+        item.status = AgendaStatus.planned
+        item.started_at = None
+        item.completed_at = None
+        item.updated_by = actor.id
+        item.version += 1
+
+        # Moving the agenda preserves each outcome's agenda source while keeping
+        # its denormalized meeting source chain internally consistent.
+        from app.outcomes.models import ActionItem, Decision, OpenQuestion
+
+        for model in (Decision, ActionItem, OpenQuestion):
+            for outcome in self.session.scalars(
+                select(model).where(model.agenda_item_id == item.id)
+            ):
+                outcome.meeting_id = target_id
+                outcome.version += 1
+
+        source.version += 1
+        source.updated_by = actor.id
+        target.version += 1
+        target.updated_by = actor.id
+        try:
+            self.session.commit()
+        except StaleDataError as exc:
+            self._raise_move_stale(
+                item_id=item.id,
+                expected_item_version=payload.expected_version,
+                source_meeting_id=source_id,
+                expected_source_meeting_version=payload.expected_source_meeting_version,
+                target_meeting_id=target_id,
+                expected_target_meeting_version=payload.expected_target_meeting_version,
+                exc=exc,
+            )
+        self.session.refresh(item)
+        return item
 
     def delete(
         self,
