@@ -919,7 +919,7 @@ class MeetingService:
             event_type="meeting.amended",
             subject_type="meeting_amendment",
             subject_id=amendment.id,
-            payload={"reason": amendment.reason},
+            payload={"meeting_id": meeting.id},
         )
         self._commit_meeting_command(meeting, payload.expected_version)
         self.session.refresh(amendment)

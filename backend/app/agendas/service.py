@@ -254,6 +254,7 @@ class AgendaService:
         item.version += 1
         meeting.updated_by = actor.id
         meeting.version += 1
+        self._record(item, actor, "agenda.updated")
         try:
             self.session.commit()
         except StaleDataError as exc:
@@ -298,6 +299,15 @@ class AgendaService:
                 item.updated_by = actor.id
         meeting.version += 1
         meeting.updated_by = actor.id
+        ActivityRecorder(self.session).record(
+            project_id=meeting.project_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor.id,
+            event_type="agenda.reordered",
+            subject_type="meeting",
+            subject_id=meeting.id,
+            payload={"agenda_item_ids": payload.ids},
+        )
         try:
             self.session.commit()
         except StaleDataError as exc:
@@ -550,6 +560,7 @@ class AgendaService:
             other.updated_by = actor.id
         meeting.version += 1
         meeting.updated_by = actor.id
+        self._record(item, actor, "agenda.deleted")
         try:
             self.session.commit()
         except StaleDataError as exc:

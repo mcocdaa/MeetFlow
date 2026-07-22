@@ -241,6 +241,14 @@ class ProjectService:
             )
         for field, value in payload.model_dump().items():
             setattr(update, field, value)
+        ActivityRecorder(self.session).record(
+            project_id=update.project_id,
+            actor_user_id=actor.id,
+            event_type="project.progress_updated",
+            subject_type="project_update",
+            subject_id=update.id,
+            payload={"health": update.health.value},
+        )
         self.session.commit()
         self.session.refresh(update)
         return update
@@ -273,6 +281,14 @@ class ProjectService:
         )
         if has_attachment:
             raise AppError(409, "project_has_attachments", "项目已有附件，不能删除")
+        ActivityRecorder(self.session).record(
+            project_id=project.id,
+            actor_user_id=actor.id,
+            event_type="project.deleted",
+            subject_type="project",
+            subject_id=project.id,
+            payload={"name": project.name},
+        )
         self.session.delete(project)
         self.session.commit()
 

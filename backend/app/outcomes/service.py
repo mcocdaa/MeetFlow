@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -80,6 +81,22 @@ class OutcomeService:
             subject_id=subject_id,
             payload=payload,
         )
+
+    @staticmethod
+    def _action_payload(action: ActionItem) -> dict[str, Any]:
+        return {
+            "status": action.status.value,
+            "owner_user_id": action.owner_user_id,
+            "due_date": action.due_date.isoformat() if action.due_date else None,
+        }
+
+    @staticmethod
+    def _question_payload(question: OpenQuestion) -> dict[str, Any]:
+        return {
+            "status": question.status.value,
+            "owner_user_id": question.owner_user_id,
+            "scheduled_meeting_id": question.scheduled_meeting_id,
+        }
 
     @staticmethod
     def _require_active(actor: User) -> None:
@@ -441,7 +458,7 @@ class OutcomeService:
             event_type="action.created",
             subject_type="action_item",
             subject_id=action.id,
-            payload={"content": action.content[:200]},
+            payload=self._action_payload(action),
         )
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
         self._commit(entity="行动项", meeting_versions=meeting_versions)
@@ -491,7 +508,7 @@ class OutcomeService:
                 event_type=event_type,
                 subject_type="action_item",
                 subject_id=action.id,
-                payload={"content": action.content[:200]},
+                payload=self._action_payload(action),
             )
             self._commit(
                 entity="行动项",
@@ -529,7 +546,7 @@ class OutcomeService:
             event_type="question.created",
             subject_type="open_question",
             subject_id=question.id,
-            payload={"question": question.question_markdown[:200]},
+            payload=self._question_payload(question),
         )
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
         self._commit(entity="开放问题", meeting_versions=meeting_versions)
@@ -557,7 +574,7 @@ class OutcomeService:
                 event_type="question.updated",
                 subject_type="open_question",
                 subject_id=question.id,
-                payload={"question": question.question_markdown[:200]},
+                payload=self._question_payload(question),
             )
             self._commit(
                 entity="开放问题",
@@ -632,7 +649,7 @@ class OutcomeService:
             event_type="question.scheduled",
             subject_type="open_question",
             subject_id=question.id,
-            payload={"question": question.question_markdown[:200]},
+            payload=self._question_payload(question),
         )
         self._commit(entity="开放问题或会议", meeting_versions=meeting_versions)
         self.session.refresh(item)
@@ -666,7 +683,7 @@ class OutcomeService:
             event_type="question.resolved",
             subject_type="open_question",
             subject_id=question.id,
-            payload={"question": question.question_markdown[:200]},
+            payload=self._question_payload(question),
         )
         self._commit(
             entity="开放问题",
@@ -767,6 +784,19 @@ class OutcomeService:
         meeting_versions = self._touch_meetings(
             actor, source_meeting.id, target_meeting.id
         )
+        self._record(
+            project_id=source_meeting.project_id,
+            meeting_id=source_meeting.id,
+            actor=actor,
+            event_type="agenda.outcomes_migrated",
+            subject_type="agenda_item",
+            subject_id=source.id,
+            payload={
+                "target_agenda_item_id": target.id,
+                "target_meeting_id": target.meeting_id,
+                "outcome_ids": [row["id"] for row in moved_rows],
+            },
+        )
         self._commit(entity="议题产物", meeting_versions=meeting_versions)
         return target
 
@@ -791,6 +821,7 @@ class OutcomeService:
         if source.status != AgendaStatus.skipped:
             raise AppError(409, "agenda_not_skipped", "只有跳过的议题可转为开放问题")
         question = OpenQuestion(
+            id=str(uuid.uuid4()),
             project_id=source_meeting.project_id,
             meeting_id=source.meeting_id,
             agenda_item_id=source.id,
@@ -804,6 +835,15 @@ class OutcomeService:
         source_meeting_id = source_meeting.id
         self._touch_meetings(actor, source_meeting.id)
         try:
+            self._record(
+                project_id=question.project_id,
+                meeting_id=question.meeting_id,
+                actor=actor,
+                event_type="agenda.converted_to_question",
+                subject_type="open_question",
+                subject_id=question.id,
+                payload={"source_agenda_item_id": source.id},
+            )
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
@@ -882,6 +922,7 @@ class OutcomeService:
             or 0
         )
         item = AgendaItem(
+            id=str(uuid.uuid4()),
             meeting_id=target.id,
             title=source.title,
             agenda_type=source.agenda_type,
@@ -901,6 +942,18 @@ class OutcomeService:
         source_meeting_id = source_meeting.id
         self._touch_meetings(actor, source_meeting.id, target.id)
         try:
+            self._record(
+                project_id=target.project_id,
+                meeting_id=target.id,
+                actor=actor,
+                event_type="agenda.copied",
+                subject_type="agenda_item",
+                subject_id=item.id,
+                payload={
+                    "source_agenda_item_id": source.id,
+                    "source_meeting_id": source_meeting.id,
+                },
+            )
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()

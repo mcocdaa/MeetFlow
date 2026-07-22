@@ -1,3 +1,10 @@
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
+
+from app.collaboration.models import ActivityEvent
+
+
 def _create_project(client, *, name: str, slug: str) -> dict:
     actor = client.get("/api/auth/me").json()
     response = client.post(
@@ -15,7 +22,7 @@ def _create_project(client, *, name: str, slug: str) -> dict:
 
 
 def test_activity_is_committed_with_mutation_but_not_stale_failure(
-    authenticated_client,
+    authenticated_client, monkeypatch
 ):
     actor = authenticated_client.get("/api/auth/me").json()
     project = _create_project(
@@ -35,14 +42,33 @@ def test_activity_is_committed_with_mutation_but_not_stale_failure(
     assert items[0]["actor"]["id"] == actor["id"]
     assert items[0]["subject"] == {"type": "project", "id": project["id"]}
 
-    before_count = len(items)
+    database = authenticated_client.app.state.database
+    with database.session() as independent:
+        before_count = independent.scalar(select(func.count(ActivityEvent.id)))
+
+    original_commit = Session.commit
+    saw_pending_event = False
+
+    def fail_after_recording(session):
+        nonlocal saw_pending_event
+        saw_pending_event = any(
+            isinstance(value, ActivityEvent) for value in session.new
+        )
+        raise StaleDataError("simulated concurrent write")
+
+    monkeypatch.setattr(Session, "commit", fail_after_recording)
     stale = authenticated_client.put(
         f"/api/projects/{project['id']}",
-        json={"expected_version": project["version"], "summary": "Stale change"},
+        json={
+            "expected_version": updated.json()["version"],
+            "summary": "Concurrent change",
+        },
     )
+    monkeypatch.setattr(Session, "commit", original_commit)
     assert stale.status_code == 409
-    after = authenticated_client.get(f"/api/projects/{project['id']}/activity").json()
-    assert len(after["items"]) == before_count
+    assert saw_pending_event
+    with database.session() as independent:
+        assert independent.scalar(select(func.count(ActivityEvent.id))) == before_count
 
 
 def test_activity_api_is_project_scoped_and_gap_free(authenticated_client, client):
@@ -87,6 +113,50 @@ def test_activity_api_is_project_scoped_and_gap_free(authenticated_client, clien
     other = authenticated_client.get(f"/api/projects/{second['id']}/activity").json()
     assert {item["project_id"] for item in full["items"]} == {first["id"]}
     assert {item["project_id"] for item in other["items"]} == {second["id"]}
+
+    actor = authenticated_client.get("/api/auth/me").json()
+    secret = "PRIVATE-MARKDOWN-MUST-NOT-BE-RECORDED"
+    action = authenticated_client.post(
+        f"/api/projects/{first['id']}/actions",
+        json={
+            "project_id": first["id"],
+            "content": secret,
+            "owner_user_id": actor["id"],
+        },
+    )
+    assert action.status_code == 201
+    question = authenticated_client.post(
+        f"/api/projects/{first['id']}/open-questions",
+        json={"question_markdown": secret, "owner_user_id": actor["id"]},
+    )
+    assert question.status_code == 201
+    attachment = authenticated_client.post(
+        f"/api/attachments/project/{first['id']}",
+        files={"file": ("evidence.txt", b"private file body", "text/plain")},
+    )
+    assert attachment.status_code == 201
+    assert (
+        authenticated_client.delete(attachment.json()["download_url"]).status_code
+        == 204
+    )
+
+    latest = authenticated_client.get(
+        f"/api/projects/{first['id']}/activity", params={"limit": 100}
+    ).json()["items"]
+    relevant = [
+        item
+        for item in latest
+        if item["subject"]["id"]
+        in {action.json()["id"], question.json()["id"], attachment.json()["id"]}
+    ]
+    assert {item["event_type"] for item in relevant} == {
+        "action.created",
+        "question.created",
+        "attachment.uploaded",
+        "attachment.deleted",
+    }
+    assert all(secret not in str(item["payload"]) for item in relevant)
+    assert all("private file body" not in str(item["payload"]) for item in relevant)
 
     authenticated_client.post("/api/auth/logout")
     assert client.get(f"/api/projects/{first['id']}/activity").status_code == 401

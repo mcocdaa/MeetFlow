@@ -13,6 +13,7 @@ from app.attachments.models import Attachment
 from app.attachments.storage import sniff_inline_image
 from app.auth.dependencies import current_user
 from app.auth.models import User, UserRole
+from app.collaboration.activity import ActivityRecorder
 from app.database import get_session
 from app.errors import AppError
 from app.meetings.models import Meeting
@@ -25,12 +26,26 @@ router = APIRouter(prefix="/api/attachments", tags=["attachments"])
 logger = logging.getLogger(__name__)
 
 
-def require_target(session: Session, target_type: str, target_id: str):
+def require_target(
+    session: Session, target_type: str, target_id: str
+) -> Project | Meeting | AgendaItem:
     model = {"project": Project, "meeting": Meeting, "agenda_item": AgendaItem}.get(
         target_type
     )
-    if model is None or session.get(model, target_id) is None:
+    target = session.get(model, target_id) if model is not None else None
+    if target is None:
         raise AppError(404, "attachment_target_not_found", "附件目标不存在")
+    return target
+
+
+def activity_context(
+    target: Project | Meeting | AgendaItem,
+) -> tuple[str, str | None]:
+    if isinstance(target, Project):
+        return target.id, None
+    if isinstance(target, Meeting):
+        return target.project_id, target.id
+    return target.meeting.project_id, target.meeting_id
 
 
 def require_attachment(
@@ -100,7 +115,7 @@ async def upload_attachment(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    require_target(session, target_type, target_id)
+    target = require_target(session, target_type, target_id)
     storage = request.app.state.attachment_storage
     stored_name, final_path, size = await storage.save(target_type, target_id, file)
     detected_image = sniff_inline_image(final_path)
@@ -116,6 +131,22 @@ async def upload_attachment(
     )
     session.add(attachment)
     try:
+        session.flush()
+        project_id, meeting_id = activity_context(target)
+        ActivityRecorder(session).record(
+            project_id=project_id,
+            meeting_id=meeting_id,
+            actor_user_id=user.id,
+            event_type="attachment.uploaded",
+            subject_type="attachment",
+            subject_id=attachment.id,
+            payload={
+                "filename": attachment.original_name,
+                "size": attachment.size,
+                "target_type": attachment.target_type,
+                "target_id": attachment.target_id,
+            },
+        )
         session.commit()
     except Exception:
         session.rollback()
@@ -187,6 +218,7 @@ def delete_attachment(
     item = require_attachment(session, target_type, target_id, attachment_id)
     if item.created_by != user.id and user.role != UserRole.ADMIN:
         raise AppError(403, "attachment_delete_forbidden", "只能删除自己上传的附件")
+    target = require_target(session, item.target_type, item.target_id)
     path = request.app.state.attachment_storage.attachment_path(
         item.target_type, item.target_id, item.stored_name
     )
@@ -194,6 +226,21 @@ def delete_attachment(
     if tombstone is not None:
         path.replace(tombstone)
     session.delete(item)
+    project_id, meeting_id = activity_context(target)
+    ActivityRecorder(session).record(
+        project_id=project_id,
+        meeting_id=meeting_id,
+        actor_user_id=user.id,
+        event_type="attachment.deleted",
+        subject_type="attachment",
+        subject_id=item.id,
+        payload={
+            "filename": item.original_name,
+            "size": item.size,
+            "target_type": item.target_type,
+            "target_id": item.target_id,
+        },
+    )
     try:
         session.commit()
     except Exception:
