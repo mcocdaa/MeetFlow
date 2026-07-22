@@ -166,20 +166,22 @@ class CommentService:
             payload.target_type, payload.target_id
         )
         parent_id = None
-        root = None
+        direct_parent_id = None
+        direct_recipient = None
         if payload.parent_id is not None:
-            parent = self._get_loaded(payload.parent_id)
+            direct_parent = self._get_loaded(payload.parent_id)
             if (
-                parent.target_type != payload.target_type
-                or parent.target_id != payload.target_id
+                direct_parent.target_type != payload.target_type
+                or direct_parent.target_id != payload.target_id
             ):
                 raise AppError(
                     422,
                     "comment_parent_mismatch",
                     "回复必须属于同一评论目标",
                 )
-            parent_id = parent.parent_id or parent.id
-            root = self._get_loaded(parent_id)
+            direct_parent_id = direct_parent.id
+            direct_recipient = direct_parent.created_by
+            parent_id = direct_parent.parent_id or direct_parent.id
         mentions = self._mentions(payload.mention_user_ids, actor)
         comment = Comment(
             project_id=project_id,
@@ -221,9 +223,9 @@ class CommentService:
                         f"mention:{comment.id}:{mention.user_id}:{comment.version}"
                     ),
                 )
-            if root is not None:
+            if direct_recipient is not None:
                 writer.add(
-                    user_id=root.created_by,
+                    user_id=direct_recipient,
                     actor_user_id=actor.id,
                     project_id=comment.project_id,
                     meeting_id=comment.meeting_id,
@@ -234,9 +236,10 @@ class CommentService:
                     data={
                         "target_type": comment.target_type,
                         "target_id": comment.target_id,
-                        "parent_id": root.id,
+                        "parent_id": parent_id,
+                        "replied_to_comment_id": direct_parent_id,
                     },
-                    dedupe_key=f"reply:{comment.id}:{root.created_by}",
+                    dedupe_key=f"reply:{comment.id}:{direct_recipient}",
                 )
             self.session.commit()
         except Exception:

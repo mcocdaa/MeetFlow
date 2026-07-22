@@ -83,6 +83,7 @@ def test_domain_notifications_reach_only_new_direct_recipients_and_dedupe(
     with client.app.state.database.session() as session:
         admin = session.get(User, context["admin_id"])
         member = session.get(User, member_id)
+        other = session.get(User, other_id)
         comments = CommentService(session)
         root = comments.create(
             CommentWrite(
@@ -101,6 +102,16 @@ def test_domain_notifications_reach_only_new_direct_recipients_and_dedupe(
             ),
             admin,
         )
+        nested_reply = comments.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                parent_id=reply.id,
+                body_markdown="Other replies directly to admin",
+            ),
+            other,
+        )
+        assert nested_reply.parent_id == root.id
         mentioned = comments.create(
             CommentWrite(
                 target_type="project",
@@ -186,6 +197,16 @@ def test_domain_notifications_reach_only_new_direct_recipients_and_dedupe(
             for item in notifications
             if item.kind == "comment.reply" and item.source_comment_id == reply.id
         } == {member_id}
+        nested_reply_rows = [
+            item
+            for item in notifications
+            if item.kind == "comment.reply"
+            and item.source_comment_id == nested_reply.id
+        ]
+        assert {item.user_id for item in nested_reply_rows} == {context["admin_id"]}
+        assert {
+            item.data_json["replied_to_comment_id"] for item in nested_reply_rows
+        } == {reply.id}
         assert {
             item.user_id
             for item in notifications
