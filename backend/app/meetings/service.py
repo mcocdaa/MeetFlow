@@ -102,28 +102,6 @@ def meeting_relationship_options():
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.presenter),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.creator),
         selectinload(Meeting.agenda_items).joinedload(AgendaItem.updater),
-        selectinload(Meeting.agenda_items)
-        .selectinload(AgendaItem.decisions)
-        .joinedload(Decision.creator),
-        selectinload(Meeting.agenda_items)
-        .selectinload(AgendaItem.decisions)
-        .joinedload(Decision.decided_by),
-        selectinload(Meeting.agenda_items)
-        .selectinload(AgendaItem.decisions)
-        .selectinload(Decision.reviewers)
-        .joinedload(DecisionReviewer.user),
-        selectinload(Meeting.agenda_items)
-        .selectinload(AgendaItem.actions)
-        .joinedload(ActionItem.owner_user),
-        selectinload(Meeting.agenda_items)
-        .selectinload(AgendaItem.actions)
-        .joinedload(ActionItem.creator),
-        selectinload(Meeting.agenda_items)
-        .selectinload(AgendaItem.open_questions)
-        .joinedload(OpenQuestion.owner_user),
-        selectinload(Meeting.agenda_items)
-        .selectinload(AgendaItem.open_questions)
-        .joinedload(OpenQuestion.creator),
         selectinload(Meeting.decisions).joinedload(Decision.creator),
         selectinload(Meeting.decisions).joinedload(Decision.decided_by),
         selectinload(Meeting.decisions)
@@ -902,6 +880,16 @@ class MeetingService:
             result["owner"] = user_ref(item.owner_user)
             return result
 
+        def group_by_agenda(items):
+            grouped = {}
+            for item in sorted(items, key=lambda value: value.id):
+                grouped.setdefault(item.agenda_item_id, []).append(item)
+            return grouped
+
+        decisions_by_agenda = group_by_agenda(meeting.decisions)
+        actions_by_agenda = group_by_agenda(meeting.actions)
+        questions_by_agenda = group_by_agenda(meeting.open_questions)
+
         return {
             "id": meeting.id,
             "project": project_ref(meeting.project),
@@ -972,28 +960,29 @@ class MeetingService:
                     "updated_at": row.updated_at,
                     "started_at": row.started_at,
                     "completed_at": row.completed_at,
-                    "decisions": [decision_detail(item) for item in row.decisions],
-                    "actions": [action_detail(item) for item in row.actions],
+                    "decisions": [
+                        decision_detail(item)
+                        for item in decisions_by_agenda.get(row.id, [])
+                    ],
+                    "actions": [
+                        action_detail(item)
+                        for item in actions_by_agenda.get(row.id, [])
+                    ],
                     "open_questions": [
-                        question_detail(item) for item in row.open_questions
+                        question_detail(item)
+                        for item in questions_by_agenda.get(row.id, [])
                     ],
                 }
                 for row in meeting.agenda_items
             ],
             "meeting_decisions": [
-                decision_detail(item)
-                for item in sorted(meeting.decisions, key=lambda value: value.id)
-                if item.agenda_item_id is None
+                decision_detail(item) for item in decisions_by_agenda.get(None, [])
             ],
             "meeting_actions": [
-                action_detail(item)
-                for item in sorted(meeting.actions, key=lambda value: value.id)
-                if item.agenda_item_id is None
+                action_detail(item) for item in actions_by_agenda.get(None, [])
             ],
             "meeting_open_questions": [
-                question_detail(item)
-                for item in sorted(meeting.open_questions, key=lambda value: value.id)
-                if item.agenda_item_id is None
+                question_detail(item) for item in questions_by_agenda.get(None, [])
             ],
             "created_by": user_ref(meeting.creator),
             "updated_by": user_ref(meeting.updater),
