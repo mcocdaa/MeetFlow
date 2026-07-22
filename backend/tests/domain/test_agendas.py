@@ -6,15 +6,17 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
 from app.agendas.schemas import (
+    AgendaCommand,
     AgendaEdit,
     AgendaMove,
+    AgendaReorder,
     AgendaWrite,
 )
 from app.agendas.service import AgendaService
 from app.auth.models import User, UserRole, UserStatus
 from app.errors import AppError
 from app.meetings.models import Meeting
-from app.meetings.schemas import MeetingWrite
+from app.meetings.schemas import LifecycleCommand, MeetingWrite
 from app.meetings.service import MeetingService
 from app.outcomes.models import ActionItem, Decision, OpenQuestion
 from app.projects.schemas import ProjectWrite
@@ -95,6 +97,57 @@ def test_create_appends_and_inserts_with_contiguous_positions(client, agenda_con
         ]
         assert [item.position for item in service.list(meeting_id)] == [0, 1, 2]
         assert middle.version == 1
+
+
+def test_public_agenda_edit_reorder_transitions_and_parent_lock(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        service = AgendaService(session)
+        meetings = MeetingService(session)
+        meeting = session.get(Meeting, meeting_id)
+        first = add_item(service, meeting, admin, "First")
+        session.refresh(meeting)
+        second = add_item(service, meeting, admin, "Second")
+
+        edited = service.update(
+            first.id,
+            AgendaEdit(expected_version=first.version, title="Updated first"),
+            admin,
+        )
+        session.refresh(meeting)
+        ordered = service.reorder(
+            meeting_id,
+            AgendaReorder(
+                ids=[second.id, edited.id],
+                expected_meeting_version=meeting.version,
+            ),
+            admin,
+        )
+        assert [item.title for item in ordered] == ["Second", "Updated first"]
+
+        session.refresh(meeting)
+        running = meetings.start(
+            meeting_id, LifecycleCommand(expected_version=meeting.version), admin
+        )
+        started = service.start(
+            edited.id, AgendaCommand(expected_version=edited.version), admin
+        )
+        completed = service.complete(
+            edited.id, AgendaCommand(expected_version=started.version), admin
+        )
+        assert completed.status.value == "completed"
+
+        canceled = meetings.cancel(
+            meeting_id, LifecycleCommand(expected_version=running.version), admin
+        )
+        assert canceled.status.value == "canceled"
+        with pytest.raises(AppError) as locked:
+            service.update(
+                second.id,
+                AgendaEdit(expected_version=second.version, title="Too late"),
+                admin,
+            )
+        assert locked.value.code == "meeting_immutable"
 
 
 def test_move_preserves_item_and_outcomes_and_repairs_both_queues(

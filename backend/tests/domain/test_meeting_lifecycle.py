@@ -19,6 +19,7 @@ from app.meetings.models import (
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
+    MeetingEdit,
     MeetingWrite,
 )
 from app.meetings.service import MeetingService
@@ -498,3 +499,63 @@ def test_snapshot_history_pagination_can_reach_beyond_first_two_hundred(
         session.commit()
         page = MeetingService(session).list_snapshots(meeting_id, limit=2, offset=199)
         assert [row.completion_number for row in page] == [200, 201]
+
+
+def test_public_lifecycle_transitions_and_terminal_edit_locks(
+    client, lifecycle_context
+):
+    admin_id, project_id, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        service = MeetingService(session)
+
+        ready = service.mark_ready(
+            meeting_id, LifecycleCommand(expected_version=1), actor
+        )
+        draft = service.mark_draft(
+            meeting_id, LifecycleCommand(expected_version=ready.version), actor
+        )
+        ready_again = service.mark_ready(
+            meeting_id, LifecycleCommand(expected_version=draft.version), actor
+        )
+        started = service.start(
+            meeting_id,
+            LifecycleCommand(expected_version=ready_again.version),
+            actor,
+        )
+        completed = service.finish(
+            meeting_id, LifecycleCommand(expected_version=started.version), actor
+        )
+        assert completed.status == MeetingStatus.completed
+
+        with pytest.raises(AppError) as completed_edit:
+            service.update_meeting(
+                meeting_id,
+                MeetingEdit(expected_version=completed.version, title="Rewrite"),
+                actor,
+            )
+        assert completed_edit.value.code == "meeting_locked"
+
+        cancel_target = service.create_meeting(
+            project_id,
+            MeetingWrite(
+                title="Canceled meeting",
+                scheduled_start=START + timedelta(days=1),
+                scheduled_end=START + timedelta(days=1, hours=1),
+            ),
+            actor,
+        )
+        canceled = service.cancel(
+            cancel_target.id,
+            LifecycleCommand(expected_version=cancel_target.version),
+            actor,
+        )
+        assert canceled.status == MeetingStatus.canceled
+
+        with pytest.raises(AppError) as canceled_edit:
+            service.update_meeting(
+                cancel_target.id,
+                MeetingEdit(expected_version=canceled.version, title="Rewrite"),
+                actor,
+            )
+        assert canceled_edit.value.code == "meeting_locked"

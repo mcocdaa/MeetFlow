@@ -29,3 +29,10 @@ def production_settings(**overrides):
 def test_production_rejects_documented_placeholder_secrets(field, placeholder):
     with pytest.raises(ValidationError):
         production_settings(**{field: placeholder})
+
+
+def test_production_requires_secure_cookies_and_https_origins():
+    with pytest.raises(ValidationError):
+        production_settings(secure_cookies=False)
+    with pytest.raises(ValidationError):
+        production_settings(trusted_origins="http://meetflow.example.com")
