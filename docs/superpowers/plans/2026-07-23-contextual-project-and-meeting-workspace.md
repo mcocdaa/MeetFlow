@@ -18,7 +18,7 @@
 | `backend/app/collaboration/schemas.py` | Validate resolve/reopen version commands and serialize comment state. |
 | `backend/app/collaboration/service.py` | Enforce meeting-participant mentions and resolve/reopen transitions. |
 | `backend/app/collaboration/router.py` | Expose comment resolve/reopen routes. |
-| `backend/alembic/versions/<revision>_comment_resolution.py` | Add nullable resolution columns without rewriting comment history. |
+| `backend/migrations/versions/<revision>_comment_resolution.py` | Add nullable resolution columns without rewriting comment history. |
 | `backend/tests/collaboration/test_comments.py` | Cover participant-only mentions and resolve/reopen authorization. |
 | `frontend/src/components/ContextDrawer.vue` | Accessible, reusable right-side drawer that preserves page scroll. |
 | `frontend/src/components/ProjectCreatePanel.vue` | Project-scoped meeting/series/decision/action/file creation forms. |
@@ -37,7 +37,7 @@
 ### Task 1: Add comment resolution and participant-only mention authorization
 
 **Files:**
-- Create: `backend/alembic/versions/<revision>_comment_resolution.py`
+- Create: `backend/migrations/versions/<revision>_comment_resolution.py`
 - Modify: `backend/app/collaboration/models.py`, `backend/app/collaboration/schemas.py`, `backend/app/collaboration/service.py`, `backend/app/collaboration/router.py`
 - Test: `backend/tests/collaboration/test_comments.py`
 
@@ -85,7 +85,7 @@ op.create_foreign_key("fk_comments_resolved_by_users", "comments", "users", ["re
 
 The downgrade removes the foreign key and both nullable columns. Do not alter existing comment rows or mention rows.
 
-- [ ] **Step 4: Implement validation and transitions in `CommentService`.**
+- [ ] **Step 4: Extend the existing comment validation and transitions in `CommentService`.**
 
 ```python
 def _allowed_mention_ids(self, meeting_id: str | None) -> set[str] | None:
@@ -106,7 +106,7 @@ def resolve(self, comment_id: str, payload: CommentCommand, actor: User) -> Comm
     return self._get_loaded(root.id)
 ```
 
-Permit resolving/reopening to the root author, an active project member with the existing project edit permission, or an admin; use one shared authorization helper for both transitions. Change `_mentions` to receive `meeting_id`; reject IDs outside `_allowed_mention_ids` with `comment_mention_not_participant`. Keep existing active-account checks and explicit mention notifications.
+The existing comment service already creates/replies/edits/deletes comments, writes explicit mention rows, and emits notifications. Preserve those paths. Permit resolving/reopening to the root author or an admin; use one shared authorization helper for both transitions. Change `_mentions` to receive `meeting_id`; reject IDs outside `_allowed_mention_ids` with `comment_mention_not_participant`. Keep existing active-account checks and explicit mention notifications.
 
 - [ ] **Step 5: Add routes and serialized resolution fields.**
 
@@ -131,7 +131,7 @@ Run: `python -m pytest backend/tests/collaboration/test_comments.py -v`
 Expected: all comment tests pass.
 
 ```bash
-git add backend/app/collaboration backend/alembic/versions backend/tests/collaboration/test_comments.py
+git add backend/app/collaboration backend/migrations/versions backend/tests/collaboration/test_comments.py
 git commit -m "feat: add resolvable meeting comments"
 ```
 
