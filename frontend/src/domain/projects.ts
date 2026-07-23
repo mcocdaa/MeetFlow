@@ -1,4 +1,5 @@
 import type { UserRef, Versioned } from '../api/contracts'
+import type { Decision } from './outcomes'
 
 export type ProjectStatus = 'planned' | 'active' | 'paused' | 'completed' | 'canceled'
 export type ProjectHealth = 'on_track' | 'at_risk' | 'off_track' | 'unset'
@@ -36,4 +37,24 @@ export type Project = Versioned & {
   updated_by: UserRef
   created_at: string
   updated_at: string
+}
+
+export type ProjectAttachment = {
+  id: string
+  original_name: string
+  mime_type: string
+  size: number
+  download_url: string
+  created_by: UserRef
+  created_at: string
+}
+
+export type ProjectDetail = Project & {
+  next_meeting: { id: string; title: string; scheduled_start: string; status: string } | null
+  recent_decisions: Decision[]
+  meeting_count: number
+  decision_count: number
+  open_action_count: number
+  series_summaries: { id: string; title: string; status: string; recurrence_description: string }[]
+  attachments: ProjectAttachment[]
 }
