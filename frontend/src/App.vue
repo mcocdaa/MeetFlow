@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRouter } from 'vue-router'
 
 import { api } from './api/client'
 import { clearSession, session, type SessionUser } from './auth/session'
+import AppSidebar from './components/AppSidebar.vue'
 
 const router = useRouter()
 
@@ -32,17 +33,16 @@ onBeforeUnmount(() => window.removeEventListener('meetflow:auth-expired', handle
 
 <template>
   <div class="app-shell">
-    <header v-if="session.user" class="site-header">
-      <div class="site-header-inner">
-        <RouterLink class="brand" to="/"><span class="brand-mark brand-mark-small">M</span><span>MeetFlow</span></RouterLink>
-        <nav class="main-nav" aria-label="主导航">
-          <RouterLink to="/">会议</RouterLink>
-          <RouterLink to="/actions">待办</RouterLink>
-          <template v-if="session.user.role === 'admin'"><span class="nav-divider"></span><RouterLink to="/admin/users">用户</RouterLink><RouterLink to="/admin/plugins">插件</RouterLink></template>
-        </nav>
-        <div class="account-menu"><RouterLink class="account-link" to="/account"><span class="avatar avatar-small">{{ session.user.display_name.slice(0, 1).toUpperCase() }}</span><span>{{ session.user.display_name }}</span></RouterLink><button class="button button-small button-quiet" aria-label="退出登录" @click="logout">退出</button></div>
-      </div>
-    </header>
-    <RouterView @logged-in="onLoggedIn" />
+    <template v-if="session.user">
+      <AppSidebar />
+      <section class="workspace-main">
+        <header class="workspace-topbar">
+          <span class="workspace-label">共享工作区</span>
+          <div class="account-menu"><RouterLink class="account-link" to="/account"><span class="avatar avatar-small">{{ session.user.display_name.slice(0, 1).toUpperCase() }}</span><span>{{ session.user.display_name }}</span></RouterLink><button class="button button-small button-quiet" aria-label="退出登录" @click="logout">退出</button></div>
+        </header>
+        <RouterView @logged-in="onLoggedIn" />
+      </section>
+    </template>
+    <RouterView v-else @logged-in="onLoggedIn" />
   </div>
 </template>

@@ -2,17 +2,23 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { loadSession, session } from './auth/session'
 import LoginView from './views/LoginView.vue'
-import MeetingsView from './views/MeetingsView.vue'
 import RegisterView from './views/RegisterView.vue'
+import WorkspacePlaceholderView from './views/WorkspacePlaceholderView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: LoginView, meta: { public: true } },
     { path: '/register', component: RegisterView, meta: { public: true } },
-    { path: '/', component: MeetingsView },
+    { path: '/', component: WorkspacePlaceholderView },
+    { path: '/projects', component: WorkspacePlaceholderView },
+    { path: '/projects/:id', component: WorkspacePlaceholderView },
+    { path: '/meetings', component: () => import('./views/MeetingsView.vue') },
     { path: '/meetings/:id', component: () => import('./views/MeetingDetailView.vue') },
-    { path: '/actions', component: () => import('./views/OpenActionsView.vue') },
+    { path: '/actions', component: WorkspacePlaceholderView },
+    { path: '/decisions', component: WorkspacePlaceholderView },
+    { path: '/inbox', component: WorkspacePlaceholderView },
+    { path: '/ai-tasks', component: WorkspacePlaceholderView },
     { path: '/account', component: () => import('./views/AccountView.vue') },
     { path: '/admin/users', component: () => import('./views/AdminUsersView.vue'), meta: { admin: true } },
     { path: '/admin/plugins', component: () => import('./views/AdminPluginsView.vue'), meta: { admin: true } },

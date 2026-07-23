@@ -19,6 +19,17 @@ beforeEach(() => {
   session.loaded = true
 })
 
+it('uses workspace navigation instead of the legacy meeting archive shell', () => {
+  render(App)
+
+  expect(screen.getByRole('link', { name: '为你' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '项目' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '会议' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '行动项' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '决策' })).toBeInTheDocument()
+  expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
+})
+
 it('shows administrator navigation only to administrators', async () => {
   render(App)
   expect(screen.getByRole('link', { name: '用户' })).toBeInTheDocument()

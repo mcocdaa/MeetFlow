@@ -271,3 +271,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
   .user-row .row-actions { width: 100%; justify-content: flex-start; padding-left: 55px; }
   .plugin-action-card { align-items: stretch; flex-direction: column; }
 }
+/* MeetFlow 1.0 workspace shell */
+.app-shell:has(.workspace-sidebar) { min-height: 100vh; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+.workspace-sidebar { position: sticky; top: 0; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px; padding: 24px 16px; color: #dbe3ef; background: #172033; border-right: 1px solid #27334a; }
+.workspace-brand { display: flex; align-items: center; gap: 12px; padding: 0 8px; color: white; text-decoration: none; }
+.workspace-brand > span:last-child { display: grid; gap: 2px; }
+.workspace-brand small { color: #8fa0b9; font-size: .7rem; font-weight: 500; }
+.sidebar-nav { display: grid; gap: 4px; }
+.sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; color: #b7c2d3; text-decoration: none; font-size: .92rem; }
+.sidebar-nav a:hover, .sidebar-nav a.router-link-exact-active { color: white; background: #25324a; }
+.sidebar-nav a > span { width: 18px; text-align: center; color: #8da2c3; }
+.sidebar-admin { margin-top: auto; padding-top: 18px; border-top: 1px solid #2b3850; }
+.sidebar-admin p { margin: 0 12px 6px; color: #72839e; font-size: .7rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.workspace-main { min-width: 0; background: #f5f6f8; }
+.workspace-topbar { min-height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; background: rgba(255,255,255,.9); border-bottom: 1px solid #e3e6eb; }
+.workspace-label { color: #7a8493; font-size: .82rem; }
+.workspace-placeholder { min-height: calc(100vh - 64px); }
+@media (max-width: 800px) { .app-shell:has(.workspace-sidebar) { grid-template-columns: 1fr; } .workspace-sidebar { position: static; height: auto; } .sidebar-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sidebar-admin { margin-top: 0; } }
