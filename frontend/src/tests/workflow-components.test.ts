@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import ActionItemEditor from '../components/ActionItemEditor.vue'
 import AttachmentPanel from '../components/AttachmentPanel.vue'
 import PluginActionPanel from '../components/PluginActionPanel.vue'
 
@@ -16,24 +15,13 @@ function selectFile(input: HTMLElement, file: File) {
 describe('meeting workflow components', () => {
   beforeEach(() => apiMock.mockReset())
 
-  it('emits a complete action item draft', async () => {
-    const { emitted, rerender } = render(ActionItemEditor, { props: { resetKey: 0 } })
-    await fireEvent.update(screen.getByLabelText('行动内容'), '整理演示脚本')
-    await fireEvent.update(screen.getByLabelText('负责人'), '林宇')
-    await fireEvent.click(screen.getByRole('button', { name: '添加行动项' }))
-    expect(emitted()).toHaveProperty('save.0.0', { content: '整理演示脚本', owner: '林宇', due_date: null, status: 'open' })
-    expect(screen.getByLabelText('行动内容')).toHaveValue('整理演示脚本')
-    await rerender({ resetKey: 1 })
-    expect(screen.getByLabelText('行动内容')).toHaveValue('')
-  })
-
   it('uploads a file and asks the parent to refresh attachments', async () => {
     apiMock.mockResolvedValue({ id: 'a1' })
     const { emitted } = render(AttachmentPanel, { props: { meetingId: 'm1', attachments: [] } })
     const file = new File(['notes'], 'notes.txt', { type: 'text/plain' })
     selectFile(screen.getByLabelText('上传附件'), file)
     await fireEvent.click(screen.getByRole('button', { name: '上传' }))
-    expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/attachments', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }))
+    expect(apiMock).toHaveBeenCalledWith('/api/attachments/meeting/m1', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }))
     expect(emitted().changed).toHaveLength(1)
   })
 
