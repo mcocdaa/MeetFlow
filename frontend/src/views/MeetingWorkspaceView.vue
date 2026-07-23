@@ -6,6 +6,8 @@ import { api, ApiError } from '../api/client'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
 import AttachmentPanel from '../components/AttachmentPanel.vue'
 import CompletedMeetingChain from '../components/CompletedMeetingChain.vue'
+import ContextDrawer from '../components/ContextDrawer.vue'
+import MeetingCommentsPanel from '../components/MeetingCommentsPanel.vue'
 import MarkdownEditor from '../components/MarkdownEditor.vue'
 import PageHeader from '../components/PageHeader.vue'
 import type { Meeting } from '../domain/meetings'
@@ -17,6 +19,7 @@ const saving = ref(false)
 const error = ref('')
 const unresolvedIds = ref<string[]>([])
 const focusAgendaId = ref('')
+const commentsOpen = ref(false)
 const draft = ref({ title: '', purpose_markdown: '', raw_notes_markdown: '', summary_markdown: '', scheduled_start: '', scheduled_end: '' })
 const unresolved = computed(() => meeting.value?.agenda_items.filter((item) => item.status === 'planned' || item.status === 'in_progress') ?? [])
 
@@ -84,7 +87,8 @@ onMounted(load)
         <section v-if="meeting.status === 'draft' || meeting.status === 'ready'" class="workspace-section meeting-preparation"><header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>会议准备</h2></div><button class="button button-primary" :disabled="saving" @click="saveMeeting">保存会议信息</button></header><div class="meeting-prep-grid"><label>会议标题<input v-model="draft.title" /></label><label>开始时间<input v-model="draft.scheduled_start" type="datetime-local" /></label><label>结束时间<input v-model="draft.scheduled_end" type="datetime-local" /></label></div><label>会议目的<MarkdownEditor v-model="draft.purpose_markdown" label="会议目的" /></label><div class="participant-chips"><span v-for="participant in meeting.participants" :key="participant.user.id"><b>{{ participant.user.display_name }}</b> · {{ participant.participation_role }}</span><span v-if="!meeting.participants.length">尚未添加参与者</span></div></section>
 
         <AgendaWorkbench :meeting="meeting" :initial-selected-id="focusAgendaId" @reload="load" />
-        <div class="meeting-support-grid"><section class="workspace-section"><h2>会议材料</h2><p>材料可以在准备和会议进行中持续添加。</p><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="meeting.attachments ?? []" @changed="load" /></section><section class="workspace-section comments-reserved"><h2>评论</h2><p class="empty-state">评论区已经预留；协作阶段会接入线程、@成员与解决状态。</p></section></div>
+        <div class="meeting-support-grid"><section class="workspace-section"><h2>会议材料</h2><p>材料可以在准备和会议进行中持续添加。</p><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="meeting.attachments ?? []" @changed="load" /></section><section class="workspace-section"><div class="section-heading"><h2>评论</h2><button class="button button-primary" @click="commentsOpen = true">打开评论</button></div><p class="muted">在会议记录旁讨论、回复和解决问题。</p></section></div>
+        <ContextDrawer :open="commentsOpen" title="评论" @close="commentsOpen = false"><MeetingCommentsPanel :meeting="meeting" /></ContextDrawer>
       </template>
     </template>
     <p v-else class="notice notice-error">{{ error || '会议不存在' }}</p>
