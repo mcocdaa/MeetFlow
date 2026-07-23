@@ -42,7 +42,7 @@ describe('personal workspace home', () => {
     expect(screen.getByText('旧项目')).toBeInTheDocument()
   })
 
-  it('normalizes a project identifier instead of relying on a browser pattern error', async () => {
+  it('normalizes a project identifier without showing format instructions', async () => {
     session.user = { id: 'u1', username: 'lin', display_name: '林宇', role: 'member', status: 'active' }
     session.loaded = true
     apiMock.mockResolvedValue([])
@@ -54,6 +54,6 @@ describe('personal workspace home', () => {
 
     expect(identifier.value).toBe('meet-flow-test')
     expect(identifier.pattern).toBe('')
-    expect(screen.getByText('仅使用小写字母、数字和连字符，例如 meetflow。')).toBeInTheDocument()
+    expect(screen.queryByText('仅使用小写字母、数字和连字符，例如 meetflow。')).not.toBeInTheDocument()
   })
 })
