@@ -6,6 +6,9 @@ import { api } from '../api/client'
 import type { AttentionItem } from '../components/AttentionCard.vue'
 import MarkdownView from '../components/MarkdownView.vue'
 import PageHeader from '../components/PageHeader.vue'
+import ContextDrawer from '../components/ContextDrawer.vue'
+import ProjectCreatePanel from '../components/ProjectCreatePanel.vue'
+import AttachmentPanel from '../components/AttachmentPanel.vue'
 import ProjectUpdateComposer from '../components/ProjectUpdateComposer.vue'
 import type { ProjectDetail, ProjectHealth, ProjectStatus } from '../domain/projects'
 
@@ -17,6 +20,7 @@ const error = ref('')
 const tab = ref('overview')
 const editing = ref(false)
 const saving = ref(false)
+const drawerKind = ref<'meeting' | 'series' | 'decision' | 'action' | ''>('')
 const edit = ref({ name: '', summary: '', status: 'active' as ProjectStatus, health: 'unset' as ProjectHealth, target_date: '' })
 
 const projectId = computed(() => String(route.params.id))
@@ -60,6 +64,28 @@ async function saveProject() {
   finally { saving.value = false }
 }
 
+function created(kind: 'meeting' | 'series' | 'decision' | 'action', entity: Record<string, unknown>) {
+  if (!project.value) return
+  if (kind === 'meeting') {
+    project.value.meeting_count += 1
+    const scheduledStart = String(entity.scheduled_start ?? '')
+    if (!project.value.next_meeting || scheduledStart < project.value.next_meeting.scheduled_start) project.value.next_meeting = { id: String(entity.id), title: String(entity.title), scheduled_start: scheduledStart, status: String(entity.status) }
+  } else if (kind === 'series') project.value.series_summaries.push({ id: String(entity.id), title: String(entity.title), status: String(entity.status), recurrence_description: String(entity.recurrence_description ?? '') })
+  else if (kind === 'decision') { project.value.decision_count += 1; project.value.recent_decisions.unshift(entity as never) }
+  else project.value.open_action_count += 1
+  drawerKind.value = ''
+}
+
+function addProjectAttachment(attachment: ProjectDetail['attachments'][number]) {
+  if (!project.value) return
+  project.value.attachments.unshift(attachment)
+}
+
+function removeProjectAttachment(id: string) {
+  if (!project.value) return
+  project.value.attachments = project.value.attachments.filter((file) => file.id !== id)
+}
+
 onMounted(load)
 </script>
 
@@ -79,17 +105,18 @@ onMounted(load)
       <div v-if="tab === 'overview'" class="project-overview-grid">
         <section class="workspace-section project-update-section"><div class="section-heading"><div><p class="eyebrow">Latest progress</p><h2>最近进展</h2></div></div><article v-if="latestUpdate" class="latest-update"><MarkdownView :source="latestUpdate.content_markdown" /><p class="attribution">{{ latestUpdate.created_by.display_name }} · {{ new Date(latestUpdate.created_at).toLocaleString('zh-CN') }}</p></article><p v-else class="muted">尚未发布项目进展。</p><ProjectUpdateComposer :project-id="project.id" :health="project.health" @saved="load" /></section>
         <section class="workspace-section"><div class="section-heading"><h2>需要关注</h2><span class="metric"><strong>{{ projectAttention.length }}</strong> 项</span></div><RouterLink v-for="item in projectAttention.slice(0, 5)" :key="item.subject_id" class="compact-row" :to="item.subject_type === 'meeting' ? `/meetings/${item.subject_id}` : `/${item.subject_type}s?highlight=${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.reasons.join(' · ') }}</span></RouterLink><p v-if="!projectAttention.length" class="muted">当前项目没有需要你立即处理的事项。</p></section>
-        <section class="workspace-section"><div class="section-heading"><h2>下一次会议</h2></div><RouterLink v-if="project.next_meeting" class="next-meeting-card" :to="`/meetings/${project.next_meeting.id}`"><strong>{{ project.next_meeting.title }}</strong><time>{{ new Date(project.next_meeting.scheduled_start).toLocaleString('zh-CN') }}</time><span>进入会议 →</span></RouterLink><p v-else class="muted">暂未安排下一次会议。</p></section>
-        <section class="workspace-section"><div class="section-heading"><h2>最近决策</h2><RouterLink class="text-link" :to="`/decisions?project_id=${project.id}`">全部</RouterLink></div><RouterLink v-for="decision in project.recent_decisions.slice(0, 5)" :key="decision.id" class="compact-row" :to="`/decisions?highlight=${decision.id}`"><strong>{{ decision.title }}</strong><span>{{ decision.status }}</span></RouterLink><p v-if="!project.recent_decisions.length" class="muted">尚未形成项目决策。</p></section>
+        <section class="workspace-section"><div class="section-heading"><h2>下一次会议</h2><button class="button button-small button-primary" @click="drawerKind = 'meeting'">添加会议</button></div><RouterLink v-if="project.next_meeting" class="next-meeting-card" :to="`/meetings/${project.next_meeting.id}`"><strong>{{ project.next_meeting.title }}</strong><time>{{ new Date(project.next_meeting.scheduled_start).toLocaleString('zh-CN') }}</time><span>进入会议 →</span></RouterLink><p v-else class="muted">暂未安排下一次会议。</p></section>
+        <section class="workspace-section"><div class="section-heading"><h2>最近决策</h2><div class="row-actions"><button class="button button-small button-primary" @click="drawerKind = 'decision'">添加决策</button><RouterLink class="text-link" :to="`/decisions?project_id=${project.id}`">全部</RouterLink></div></div><RouterLink v-for="decision in project.recent_decisions.slice(0, 5)" :key="decision.id" class="compact-row" :to="`/decisions?highlight=${decision.id}`"><strong>{{ decision.title }}</strong><span>{{ decision.status }}</span></RouterLink><p v-if="!project.recent_decisions.length" class="muted">尚未形成项目决策。</p></section>
         <section class="project-metrics"><div><strong>{{ project.meeting_count }}</strong><span>会议</span></div><div><strong>{{ project.decision_count }}</strong><span>决策</span></div><div><strong>{{ project.open_action_count }}</strong><span>未完成行动</span></div><div><strong>{{ project.attachments.length }}</strong><span>文件</span></div></section>
       </div>
       <section v-else class="workspace-section tab-content">
-        <template v-if="tab === 'meetings'"><h2>会议与系列</h2><RouterLink v-for="series in project.series_summaries" :key="series.id" class="compact-row" :to="`/meetings?series_id=${series.id}`"><strong>{{ series.title }}</strong><span>{{ series.recurrence_description || series.status }}</span></RouterLink><RouterLink class="button button-primary" :to="`/meetings?project_id=${project.id}`">查看项目会议</RouterLink></template>
-        <template v-else-if="tab === 'decisions'"><h2>项目决策</h2><RouterLink class="button button-primary" :to="`/decisions?project_id=${project.id}`">打开决策日志</RouterLink></template>
-        <template v-else-if="tab === 'actions'"><h2>项目行动项</h2><RouterLink class="button button-primary" :to="`/actions?project_id=${project.id}`">查看行动项</RouterLink></template>
-        <template v-else-if="tab === 'files'"><h2>项目文件</h2><a v-for="file in project.attachments" :key="file.id" class="compact-row" :href="file.download_url"><strong>{{ file.original_name }}</strong><span>{{ Math.ceil(file.size / 1024) }} KB</span></a><p v-if="!project.attachments.length" class="muted">尚未上传项目文件。</p></template>
+        <template v-if="tab === 'meetings'"><div class="section-heading"><h2>会议与系列</h2><div class="row-actions"><button class="button button-small button-primary" @click="drawerKind = 'meeting'">添加会议</button><button class="button button-small button-quiet" @click="drawerKind = 'series'">添加系列</button></div></div><RouterLink v-for="series in project.series_summaries" :key="series.id" class="compact-row" :to="`/meetings?series_id=${series.id}`"><strong>{{ series.title }}</strong><span>{{ series.recurrence_description || series.status }}</span></RouterLink><RouterLink class="button button-primary" :to="`/meetings?project_id=${project.id}`">查看项目会议</RouterLink></template>
+        <template v-else-if="tab === 'decisions'"><div class="section-heading"><h2>项目决策</h2><button class="button button-primary" @click="drawerKind = 'decision'">添加决策</button></div><RouterLink class="button button-quiet" :to="`/decisions?project_id=${project.id}`">打开决策日志</RouterLink></template>
+        <template v-else-if="tab === 'actions'"><div class="section-heading"><h2>项目行动项</h2><button class="button button-primary" @click="drawerKind = 'action'">添加行动项</button></div><RouterLink class="button button-quiet" :to="`/actions?project_id=${project.id}`">查看行动项</RouterLink></template>
+        <template v-else-if="tab === 'files'"><div class="section-heading"><h2>项目文件</h2></div><AttachmentPanel target-type="project" :target-id="project.id" :attachments="project.attachments" @uploaded="addProjectAttachment" @deleted="removeProjectAttachment" /></template>
         <template v-else><h2>项目动态</h2><p class="muted">动态记录已由后端保存；协作面板将在下一阶段接入分页时间线。</p></template>
       </section>
+      <ContextDrawer :open="Boolean(drawerKind)" :title="({ meeting: '添加会议', series: '添加系列', decision: '添加决策', action: '添加行动项' } as Record<string, string>)[drawerKind] ?? ''" @close="drawerKind = ''"><ProjectCreatePanel v-if="drawerKind" :kind="drawerKind" :project="project" @close="drawerKind = ''" @created="created" /></ContextDrawer>
     </template>
   </main>
 </template>

@@ -41,9 +41,12 @@ export type Project = Versioned & {
 
 export type ProjectAttachment = {
   id: string
+  target_type: 'project' | 'meeting' | 'agenda_item'
+  target_id: string
   original_name: string
   mime_type: string
   size: number
+  attachment_type: 'image' | 'file'
   download_url: string
   created_by: UserRef
   created_at: string

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectDetailView from '../views/ProjectDetailView.vue'
+import { session } from '../auth/session'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -24,6 +25,8 @@ const project = {
 describe('project workspace', () => {
   beforeEach(() => {
     apiMock.mockReset()
+    session.user = { id: 'u1', username: 'lin', display_name: '林宇', role: 'member', status: 'active' }
+    session.loaded = true
     apiMock.mockImplementation((path: string) => {
       if (path === '/api/projects/p1') return Promise.resolve(project)
       if (path === '/api/attention') return Promise.resolve({ items: [], unread_count: 0, truncated: false })
@@ -49,5 +52,14 @@ describe('project workspace', () => {
       method: 'POST', body: JSON.stringify({ health: 'on_track', content_markdown: '完成 1.0 前端壳层', source: 'human' }),
     })))
     expect(apiMock).toHaveBeenCalledWith('/api/projects/p1')
+  })
+
+  it('opens a project-scoped meeting drawer from Next meeting', async () => {
+    render(ProjectDetailView)
+    await screen.findByText('下一次会议')
+    await fireEvent.click(screen.getByRole('button', { name: '添加会议' }))
+
+    expect(screen.getByRole('dialog', { name: '添加会议' })).toBeInTheDocument()
+    expect(screen.getByLabelText('会议标题')).toBeInTheDocument()
   })
 })
