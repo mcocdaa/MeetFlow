@@ -10,6 +10,7 @@ from app.collaboration.models import ActivityEvent, Comment
 from app.collaboration.schemas import CommentCommand, CommentEdit, CommentWrite
 from app.collaboration.service import CommentService
 from app.errors import AppError
+from app.meetings.models import MeetingParticipant
 from app.meetings.schemas import MeetingWrite
 from app.meetings.service import MeetingService
 from app.outcomes.schemas import ActionWrite, DecisionWrite
@@ -66,6 +67,23 @@ def comment_context(client):
             ),
             admin,
         )
+        session.add_all(
+            [
+                MeetingParticipant(
+                    meeting_id=meeting.id,
+                    user_id=admin.id,
+                    participation_role="host",
+                    position=0,
+                ),
+                MeetingParticipant(
+                    meeting_id=meeting.id,
+                    user_id=member.id,
+                    participation_role="attendee",
+                    position=1,
+                ),
+            ]
+        )
+        session.commit()
         agenda = AgendaService(session).create(
             meeting.id,
             AgendaWrite(title="Comment agenda", agenda_type="discussion"),
@@ -409,6 +427,61 @@ def test_mentions_are_explicit_active_atomic_and_activity_omits_body(
             "parent_id": None,
         }
         assert secret not in str(event.payload_json)
+
+
+def test_meeting_comment_mentions_only_participants(client, comment_context):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, context["admin_id"])
+        service = CommentService(session)
+        allowed = service.create(
+            CommentWrite(
+                target_type="meeting",
+                target_id=context["meeting_id"],
+                body_markdown="@Comment Member",
+                mention_user_ids=[context["member_id"]],
+            ),
+            actor,
+        )
+        assert [mention.user_id for mention in allowed.mentions] == [
+            context["member_id"]
+        ]
+        with pytest.raises(AppError) as forbidden:
+            service.create(
+                CommentWrite(
+                    target_type="meeting",
+                    target_id=context["meeting_id"],
+                    body_markdown="@Comment Other",
+                    mention_user_ids=[context["other_id"]],
+                ),
+                actor,
+            )
+        assert forbidden.value.code == "comment_mention_not_participant"
+
+
+def test_comment_author_can_resolve_and_reopen_thread(client, comment_context):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, context["admin_id"])
+        service = CommentService(session)
+        root = service.create(
+            CommentWrite(
+                target_type="meeting",
+                target_id=context["meeting_id"],
+                body_markdown="Resolve this topic",
+            ),
+            actor,
+        )
+        resolved = service.resolve(
+            root.id, CommentCommand(expected_version=root.version), actor
+        )
+        assert resolved.resolved_at is not None
+        assert resolved.resolved_by == actor.id
+        reopened = service.reopen(
+            root.id, CommentCommand(expected_version=resolved.version), actor
+        )
+        assert reopened.resolved_at is None
+        assert reopened.resolved_by is None
 
 
 def test_comment_api_auth_versions_and_agenda_delete_guard(

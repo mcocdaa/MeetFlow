@@ -118,6 +118,12 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         (key, value["options"].get("ondelete"))
         for key, value in comment_foreign_keys.items()
     }
+    comment_columns = {
+        column["name"]: column for column in inspector.get_columns("comments")
+    }
+    assert comment_columns["resolved_at"]["nullable"] is True
+    assert comment_columns["resolved_by"]["nullable"] is True
+    assert "resolved_by" in comment_foreign_keys
     notification_indexes = {
         tuple(index["column_names"]) for index in inspector.get_indexes("notifications")
     }
@@ -141,7 +147,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     }
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0001"
+            "0002"
         )
 
 

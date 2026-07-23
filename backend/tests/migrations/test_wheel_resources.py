@@ -11,6 +11,7 @@ MIGRATION_RESOURCES = {
     "share/meetflow/migrations/env.py",
     "share/meetflow/migrations/script.py.mako",
     "share/meetflow/migrations/versions/0001_meetflow_1.py",
+    "share/meetflow/migrations/versions/0002_comment_resolution.py",
 }
 
 
@@ -93,7 +94,7 @@ database = Database(%r)
 database.migrate()
 assert %r <= set(inspect(database.engine).get_table_names())
 with database.engine.connect() as connection:
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0001"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
 """ % (
         f"sqlite:///{database}",
         {

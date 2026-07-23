@@ -64,6 +64,12 @@ class Comment(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    resolved_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
@@ -74,6 +80,7 @@ class Comment(Base):
     __mapper_args__ = {"version_id_col": version, "version_id_generator": False}
 
     creator: Mapped[User] = relationship(foreign_keys=[created_by])
+    resolver: Mapped[User | None] = relationship(foreign_keys=[resolved_by])
     parent: Mapped["Comment | None"] = relationship(
         remote_side=[id], back_populates="replies", foreign_keys=[parent_id]
     )

@@ -121,6 +121,28 @@ def update_comment(
     return service.serialize(service.update(comment_id, payload, user), user)
 
 
+@comments_router.post("/{comment_id}/resolve")
+def resolve_comment(
+    comment_id: str,
+    payload: CommentCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    service = CommentService(session)
+    return service.serialize(service.resolve(comment_id, payload, user), user)
+
+
+@comments_router.post("/{comment_id}/reopen")
+def reopen_comment(
+    comment_id: str,
+    payload: CommentCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    service = CommentService(session)
+    return service.serialize(service.reopen(comment_id, payload, user), user)
+
+
 @comments_router.delete("/{comment_id}", status_code=204)
 def delete_comment(
     comment_id: str,

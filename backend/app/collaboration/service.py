@@ -16,7 +16,7 @@ from app.collaboration.schemas import CommentCommand, CommentEdit, CommentWrite
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.inbox.service import NotificationWriter
-from app.meetings.models import Meeting
+from app.meetings.models import Meeting, MeetingParticipant
 from app.outcomes.models import ActionItem, Decision
 from app.projects.models import Project
 
@@ -90,7 +90,9 @@ class CommentService:
             return meeting.project_id, meeting.id
         return target.project_id, target.meeting_id
 
-    def _mentions(self, user_ids: list[str], actor: User) -> list[CommentMention]:
+    def _mentions(
+        self, user_ids: list[str], actor: User, meeting_id: str | None
+    ) -> list[CommentMention]:
         ids = list(
             dict.fromkeys(user_id for user_id in user_ids if user_id != actor.id)
         )
@@ -112,7 +114,30 @@ class CommentService:
                 "评论提及用户不存在或未启用",
                 details={"user_ids": invalid},
             )
+        if meeting_id is not None:
+            participant_ids = set(
+                self.session.scalars(
+                    select(MeetingParticipant.user_id).where(
+                        MeetingParticipant.meeting_id == meeting_id
+                    )
+                )
+            )
+            not_participants = [
+                user_id for user_id in ids if user_id not in participant_ids
+            ]
+            if not_participants:
+                raise AppError(
+                    422,
+                    "comment_mention_not_participant",
+                    "评论只能提及会议参与者",
+                    details={"user_ids": not_participants},
+                )
         return [CommentMention(user_id=user_id) for user_id in ids]
+
+    @staticmethod
+    def _require_thread_owner_or_admin(comment: Comment, actor: User) -> None:
+        if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
+            raise AppError(403, "comment_resolve_forbidden", "只能解决自己的评论")
 
     def _get_loaded(self, comment_id: str) -> Comment:
         comment = self.session.scalar(
@@ -182,7 +207,7 @@ class CommentService:
             direct_parent_id = direct_parent.id
             direct_recipient = direct_parent.created_by
             parent_id = direct_parent.parent_id or direct_parent.id
-        mentions = self._mentions(payload.mention_user_ids, actor)
+        mentions = self._mentions(payload.mention_user_ids, actor, meeting_id)
         comment = Comment(
             project_id=project_id,
             meeting_id=meeting_id,
@@ -256,7 +281,7 @@ class CommentService:
         if comment.deleted_at is not None:
             raise AppError(409, "comment_deleted", "已删除评论不可编辑")
         existing_mention_ids = {row.user_id for row in comment.mentions}
-        mentions = self._mentions(payload.mention_user_ids, actor)
+        mentions = self._mentions(payload.mention_user_ids, actor, comment.meeting_id)
         comment.body_markdown = payload.body_markdown
         comment.mentions = mentions
         comment.edited_at = utcnow()
@@ -308,6 +333,54 @@ class CommentService:
         comment.deleted_at = utcnow()
         comment.version += 1
         self._record(comment, actor, "comment.deleted")
+        try:
+            self.session.commit()
+        except StaleDataError as exc:
+            self._raise_stale(comment_id, payload.expected_version, exc)
+        except Exception:
+            self.session.rollback()
+            raise
+        return self._get_loaded(comment_id)
+
+    def resolve(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
+        self._require_active(actor)
+        comment = self._get_loaded(comment_id)
+        if comment.parent_id is not None:
+            raise AppError(422, "comment_root_required", "只能解决评论主题")
+        self._require_thread_owner_or_admin(comment, actor)
+        require_version(payload.expected_version, comment.version)
+        if comment.deleted_at is not None:
+            raise AppError(409, "comment_deleted", "已删除评论不可解决")
+        if comment.resolved_at is not None:
+            return comment
+        comment.resolved_at = utcnow()
+        comment.resolved_by = actor.id
+        comment.version += 1
+        self._record(comment, actor, "comment.resolved")
+        try:
+            self.session.commit()
+        except StaleDataError as exc:
+            self._raise_stale(comment_id, payload.expected_version, exc)
+        except Exception:
+            self.session.rollback()
+            raise
+        return self._get_loaded(comment_id)
+
+    def reopen(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
+        self._require_active(actor)
+        comment = self._get_loaded(comment_id)
+        if comment.parent_id is not None:
+            raise AppError(422, "comment_root_required", "只能重开评论主题")
+        self._require_thread_owner_or_admin(comment, actor)
+        require_version(payload.expected_version, comment.version)
+        if comment.deleted_at is not None:
+            raise AppError(409, "comment_deleted", "已删除评论不可重开")
+        if comment.resolved_at is None:
+            return comment
+        comment.resolved_at = None
+        comment.resolved_by = None
+        comment.version += 1
+        self._record(comment, actor, "comment.reopened")
         try:
             self.session.commit()
         except StaleDataError as exc:
@@ -468,10 +541,17 @@ class CommentService:
             "mentions": [user_ref(row.user) for row in comment.mentions],
             "edited_at": comment.edited_at,
             "deleted_at": comment.deleted_at,
+            "resolved_at": comment.resolved_at,
+            "resolved_by": user_ref(comment.resolver) if comment.resolver else None,
             "created_at": comment.created_at,
             "updated_at": comment.updated_at,
             "can_edit": can_change and comment.deleted_at is None,
             "can_delete": can_change,
+            "can_resolve": (
+                can_change
+                and comment.parent_id is None
+                and comment.deleted_at is None
+            ),
             "replies": [],
             "reply_next_cursor": reply_next_cursor,
         }
