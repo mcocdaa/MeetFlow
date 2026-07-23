@@ -2,9 +2,9 @@
 import { ref } from 'vue'
 
 import { api } from '../api/client'
-import type { Attachment } from '../meetings/types'
+import type { Attachment } from '../domain/meetings'
 
-const props = defineProps<{ meetingId: string; attachments: Attachment[] }>()
+const props = withDefaults(defineProps<{ targetType?: 'project' | 'meeting' | 'agenda_item'; targetId?: string; meetingId?: string; attachments: Attachment[] }>(), { targetType: 'meeting' })
 const emit = defineEmits<{ changed: [] }>()
 const selected = ref<File | null>(null)
 const busy = ref(false)
@@ -16,9 +16,8 @@ function pick(event: Event) {
   error.value = ''
 }
 
-function fileUrl(attachment: Attachment) {
-  return `/api/meetings/${props.meetingId}/attachments/${attachment.id}`
-}
+const targetId = () => props.targetId ?? props.meetingId ?? ''
+function fileUrl(attachment: Attachment) { return attachment.download_url || `/api/attachments/${props.targetType}/${targetId()}/${attachment.id}` }
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -37,7 +36,7 @@ async function upload() {
   try {
     const body = new FormData()
     body.append('file', selected.value)
-    await api(`/api/meetings/${props.meetingId}/attachments`, { method: 'POST', body })
+    await api(`/api/attachments/${props.targetType}/${targetId()}`, { method: 'POST', body })
     selected.value = null
     emit('changed')
   } catch (reason) {
@@ -49,7 +48,7 @@ async function upload() {
 
 async function remove(attachment: Attachment) {
   if (!window.confirm(`确定删除附件“${attachment.original_name}”吗？`)) return
-  await api(fileUrl(attachment), { method: 'DELETE' })
+  await api(`/api/attachments/${attachment.target_type}/${attachment.target_id}/${attachment.id}`, { method: 'DELETE' })
   emit('changed')
 }
 </script>

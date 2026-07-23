@@ -12,6 +12,38 @@ export type MeetingParticipant = {
   position: number
 }
 
+export type Attachment = {
+  id: string
+  target_type: 'project' | 'meeting' | 'agenda_item'
+  target_id: string
+  original_name: string
+  mime_type: string
+  size: number
+  attachment_type: 'image' | 'file'
+  created_by: UserRef
+  created_at: string
+  download_url: string
+  preview_url?: string
+}
+
+export type MeetingAmendment = {
+  id: string
+  meeting_id: string
+  reason: string
+  content_markdown: string
+  created_by: UserRef
+  created_at: string
+}
+
+export type MeetingSnapshot = {
+  id: string
+  completion_number: number
+  snapshot_json?: Record<string, any>
+  snapshot?: Record<string, any>
+  created_by: UserRef
+  created_at: string
+}
+
 export type AgendaItem = Versioned & {
   id: string
   meeting_id: string
@@ -26,6 +58,7 @@ export type AgendaItem = Versioned & {
   decisions: Decision[]
   actions: ActionItem[]
   open_questions: OpenQuestion[]
+  attachments?: Attachment[]
   created_at: string
   updated_at: string
 }
@@ -45,6 +78,13 @@ export type Meeting = Versioned & {
   raw_notes_markdown: string
   participants: MeetingParticipant[]
   agenda_items: AgendaItem[]
+  meeting_decisions?: Decision[]
+  meeting_actions?: ActionItem[]
+  meeting_open_questions?: OpenQuestion[]
+  attachments?: Attachment[]
+  amendments?: MeetingAmendment[]
+  snapshots?: MeetingSnapshot[]
+  current_snapshot?: MeetingSnapshot | null
   created_by: UserRef
   updated_by: UserRef
   created_at: string

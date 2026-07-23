@@ -5,9 +5,11 @@ import type { AgendaItem, Meeting } from '../domain/meetings'
 import AgendaDetail from './AgendaDetail.vue'
 import AgendaQueue from './AgendaQueue.vue'
 
-const props = defineProps<{ meeting: Meeting }>()
+const props = defineProps<{ meeting: Meeting; initialSelectedId?: string }>()
 const emit = defineEmits<{ reload: []; selectNext: [itemId: string] }>()
 const selectedId = ref(props.meeting.agenda_items.find((item) => item.status === 'in_progress')?.id ?? props.meeting.agenda_items[0]?.id ?? '')
+
+watch(() => props.initialSelectedId, (value) => { if (value) selectedId.value = value })
 
 watch(() => props.meeting.agenda_items, (items) => {
   if (!items.some((item) => item.id === selectedId.value)) selectedId.value = items[0]?.id ?? ''

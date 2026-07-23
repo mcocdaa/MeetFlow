@@ -62,8 +62,8 @@ describe('agenda workbench', () => {
   it('keeps outcome creation separate from meeting flow commands', () => {
     render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0] } })
     expect(screen.getByTestId('outcome-actions')).toHaveTextContent('+ 决策')
-    expect(screen.getByTestId('flow-actions')).toHaveTextContent('完成并进入下一项')
-    expect(screen.getByTestId('outcome-actions')).not.toContainElement(screen.getByRole('button', { name: '完成并进入下一项' }))
+    expect(screen.getByTestId('flow-actions')).toHaveTextContent('完成议题并进入下一项')
+    expect(screen.getByTestId('outcome-actions')).not.toContainElement(screen.getByRole('button', { name: '完成议题并进入下一项' }))
   })
 
   it('shows a useful guard when an agenda with outcomes cannot be deleted', async () => {
