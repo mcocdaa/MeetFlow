@@ -6,13 +6,13 @@ from app.database import get_session
 from app.errors import AppError
 
 
-def current_user(
+def optional_current_user(
     request: Request, session: Session = Depends(get_session)
-) -> User:
+) -> User | None:
     value = request.cookies.get(request.app.state.auth_service.cookie_name)
     parsed = request.app.state.auth_service.read_cookie(value) if value else None
     if not parsed:
-        raise AppError(401, "not_authenticated", "请先登录")
+        return None
 
     user_id, session_version = parsed
     user = session.get(User, user_id)
@@ -21,7 +21,15 @@ def current_user(
         or user.status != UserStatus.ACTIVE
         or user.session_version != session_version
     ):
-        raise AppError(401, "session_invalid", "登录状态已失效")
+        return None
+    return user
+
+
+def current_user(
+    user: User | None = Depends(optional_current_user),
+) -> User:
+    if not user:
+        raise AppError(401, "not_authenticated", "请先登录")
     return user
 
 

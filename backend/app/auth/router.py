@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import admin_user, current_user
+from app.auth.dependencies import admin_user, current_user, optional_current_user
 from app.auth.models import User, UserRole, UserStatus
 from app.auth.schemas import (
     AdminCreateUserRequest,
@@ -59,7 +59,7 @@ def login(
         messages = {
             UserStatus.PENDING: "账号正在等待管理员批准",
             UserStatus.REJECTED: "账号申请未获批准",
-            UserStatus.DISABLED: "账号已被管理员停用",
+            UserStatus.DISABLED: "账号已被归档，请联系管理员恢复",
         }
         raise AppError(
             403, f"account_{user.status.value}", messages[user.status]
@@ -110,6 +110,13 @@ def register(
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(current_user)) -> UserResponse:
     return public_user(user)
+
+
+@router.get("/session")
+def session_status(
+    user: User | None = Depends(optional_current_user),
+) -> dict[str, UserResponse | None]:
+    return {"user": public_user(user) if user else None}
 
 
 @router.post("/change-password", status_code=204)
@@ -221,6 +228,24 @@ def disable(
         raise AppError(400, "cannot_disable_self", "不能禁用当前管理员")
     user = request.app.state.auth_service.transition_user(
         session, user, UserStatus.DISABLED, admin
+    )
+    return public_user(user)
+
+
+@admin_router.post("/{user_id}/restore", response_model=UserResponse)
+def restore(
+    user_id: str,
+    request: Request,
+    admin: User = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> UserResponse:
+    target = target_user(user_id, session)
+    if target.role == UserRole.ADMIN:
+        raise AppError(400, "cannot_modify_admin", "不能恢复管理员账号")
+    if target.status != UserStatus.DISABLED:
+        raise AppError(400, "invalid_user_transition", "只能恢复已归档成员")
+    user = request.app.state.auth_service.transition_user(
+        session, target, UserStatus.ACTIVE, admin
     )
     return public_user(user)
 

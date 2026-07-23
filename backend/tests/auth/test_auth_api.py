@@ -12,6 +12,23 @@ def test_admin_can_login_and_read_session(client):
     assert current_user["avatar_color"] == "#64748b"
 
 
+def test_session_endpoint_is_available_without_login(client):
+    anonymous = client.get("/api/auth/session")
+
+    assert anonymous.status_code == 200
+    assert anonymous.json() == {"user": None}
+
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "correct-horse-battery"},
+    )
+    assert login.status_code == 200
+
+    authenticated = client.get("/api/auth/session")
+    assert authenticated.status_code == 200
+    assert authenticated.json()["user"]["username"] == "admin"
+
+
 def test_registration_creates_pending_user_without_logging_in(client):
     response = client.post(
         "/api/auth/register",

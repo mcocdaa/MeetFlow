@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import HomeView from '../views/HomeView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
+import { session } from '../auth/session'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -39,5 +40,20 @@ describe('personal workspace home', () => {
     await fireEvent.update(screen.getByLabelText('项目状态'), 'paused')
     await waitFor(() => expect(screen.queryByText('MeetFlow')).not.toBeInTheDocument())
     expect(screen.getByText('旧项目')).toBeInTheDocument()
+  })
+
+  it('normalizes a project identifier instead of relying on a browser pattern error', async () => {
+    session.user = { id: 'u1', username: 'lin', display_name: '林宇', role: 'member', status: 'active' }
+    session.loaded = true
+    apiMock.mockResolvedValue([])
+    render(ProjectsView, { global: { stubs: { RouterLink } } })
+    await screen.findByRole('button', { name: '新建项目' })
+    await fireEvent.click(screen.getByRole('button', { name: '新建项目' }))
+    const identifier = screen.getByLabelText('项目标识') as HTMLInputElement
+    await fireEvent.update(identifier, 'Meet Flow_Test')
+
+    expect(identifier.value).toBe('meet-flow-test')
+    expect(identifier.pattern).toBe('')
+    expect(screen.getByText('仅使用小写字母、数字和连字符，例如 meetflow。')).toBeInTheDocument()
   })
 })

@@ -74,6 +74,32 @@ def test_disable_invalidates_member_session(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
+def test_admin_restores_archived_member(client):
+    login_admin(client)
+    member = client.post(
+        "/api/admin/users",
+        json={
+            "username": "member",
+            "display_name": "Member",
+            "password": "member-password-123",
+        },
+    ).json()
+
+    assert client.post(f"/api/admin/users/{member['id']}/disable").status_code == 200
+    restored = client.post(f"/api/admin/users/{member['id']}/restore")
+
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "active"
+    client.post("/api/auth/logout")
+    assert (
+        client.post(
+            "/api/auth/login",
+            json={"username": "member", "password": "member-password-123"},
+        ).status_code
+        == 200
+    )
+
+
 def test_admin_resets_member_password(client):
     login_admin(client)
     member = client.post(

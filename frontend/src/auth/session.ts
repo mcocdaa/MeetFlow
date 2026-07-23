@@ -17,7 +17,8 @@ export const session = reactive<{ user: SessionUser | null; loaded: boolean }>({
 
 export async function loadSession(): Promise<void> {
   try {
-    session.user = await api<SessionUser>('/api/auth/me')
+    const response = await api<{ user: SessionUser | null }>('/api/auth/session')
+    session.user = response.user
   } catch {
     session.user = null
   } finally {

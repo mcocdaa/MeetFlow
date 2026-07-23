@@ -35,4 +35,27 @@ describe('account and user administration', () => {
     expect(apiMock).toHaveBeenCalledWith('/api/admin/users/u2/approve', { method: 'POST' })
     expect(await screen.findByText('已启用')).toBeInTheDocument()
   })
+
+  it('puts archived members in a separate section and restores them', async () => {
+    apiMock
+      .mockResolvedValueOnce([
+        { id: 'u2', username: 'member', display_name: '成员', role: 'member', status: 'active' },
+      ])
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([
+        { id: 'u2', username: 'member', display_name: '成员', role: 'member', status: 'disabled' },
+      ])
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([
+        { id: 'u2', username: 'member', display_name: '成员', role: 'member', status: 'active' },
+      ])
+    render(AdminUsersView)
+    await screen.findByText('成员')
+    await fireEvent.click(screen.getByRole('button', { name: '归档成员' }))
+    expect(apiMock).toHaveBeenCalledWith('/api/admin/users/u2/disable', { method: 'POST' })
+    expect(await screen.findByText('已归档成员 (1)')).toBeInTheDocument()
+    await fireEvent.click(screen.getByRole('button', { name: '恢复成员' }))
+    expect(apiMock).toHaveBeenCalledWith('/api/admin/users/u2/restore', { method: 'POST' })
+    expect(await screen.findByRole('button', { name: '归档成员' })).toBeInTheDocument()
+  })
 })
