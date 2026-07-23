@@ -44,4 +44,16 @@ describe('api client', () => {
     expect(listener).toHaveBeenCalledTimes(1)
     window.removeEventListener('meetflow:auth-expired', listener)
   })
+
+  it('preserves structured conflict details for recovery UI', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { code: 'version_conflict', message: '内容已更新', details: { actual_version: 4 } },
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } })))
+
+    await expect(api('/api/agenda-items/a1', { method: 'PUT', body: '{}' })).rejects.toMatchObject({
+      status: 409,
+      code: 'version_conflict',
+      details: { actual_version: 4 },
+    })
+  })
 })

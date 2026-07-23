@@ -3,6 +3,7 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -24,7 +25,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   if (!response.ok) {
     const payload = await response.json().catch(() => ({
       error: { code: 'request_failed', message: '请求失败，请稍后重试' },
-    })) as { error?: { code?: string; message?: string } }
+    })) as { error?: { code?: string; message?: string; details?: Record<string, unknown> } }
     if (response.status === 401 && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('meetflow:auth-expired'))
     }
@@ -32,6 +33,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
       response.status,
       payload.error?.code ?? 'request_failed',
       payload.error?.message ?? '请求失败，请稍后重试',
+      payload.error?.details,
     )
   }
 
