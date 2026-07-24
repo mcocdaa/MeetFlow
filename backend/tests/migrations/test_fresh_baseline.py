@@ -27,6 +27,7 @@ APPLICATION_TABLES = {
     "open_questions",
     "outcome_migration_records",
     "plugin_configs",
+    "plugin_jobs",
     "plugin_states",
     "project_members",
     "project_updates",
@@ -147,7 +148,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     }
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0002"
+            "0003"
         )
 
 

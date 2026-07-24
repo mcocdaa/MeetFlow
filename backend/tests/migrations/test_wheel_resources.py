@@ -94,7 +94,7 @@ database = Database(%r)
 database.migrate()
 assert %r <= set(inspect(database.engine).get_table_names())
 with database.engine.connect() as connection:
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
 """ % (
         f"sqlite:///{database}",
         {
@@ -116,6 +116,7 @@ with database.engine.connect() as connection:
             "open_questions",
             "outcome_migration_records",
             "plugin_configs",
+            "plugin_jobs",
             "plugin_states",
             "project_members",
             "project_updates",
