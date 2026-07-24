@@ -145,3 +145,37 @@ def test_meeting_summary_is_applied_only_after_explicit_confirmation(
 
     assert response.status_code == 200
     assert response.json()["summary_markdown"] == "# 已确认纪要"
+
+
+def test_project_progress_is_created_only_after_explicit_confirmation(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    project_id = plugin_client.get(f"/api/meetings/{plugin_meeting_id}").json()["project"]["id"]
+    with database.session() as session:
+        job = PluginJob(
+            plugin_id="ai-work-assistant",
+            action_id="ai-work-assistant.project_progress",
+            target_type="project",
+            target_id=project_id,
+            dedupe_key=f"progress:project:{project_id}",
+            status=PluginJobStatus.succeeded,
+            input_json={},
+            context_snapshot={},
+            result_json={"markdown": "# AI 项目进展", "model": "test-model"},
+            created_by=actor_id,
+            finished_at=utcnow(),
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    response = plugin_client.post(
+        f"/api/plugin-jobs/{job_id}/apply",
+        json={"edited_markdown": "# 已确认项目进展"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content_markdown"] == "# 已确认项目进展"
+    assert response.json()["source"] == "ai_draft_applied"

@@ -41,7 +41,7 @@ class JobSubmitRequest(BaseModel):
 
 class JobApplyRequest(BaseModel):
     edited_markdown: str = Field(min_length=1, max_length=100_000)
-    expected_version: int = Field(ge=1)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 def serialize_job(job: PluginJob) -> dict[str, Any]:
@@ -240,9 +240,16 @@ def apply_job(
 ) -> dict[str, Any]:
     job = get_accessible_job(session, job_id, user)
     try:
-        return PluginJobService(session, None).apply_meeting_summary(
-            job, payload.edited_markdown, payload.expected_version, user
-        )
+        service = PluginJobService(session, None)
+        if job.action_id == "ai-work-assistant.meeting_summary":
+            if payload.expected_version is None:
+                raise ValueError("meeting summary apply requires a version")
+            return service.apply_meeting_summary(
+                job, payload.edited_markdown, payload.expected_version, user
+            )
+        if job.action_id == "ai-work-assistant.project_progress":
+            return service.apply_project_progress(job, payload.edited_markdown, user)
+        raise ValueError("job has no applicable draft")
     except ValueError as exc:
         raise AppError(409, "plugin_job_not_applicable", "当前 AI 草稿无法应用") from exc
 

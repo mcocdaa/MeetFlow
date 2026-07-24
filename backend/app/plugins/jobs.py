@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.meetings.schemas import MeetingEdit
 from app.meetings.service import MeetingService
+from app.projects.schemas import ProjectUpdateWrite
+from app.projects.service import ProjectService
 from app.plugins.context import PluginContextBuilder
 from app.plugins.manager import PluginManager
 from app.plugins.models import PluginJob, PluginJobStatus
@@ -133,6 +135,31 @@ class PluginJobService:
         job.applied_at = datetime.now().astimezone()
         self.session.commit()
         return MeetingService(self.session).serialize_meeting(meeting)
+
+    def apply_project_progress(
+        self, job: PluginJob, edited_markdown: str, actor: User
+    ) -> dict:
+        if job.action_id != "ai-work-assistant.project_progress":
+            raise ValueError("job does not produce a project progress update")
+        if job.status != PluginJobStatus.succeeded:
+            raise ValueError("only succeeded jobs can be applied")
+        if job.applied_at is not None:
+            raise ValueError("job was already applied")
+        update = ProjectService(self.session).create_update(
+            job.target_id,
+            ProjectUpdateWrite(
+                content_markdown=edited_markdown,
+                source="ai_draft_applied",
+            ),
+            actor,
+        )
+        job = self.session.get(PluginJob, job.id)
+        if job is None or job.applied_at is not None:
+            raise ValueError("job was already applied")
+        job.applied_by = actor.id
+        job.applied_at = datetime.now().astimezone()
+        self.session.commit()
+        return ProjectService(self.session).serialize_update(update)
 
     @staticmethod
     def _json_snapshot(value: dict) -> dict:
