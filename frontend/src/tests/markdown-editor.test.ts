@@ -49,6 +49,11 @@ describe('Markdown editing and conflict recovery', () => {
     expect(milkdown.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it('uses the shared top-aligned editor baseline', () => {
+    render(MarkdownEditor, { props: { modelValue: '', label: '会议记录', placeholder: '记录讨论上下文…' } })
+    expect(screen.getByRole('textbox', { name: '会议记录' })).toHaveClass('markdown-editor-top-aligned')
+  })
+
   it('shows both drafts and requires an explicit conflict choice', async () => {
     const view = render(VersionConflictDialog, { props: { localMarkdown: 'local text', serverMarkdown: 'server text', actualVersion: 4 } })
     expect(screen.getByText('local text')).toBeInTheDocument()

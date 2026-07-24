@@ -8,6 +8,7 @@ import AgendaQueue from './AgendaQueue.vue'
 const props = defineProps<{ meeting: Meeting; initialSelectedId?: string }>()
 const emit = defineEmits<{ reload: []; selectNext: [itemId: string] }>()
 const selectedId = ref(props.meeting.agenda_items.find((item) => item.status === 'in_progress')?.id ?? props.meeting.agenda_items[0]?.id ?? '')
+const queue = ref<{ openAdd: () => void } | null>(null)
 
 watch(() => props.initialSelectedId, (value) => { if (value) selectedId.value = value })
 
@@ -26,14 +27,19 @@ function advance() {
   }
   emit('reload')
 }
+
+function requestAdd() {
+  queue.value?.openAdd()
+}
 </script>
 
 <template>
   <div class="agenda-workbench">
     <AgendaDetail v-if="selected" :meeting="meeting" :item="selected" @changed="emit('reload')" @advance="advance" />
-    <section v-else class="workspace-section agenda-empty" data-testid="agenda-detail">
-      <h2>还没有议题</h2><p>从右侧队列添加本次会议的第一个议题。</p>
+    <section v-else class="workspace-section agenda-empty-compact" data-testid="agenda-detail">
+      <div><p class="eyebrow">Agenda</p><h2>还没有议题</h2><p>从右侧队列添加本次会议的第一个议题。</p></div>
+      <button class="button button-primary" @click="requestAdd">添加议题</button>
     </section>
-    <AgendaQueue :meeting="meeting" :selected-id="selectedId" @select="selectedId = $event" @changed="emit('reload')" />
+    <AgendaQueue ref="queue" :meeting="meeting" :selected-id="selectedId" @select="selectedId = $event" @changed="emit('reload')" />
   </div>
 </template>

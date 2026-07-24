@@ -16,6 +16,12 @@ const error = ref('')
 const guardedId = ref('')
 const menuId = ref('')
 
+function openAdd() {
+  adding.value = true
+}
+
+defineExpose({ openAdd })
+
 watch(() => props.meeting.agenda_items, (items) => {
   ordered.value = [...items].sort((a, b) => a.position - b.position)
 }, { deep: true })

@@ -34,6 +34,10 @@ function meetingFixture() {
   }
 }
 
+function emptyMeetingFixture() {
+  return { ...meetingFixture(), agenda_items: [] }
+}
+
 describe('agenda workbench', () => {
   beforeEach(() => {
     apiMock.mockReset()
@@ -46,6 +50,14 @@ describe('agenda workbench', () => {
     const queue = screen.getByTestId('agenda-queue')
     expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(queue).toHaveClass('agenda-queue-narrow')
+  })
+
+  it('uses a compact empty detail card alongside the queue', () => {
+    render(AgendaWorkbench, { props: { meeting: emptyMeetingFixture() } })
+    const detail = screen.getByTestId('agenda-detail')
+    const queue = screen.getByTestId('agenda-queue')
+    expect(detail).toHaveClass('agenda-empty-compact')
+    expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('sends the full ordered id list once after drop', async () => {

@@ -68,7 +68,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="markdown-editor" :data-disabled="disabled || undefined">
-    <div ref="root" class="markdown-editor-root" role="textbox" :aria-label="label" :aria-readonly="disabled" />
+    <div ref="root" class="markdown-editor-root markdown-editor-top-aligned" role="textbox" :aria-label="label" :aria-readonly="disabled" />
     <textarea v-if="failed" :value="modelValue" :disabled="disabled" :aria-label="label" rows="8" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" />
   </div>
 </template>
