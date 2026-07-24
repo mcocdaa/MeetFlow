@@ -50,6 +50,7 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
         "result": job.result_json,
         "error_code": job.error_code,
         "error_message": job.error_message,
+        "rerun_of_id": job.rerun_of_id,
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
@@ -182,6 +183,45 @@ def get_job(
     if job.created_by != user.id and user.role.value != "admin":
         raise AppError(403, "plugin_job_forbidden", "无权查看此 AI 任务")
     return serialize_job(job)
+
+
+def get_accessible_job(session: Session, job_id: str, user: User) -> PluginJob:
+    job = session.get(PluginJob, job_id)
+    if job is None:
+        raise AppError(404, "plugin_job_not_found", "AI 任务不存在")
+    if job.created_by != user.id and user.role.value != "admin":
+        raise AppError(403, "plugin_job_forbidden", "无权操作此 AI 任务")
+    return job
+
+
+@jobs_router.post("/{job_id}/cancel")
+def cancel_job(
+    job_id: str,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    job = get_accessible_job(session, job_id, user)
+    try:
+        return serialize_job(PluginJobService(session, None).cancel(job))
+    except ValueError as exc:
+        raise AppError(409, "plugin_job_not_cancelable", "当前 AI 任务无法取消") from exc
+
+
+@jobs_router.post("/{job_id}/rerun", status_code=status.HTTP_201_CREATED)
+def rerun_job(
+    job_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    job = get_accessible_job(session, job_id, user)
+    try:
+        rerun = PluginJobService(session, request.app.state.plugin_manager).rerun(
+            job, user.id
+        )
+    except ValueError as exc:
+        raise AppError(409, "plugin_job_not_rerunnable", "当前 AI 任务无法重新运行") from exc
+    return serialize_job(rerun)
 
 
 @jobs_router.get("")

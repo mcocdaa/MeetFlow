@@ -70,3 +70,20 @@ def test_submit_endpoint_returns_active_duplicate_job(
     assert second.status_code == 200
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["status"] == "queued"
+
+
+def test_creator_can_cancel_queued_job_and_rerun_terminal_job(
+    plugin_client, plugin_meeting_id
+):
+    created = plugin_client.post(
+        "/api/plugin-jobs",
+        json={"action_id": "test-ai.summarize", "target_type": "meeting", "target_id": plugin_meeting_id, "input": {}},
+    ).json()
+
+    canceled = plugin_client.post(f"/api/plugin-jobs/{created['id']}/cancel")
+    rerun = plugin_client.post(f"/api/plugin-jobs/{created['id']}/rerun")
+
+    assert canceled.status_code == 200
+    assert canceled.json()["status"] == "canceled"
+    assert rerun.status_code == 201
+    assert rerun.json()["id"] != created["id"]

@@ -32,13 +32,14 @@ def upgrade() -> None:
         sa.Column("result_json", sa.JSON(), nullable=True),
         sa.Column("error_code", sa.String(length=80), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("rerun_of_id", sa.String(length=36), sa.ForeignKey("plugin_jobs.id"), nullable=True),
         sa.Column("created_by", sa.String(length=36), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("ix_plugin_jobs_dedupe", "plugin_jobs", ["dedupe_key", "status"])
-    for column in ("plugin_id", "action_id", "target_type", "target_id", "status", "created_by", "created_at"):
+    for column in ("plugin_id", "action_id", "target_type", "target_id", "status", "rerun_of_id", "created_by", "created_at"):
         op.create_index(f"ix_plugin_jobs_{column}", "plugin_jobs", [column])
 
 

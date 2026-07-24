@@ -61,13 +61,46 @@ class PluginJobService:
         self.session.refresh(job)
         return job, True
 
+    def cancel(self, job: PluginJob) -> PluginJob:
+        if job.status != PluginJobStatus.queued:
+            raise ValueError("only queued jobs can be canceled")
+        job.status = PluginJobStatus.canceled
+        job.finished_at = datetime.now().astimezone()
+        self.session.commit()
+        self.session.refresh(job)
+        return job
+
+    def rerun(self, job: PluginJob, actor_id: str) -> PluginJob:
+        if job.status not in {
+            PluginJobStatus.succeeded,
+            PluginJobStatus.failed,
+            PluginJobStatus.interrupted,
+            PluginJobStatus.canceled,
+        }:
+            raise ValueError("only terminal jobs can be rerun")
+        rerun, created = self.submit(
+            job.action_id,
+            job.target_type,
+            job.target_id,
+            job.input_json,
+            actor_id,
+        )
+        if created:
+            rerun.rerun_of_id = job.id
+            self.session.commit()
+            self.session.refresh(rerun)
+        return rerun
+
     @staticmethod
     def _json_snapshot(value: dict) -> dict:
+        def json_default(item: object) -> str:
+            if isinstance(item, (date, datetime)):
+                return item.isoformat()
+            raise TypeError(f"unsupported plugin context value: {type(item)!r}")
+
         return json.loads(
             json.dumps(
                 value,
-                default=lambda item: item.isoformat()
-                if isinstance(item, (date, datetime))
-                else TypeError(f"unsupported plugin context value: {type(item)!r}"),
+                default=json_default,
             )
         )
