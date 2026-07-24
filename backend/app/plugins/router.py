@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Any
+from datetime import date
+from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Request, Response, status
 from pydantic import BaseModel, Field
@@ -43,6 +44,17 @@ class JobApplyRequest(BaseModel):
     edited_markdown: str | None = Field(default=None, min_length=1, max_length=100_000)
     expected_version: int | None = Field(default=None, ge=1)
     selected_indexes: list[int] = Field(default_factory=list, max_length=100)
+    candidates: list["AppliedActionCandidate"] = Field(
+        default_factory=list, max_length=100
+    )
+
+
+class AppliedActionCandidate(BaseModel):
+    index: int = Field(ge=0)
+    content: str = Field(min_length=1, max_length=1000)
+    owner_user_id: str | None = Field(default=None, max_length=64)
+    due_date: date | None = None
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
 
 
 def serialize_job(job: PluginJob) -> dict[str, Any]:
@@ -253,7 +265,16 @@ def apply_job(
                 raise ValueError("project progress apply requires markdown")
             return service.apply_project_progress(job, payload.edited_markdown, user)
         if job.action_id == "ai-work-assistant.action_suggestions":
-            return service.apply_action_suggestions(job, payload.selected_indexes, user)
+            candidates = [item.model_dump() for item in payload.candidates]
+            if not candidates:
+                stored = (job.result_json or {}).get("candidates")
+                if isinstance(stored, list):
+                    candidates = [
+                        {"index": index, **stored[index]}
+                        for index in payload.selected_indexes
+                        if 0 <= index < len(stored) and isinstance(stored[index], dict)
+                    ]
+            return service.apply_action_suggestions(job, candidates, user)
         raise ValueError("job has no applicable draft")
     except ValueError as exc:
         raise AppError(409, "plugin_job_not_applicable", "当前 AI 草稿无法应用") from exc
@@ -261,14 +282,19 @@ def apply_job(
 
 @jobs_router.get("")
 def list_jobs(
+    target_type: Literal["meeting", "project"] | None = None,
+    target_id: str | None = None,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    jobs = session.scalars(
-        select(PluginJob)
-        .where(PluginJob.created_by == user.id)
-        .order_by(PluginJob.created_at.desc(), PluginJob.id.desc())
-    )
+    if (target_type is None) != (target_id is None):
+        raise AppError(422, "invalid_plugin_target_filter", "任务筛选参数不完整")
+    statement = select(PluginJob).where(PluginJob.created_by == user.id)
+    if target_type is not None:
+        statement = statement.where(
+            PluginJob.target_type == target_type, PluginJob.target_id == target_id
+        )
+    jobs = session.scalars(statement.order_by(PluginJob.created_at.desc(), PluginJob.id.desc()))
     return {"items": [serialize_job(job) for job in jobs]}
 
 

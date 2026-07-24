@@ -165,36 +165,43 @@ class PluginJobService:
         return ProjectService(self.session).serialize_update(update)
 
     def apply_action_suggestions(
-        self, job: PluginJob, selected_indexes: list[int], actor: User
+        self, job: PluginJob, candidates: list[dict], actor: User
     ) -> dict:
         if job.action_id != "ai-work-assistant.action_suggestions":
             raise ValueError("job does not produce action suggestions")
         if job.status != PluginJobStatus.succeeded or job.applied_at is not None:
             raise ValueError("job cannot be applied")
-        candidates = (job.result_json or {}).get("candidates")
-        if not isinstance(candidates, list):
+        stored_candidates = (job.result_json or {}).get("candidates")
+        if not isinstance(stored_candidates, list):
             raise ValueError("job has no action candidates")
-        indexes = list(dict.fromkeys(selected_indexes))
-        if not indexes or any(index < 0 or index >= len(candidates) for index in indexes):
+        selected_by_index = {
+            candidate.get("index"): candidate
+            for candidate in candidates
+            if isinstance(candidate, dict) and isinstance(candidate.get("index"), int)
+        }
+        if not selected_by_index or any(
+            index < 0 or index >= len(stored_candidates) for index in selected_by_index
+        ):
             raise ValueError("invalid candidate selection")
-        selected = [candidates[index] for index in indexes]
         if any(
-            not isinstance(candidate, dict)
-            or not isinstance(candidate.get("content"), str)
+            not isinstance(candidate.get("content"), str)
             or not candidate["content"].strip()
-            for candidate in selected
+            for candidate in selected_by_index.values()
         ):
             raise ValueError("invalid action candidate")
         meeting = self.session.get(Meeting, job.target_id)
         if meeting is None or job.target_type != "meeting":
             raise ValueError("meeting target is missing")
-        for candidate in selected:
+        for candidate in selected_by_index.values():
             OutcomeService(self.session).create_action(
                 meeting.project_id,
                 ActionWrite(
                     project_id=meeting.project_id,
                     meeting_id=meeting.id,
                     content=candidate["content"],
+                    owner_user_id=candidate.get("owner_user_id"),
+                    due_date=candidate.get("due_date"),
+                    priority=candidate.get("priority", "normal"),
                 ),
                 actor,
             )
@@ -204,7 +211,7 @@ class PluginJobService:
         job.applied_by = actor.id
         job.applied_at = datetime.now().astimezone()
         self.session.commit()
-        return {"created_count": len(selected)}
+        return {"created_count": len(selected_by_index)}
 
     @staticmethod
     def _json_snapshot(value: dict) -> dict:
