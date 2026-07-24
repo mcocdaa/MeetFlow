@@ -42,7 +42,7 @@ describe('meeting workflow components', () => {
     })
     render(PluginActionPanel, { props: { targetType: 'meeting', targetId: 'm1' } })
     await fireEvent.click(await screen.findByRole('button', { name: '生成会议纪要' }))
-    expect(await screen.findByText('任务已加入 AI 任务中心')).toBeInTheDocument()
+    expect(await screen.findByText('AI 正在生成草稿；完成后会显示在当前页面。')).toBeInTheDocument()
     expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs', expect.objectContaining({ method: 'POST' }))
     expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' }))
   })
