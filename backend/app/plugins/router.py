@@ -2,8 +2,9 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, Request, Response, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import admin_user, current_user
@@ -17,15 +18,42 @@ from app.plugins.manager import (
     PluginOutputError,
 )
 from app.plugins.models import PluginState
+from app.plugins.jobs import PluginJobService
+from app.plugins.models import PluginJob, PluginJobStatus
 
 admin_router = APIRouter(prefix="/api/admin/plugins", tags=["admin/plugins"])
 actions_router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 meeting_actions_router = APIRouter(prefix="/api/meetings", tags=["plugins"])
+jobs_router = APIRouter(prefix="/api/plugin-jobs", tags=["plugins"])
 logger = logging.getLogger(__name__)
 
 
 class EnabledRequest(BaseModel):
     enabled: bool
+
+
+class JobSubmitRequest(BaseModel):
+    action_id: str = Field(min_length=3, max_length=160)
+    target_type: str = Field(min_length=3, max_length=40)
+    target_id: str = Field(min_length=1, max_length=36)
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+def serialize_job(job: PluginJob) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "plugin_id": job.plugin_id,
+        "action_id": job.action_id,
+        "target_type": job.target_type,
+        "target_id": job.target_id,
+        "status": job.status,
+        "result": job.result_json,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+    }
 
 
 @admin_router.get("")
@@ -113,6 +141,60 @@ def list_actions(
     request: Request, user: User = Depends(current_user)
 ) -> list[dict]:
     return request.app.state.plugin_manager.visible_actions(user.role)
+
+
+@jobs_router.post("", status_code=status.HTTP_201_CREATED)
+def submit_job(
+    payload: JobSubmitRequest,
+    request: Request,
+    response: Response,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    try:
+        job, created = PluginJobService(
+            session, request.app.state.plugin_manager
+        ).submit(
+            payload.action_id,
+            payload.target_type,
+            payload.target_id,
+            payload.input,
+            user.id,
+        )
+    except KeyError as exc:
+        raise AppError(404, "plugin_action_not_found", "插件动作不存在") from exc
+    except ValueError as exc:
+        raise AppError(422, "invalid_plugin_target", "插件目标无效") from exc
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return serialize_job(job)
+
+
+@jobs_router.get("/{job_id}")
+def get_job(
+    job_id: str,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    job = session.get(PluginJob, job_id)
+    if job is None:
+        raise AppError(404, "plugin_job_not_found", "AI 任务不存在")
+    if job.created_by != user.id and user.role.value != "admin":
+        raise AppError(403, "plugin_job_forbidden", "无权查看此 AI 任务")
+    return serialize_job(job)
+
+
+@jobs_router.get("")
+def list_jobs(
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    jobs = session.scalars(
+        select(PluginJob)
+        .where(PluginJob.created_by == user.id)
+        .order_by(PluginJob.created_at.desc(), PluginJob.id.desc())
+    )
+    return {"items": [serialize_job(job) for job in jobs]}
 
 
 @meeting_actions_router.post("/{meeting_id}/plugin-actions/{action_id}")

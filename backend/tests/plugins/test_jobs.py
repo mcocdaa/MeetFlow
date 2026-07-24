@@ -42,3 +42,31 @@ def test_worker_marks_interrupted_request_as_non_replayable(
 
     with database.session() as session:
         assert session.get(type(job), job_id).status == PluginJobStatus.interrupted
+
+
+def test_submit_endpoint_returns_active_duplicate_job(
+    plugin_client, plugin_meeting_id
+):
+    first = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "meeting",
+            "target_id": plugin_meeting_id,
+            "input": {},
+        },
+    )
+    second = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "meeting",
+            "target_id": plugin_meeting_id,
+            "input": {},
+        },
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["status"] == "queued"
