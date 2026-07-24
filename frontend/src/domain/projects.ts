@@ -52,6 +52,16 @@ export type ProjectAttachment = {
   created_at: string
 }
 
+export type ProjectActionSummary = {
+  id: string
+  content: string
+  status: string
+  priority: string
+  owner_user_id: string | null
+  due_date: string | null
+  meeting_id: string | null
+}
+
 export type ProjectDetail = Project & {
   next_meeting: { id: string; title: string; scheduled_start: string; status: string } | null
   recent_decisions: Decision[]

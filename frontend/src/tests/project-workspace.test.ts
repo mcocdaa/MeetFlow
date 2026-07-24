@@ -76,7 +76,7 @@ describe('project workspace', () => {
 
   it('appends a human progress update and reloads authoritative data', async () => {
     render(ProjectDetailView)
-    await screen.findByText('完成后端契约')
+    await fireEvent.click(await screen.findByRole('tab', { name: '动态' }))
     await fireEvent.update(screen.getByLabelText('进展记录'), '完成 1.0 前端壳层')
     await fireEvent.click(screen.getByRole('button', { name: '发布进展' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/projects/p1/updates', expect.objectContaining({
@@ -87,8 +87,8 @@ describe('project workspace', () => {
 
   it('opens a project-scoped meeting drawer from Next meeting', async () => {
     render(ProjectDetailView)
-    await screen.findByText('下一次会议')
-    await fireEvent.click(screen.getByRole('button', { name: '添加会议' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
+    await fireEvent.click(screen.getByRole('menuitem', { name: '会议' }))
 
     expect(screen.getByRole('dialog', { name: '添加会议' })).toBeInTheDocument()
     expect(screen.getByLabelText('会议标题')).toBeInTheDocument()
