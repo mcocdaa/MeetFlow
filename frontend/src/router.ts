@@ -9,6 +9,7 @@ import ProjectsView from './views/ProjectsView.vue'
 import ActionsView from './views/ActionsView.vue'
 import DecisionsView from './views/DecisionsView.vue'
 import WorkspacePlaceholderView from './views/WorkspacePlaceholderView.vue'
+import AiTasksView from './views/AiTasksView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,7 +24,7 @@ const router = createRouter({
     { path: '/actions', component: ActionsView },
     { path: '/decisions', component: DecisionsView },
     { path: '/inbox', component: WorkspacePlaceholderView },
-    { path: '/ai-tasks', component: WorkspacePlaceholderView },
+    { path: '/ai-tasks', component: AiTasksView },
     { path: '/account', component: () => import('./views/AccountView.vue') },
     { path: '/admin/users', component: () => import('./views/AdminUsersView.vue'), meta: { admin: true } },
     { path: '/admin/plugins', component: () => import('./views/AdminPluginsView.vue'), meta: { admin: true } },
