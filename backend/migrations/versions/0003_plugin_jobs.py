@@ -38,7 +38,13 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index("ix_plugin_jobs_dedupe", "plugin_jobs", ["dedupe_key", "status"])
+    op.create_index(
+        "ix_plugin_jobs_dedupe",
+        "plugin_jobs",
+        ["dedupe_key", "status"],
+        unique=True,
+        sqlite_where=sa.text("status IN ('queued', 'requesting')"),
+    )
     for column in ("plugin_id", "action_id", "target_type", "target_id", "status", "rerun_of_id", "created_by", "created_at"):
         op.create_index(f"ix_plugin_jobs_{column}", "plugin_jobs", [column])
 

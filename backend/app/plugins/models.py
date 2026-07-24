@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, JSON, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -47,7 +47,15 @@ class PluginJobStatus(StrEnum):
 
 class PluginJob(Base):
     __tablename__ = "plugin_jobs"
-    __table_args__ = (Index("ix_plugin_jobs_dedupe", "dedupe_key", "status"),)
+    __table_args__ = (
+        Index(
+            "ix_plugin_jobs_dedupe",
+            "dedupe_key",
+            "status",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'requesting')"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())

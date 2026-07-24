@@ -2,6 +2,7 @@ import json
 from datetime import date, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -35,14 +36,6 @@ class PluginJobService:
         if actor is None:
             raise KeyError(actor_id)
         dedupe_key = f"{action_id}:{target_type}:{target_id}"
-        existing = self.session.scalar(
-            select(PluginJob).where(
-                PluginJob.dedupe_key == dedupe_key,
-                PluginJob.status.in_([PluginJobStatus.queued, PluginJobStatus.requesting]),
-            )
-        )
-        if existing is not None:
-            return existing, False
         context_builder = PluginContextBuilder(self.session)
         if target_type == "meeting":
             context = context_builder.meeting(target_id, actor)
@@ -62,7 +55,21 @@ class PluginJobService:
             created_by=actor_id,
         )
         self.session.add(job)
-        self.session.commit()
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            existing = self.session.scalar(
+                select(PluginJob).where(
+                    PluginJob.dedupe_key == dedupe_key,
+                    PluginJob.status.in_(
+                        [PluginJobStatus.queued, PluginJobStatus.requesting]
+                    ),
+                )
+            )
+            if existing is None:
+                raise
+            return existing, False
         self.session.refresh(job)
         return job, True
 

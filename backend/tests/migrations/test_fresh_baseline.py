@@ -125,6 +125,12 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     assert comment_columns["resolved_at"]["nullable"] is True
     assert comment_columns["resolved_by"]["nullable"] is True
     assert "resolved_by" in comment_foreign_keys
+    plugin_job_indexes = {
+        tuple(index["column_names"])
+        for index in inspector.get_indexes("plugin_jobs")
+        if index["unique"]
+    }
+    assert ("dedupe_key", "status") in plugin_job_indexes
     notification_indexes = {
         tuple(index["column_names"]) for index in inspector.get_indexes("notifications")
     }
