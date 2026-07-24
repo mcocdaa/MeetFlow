@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, render, screen } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AttachmentPanel from '../components/AttachmentPanel.vue'
@@ -35,75 +35,65 @@ describe('meeting workflow components', () => {
     expect(emitted().changed).toBeUndefined()
   })
 
-  it('runs a plugin action and exposes an editable draft without auto-saving', async () => {
+  it('queues a plugin action without directly updating the meeting', async () => {
     apiMock.mockImplementation((path: string) => {
-      if (path === '/api/plugins/actions') return Promise.resolve([{ action_id: 'test-ai.summarize', label: '生成会议纪要', description: '生成可编辑草稿', input_schema: { type: 'object' } }])
-      return Promise.resolve({ markdown: '# Draft summary', suggested_patch: { conclusions_markdown: 'Draft conclusion' } })
+      if (path === '/api/plugins/actions') return Promise.resolve([{ action_id: 'test-ai.summarize', label: '生成会议纪要', description: '生成可编辑草稿', input_schema: { type: 'object' }, target_types: ['meeting'] }])
+      return Promise.resolve({ id: 'job-1', status: 'queued' })
     })
-    render(PluginActionPanel, { props: { meetingId: 'm1' } })
+    render(PluginActionPanel, { props: { targetType: 'meeting', targetId: 'm1' } })
     await fireEvent.click(await screen.findByRole('button', { name: '生成会议纪要' }))
-    expect(await screen.findByDisplayValue('# Draft summary')).toBeInTheDocument()
-    expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/plugin-actions/test-ai.summarize', {
-      method: 'POST', body: '{}',
-    })
+    expect(await screen.findByText('任务已加入 AI 任务中心')).toBeInTheDocument()
+    expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs', expect.objectContaining({ method: 'POST' }))
     expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' }))
-  })
-
-  it('emits the edited plugin patch only after confirmation', async () => {
-    apiMock.mockImplementation((path: string) => path === '/api/plugins/actions'
-      ? Promise.resolve([{ action_id: 'test-ai.summarize', label: '生成会议纪要', description: '', input_schema: {} }])
-      : Promise.resolve({ markdown: 'draft', suggested_patch: { conclusions_markdown: 'old' } }))
-    const { emitted } = render(PluginActionPanel, { props: { meetingId: 'm1' } })
-    await fireEvent.click(await screen.findByRole('button', { name: '生成会议纪要' }))
-    await fireEvent.update(await screen.findByLabelText('建议关键结论'), 'edited')
-    await fireEvent.click(screen.getByRole('button', { name: '应用到会议草稿' }))
-    await waitFor(() => expect(emitted()).toHaveProperty('apply.0.0', { conclusions_markdown: 'edited' }))
   })
 
   it('builds typed, action-scoped inputs from JSON Schema', async () => {
     apiMock.mockImplementation((path: string) => path === '/api/plugins/actions'
       ? Promise.resolve([{
           action_id: 'tools.export', label: '导出', description: '',
+          target_types: ['meeting'],
           input_schema: { type: 'object', required: ['limit'], properties: {
             limit: { type: 'number', title: '数量' },
             include_done: { type: 'boolean', title: '包含已完成' },
             format: { type: 'string', title: '格式', enum: ['md', 'json'] },
           } },
         }])
-      : Promise.resolve({ markdown: 'done' }))
-    render(PluginActionPanel, { props: { meetingId: 'm1' } })
+      : Promise.resolve({ id: 'job-1', status: 'queued' }))
+    render(PluginActionPanel, { props: { targetType: 'meeting', targetId: 'm1' } })
     await screen.findByRole('button', { name: '导出' })
     await fireEvent.update(screen.getByLabelText('数量'), '12')
     await fireEvent.click(screen.getByRole('checkbox', { name: '包含已完成' }))
     await fireEvent.update(screen.getByLabelText('格式'), 'json')
     await fireEvent.click(screen.getByRole('button', { name: '导出' }))
-    expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/plugin-actions/tools.export', {
-      method: 'POST', body: JSON.stringify({ limit: 12, include_done: true, format: 'json' }),
-    })
+    expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ action_id: 'tools.export', target_type: 'meeting', target_id: 'm1', input: { limit: 12, include_done: true, format: 'json' } }),
+    }))
   })
 
   it('omits blank optional plugin inputs instead of sending invalid empty strings', async () => {
     apiMock.mockImplementation((path: string) => path === '/api/plugins/actions'
       ? Promise.resolve([{
           action_id: 'tools.preview', label: '预览', description: '',
+          target_types: ['meeting'],
           input_schema: { type: 'object', properties: { limit: { type: 'integer', title: '可选数量' } } },
         }])
-      : Promise.resolve({ markdown: 'preview' }))
-    render(PluginActionPanel, { props: { meetingId: 'm1' } })
+      : Promise.resolve({ id: 'job-1', status: 'queued' }))
+    render(PluginActionPanel, { props: { targetType: 'meeting', targetId: 'm1' } })
     await fireEvent.click(await screen.findByRole('button', { name: '预览' }))
-    expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/plugin-actions/tools.preview', {
-      method: 'POST', body: '{}',
-    })
+    expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ action_id: 'tools.preview', target_type: 'meeting', target_id: 'm1', input: {} }),
+    }))
   })
 
   it('blocks a plugin action when a required input is blank', async () => {
     apiMock.mockResolvedValue([{
       action_id: 'tools.send', label: '发送', description: '',
+      target_types: ['meeting'],
       input_schema: { type: 'object', required: ['channel'], properties: { channel: { type: 'string', title: '频道' } } },
     }])
-    render(PluginActionPanel, { props: { meetingId: 'm1' } })
+    render(PluginActionPanel, { props: { targetType: 'meeting', targetId: 'm1' } })
     await fireEvent.click(await screen.findByRole('button', { name: '发送' }))
     expect(await screen.findByText('请填写频道')).toBeInTheDocument()
-    expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1/plugin-actions/tools.send', expect.anything())
+    expect(apiMock).not.toHaveBeenCalledWith('/api/plugin-jobs', expect.anything())
   })
 })

@@ -1,20 +1,27 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { api } from '../api/client'
 
 type SchemaProperty = { title?: string; type?: string; enum?: Array<string | number>; default?: unknown }
-type PluginAction = { action_id: string; label: string; description: string; input_schema: { properties?: Record<string, SchemaProperty>; required?: string[] } }
-type PluginResult = { markdown?: string; suggested_patch?: { conclusions_markdown?: string; raw_notes_markdown?: string }; data?: unknown }
-const props = defineProps<{ meetingId: string }>()
-const emit = defineEmits<{ apply: [patch: { conclusions_markdown?: string; raw_notes_markdown?: string }] }>()
+type PluginAction = {
+  action_id: string
+  label: string
+  description: string
+  input_schema: { properties?: Record<string, SchemaProperty>; required?: string[] }
+  target_types?: string[]
+}
+
+const props = defineProps<{ targetType: 'meeting' | 'project'; targetId: string }>()
 const actions = ref<PluginAction[]>([])
 const inputs = reactive<Record<string, Record<string, unknown>>>({})
 const running = ref('')
 const error = ref('')
-const result = ref<PluginResult | null>(null)
-const editableMarkdown = ref('')
-const editablePatch = ref<{ conclusions_markdown?: string; raw_notes_markdown?: string }>({})
+const notice = ref('')
+
+const visibleActions = computed(() => actions.value.filter((action) =>
+  (action.target_types ?? ['meeting']).includes(props.targetType),
+))
 
 onMounted(async () => {
   try {
@@ -25,8 +32,7 @@ onMounted(async () => {
         inputs[action.action_id][key] = schema.default ?? (schema.type === 'boolean' ? false : schema.enum?.[0] ?? '')
       }
     }
-  }
-  catch { actions.value = [] }
+  } catch { actions.value = [] }
 })
 
 function buildPayload(action: PluginAction): Record<string, unknown> | null {
@@ -49,34 +55,34 @@ function buildPayload(action: PluginAction): Record<string, unknown> | null {
 
 async function run(action: PluginAction) {
   error.value = ''
+  notice.value = ''
   const payload = buildPayload(action)
   if (!payload) return
   running.value = action.action_id
-  result.value = null
   try {
-    const response = await api<PluginResult>(`/api/meetings/${props.meetingId}/plugin-actions/${action.action_id}`, {
-      method: 'POST', body: JSON.stringify(payload),
+    await api('/api/plugin-jobs', {
+      method: 'POST',
+      body: JSON.stringify({
+        action_id: action.action_id,
+        target_type: props.targetType,
+        target_id: props.targetId,
+        input: payload,
+      }),
     })
-    result.value = response
-    editableMarkdown.value = response.markdown ?? ''
-    editablePatch.value = { ...(response.suggested_patch ?? {}) }
+    notice.value = '任务已加入 AI 任务中心'
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '插件动作执行失败'
+    error.value = reason instanceof Error ? reason.message : 'AI 任务创建失败'
   } finally {
     running.value = ''
   }
 }
-
-function applyDraft() {
-  emit('apply', { ...editablePatch.value })
-}
 </script>
 
 <template>
-  <section v-if="actions.length || result" class="plugin-action-panel">
-    <div class="section-heading"><div><p class="eyebrow">Extensions</p><h2>会议工具</h2></div></div>
+  <section v-if="visibleActions.length" class="plugin-action-panel">
+    <div class="section-heading"><div><p class="eyebrow">AI assistance</p><h2>AI 工作助手</h2></div></div>
     <div class="plugin-actions">
-      <article v-for="action in actions" :key="action.action_id" class="plugin-action-card">
+      <article v-for="action in visibleActions" :key="action.action_id" class="plugin-action-card">
         <div><strong>{{ action.label }}</strong><p>{{ action.description }}</p></div>
         <div v-if="action.input_schema?.properties" class="mini-fields">
           <label v-for="(schema, key) in action.input_schema.properties" :key="key">
@@ -87,16 +93,10 @@ function applyDraft() {
             <input v-else v-model="inputs[action.action_id][key]" :required="action.input_schema.required?.includes(String(key))" />
           </label>
         </div>
-        <button class="button button-quiet" :disabled="!!running" @click="run(action)">{{ running === action.action_id ? '运行中…' : action.label }}</button>
+        <button class="button button-quiet" :disabled="!!running" @click="run(action)">{{ running === action.action_id ? '加入任务中…' : action.label }}</button>
       </article>
     </div>
+    <p v-if="notice" class="notice">{{ notice }}</p>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
-    <div v-if="result" class="draft-panel">
-      <div><span class="status-pill" data-status="pending">草稿 · 尚未保存</span><h3>插件生成结果</h3></div>
-      <label v-if="editableMarkdown">Markdown 结果<textarea v-model="editableMarkdown" rows="8" /></label>
-      <label v-if="'conclusions_markdown' in editablePatch">建议关键结论<textarea v-model="editablePatch.conclusions_markdown" rows="8" /></label>
-      <label v-if="'raw_notes_markdown' in editablePatch">建议会议记录<textarea v-model="editablePatch.raw_notes_markdown" rows="8" /></label>
-      <button v-if="Object.keys(editablePatch).length" class="button button-primary" @click="applyDraft">应用到会议草稿</button>
-    </div>
   </section>
 </template>
