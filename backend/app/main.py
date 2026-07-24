@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,6 +19,7 @@ from app.inbox.router import router as inbox_router
 from app.meetings.router import router as meetings_router
 from app.outcomes.router import router as outcomes_router
 from app.plugins.manager import PluginManager
+from app.plugins.worker import PluginJobWorker
 from app.plugins.router import (
     actions_router as plugin_actions_router,
     admin_router as plugin_admin_router,
@@ -36,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     plugin_manager = PluginManager(
         resolved.plugins_dir, database, resolved.app_secret_key
     )
+    plugin_worker = PluginJobWorker(database, plugin_manager)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -50,7 +53,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with database.session() as session:
             auth_service.bootstrap_admin(session)
         plugin_manager.load_enabled()
-        yield
+        plugin_worker.recover()
+        worker_task = (
+            asyncio.create_task(plugin_worker.serve())
+            if resolved.app_env != "test"
+            else None
+        )
+        try:
+            yield
+        finally:
+            plugin_worker.stop()
+            if worker_task is not None:
+                worker_task.cancel()
+                try:
+                    await worker_task
+                except asyncio.CancelledError:
+                    pass
         database.engine.dispose()
 
     app = FastAPI(title="MeetFlow", version="0.1.0", lifespan=lifespan)
@@ -59,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_service = auth_service
     app.state.attachment_storage = attachment_storage
     app.state.plugin_manager = plugin_manager
+    app.state.plugin_worker = plugin_worker
     install_error_handlers(app)
     app.include_router(auth_router)
     app.include_router(admin_router)
