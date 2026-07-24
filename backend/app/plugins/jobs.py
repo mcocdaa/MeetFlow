@@ -6,6 +6,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.meetings.schemas import MeetingEdit
+from app.meetings.service import MeetingService
 from app.plugins.context import PluginContextBuilder
 from app.plugins.manager import PluginManager
 from app.plugins.models import PluginJob, PluginJobStatus
@@ -102,6 +104,35 @@ class PluginJobService:
             self.session.commit()
             self.session.refresh(rerun)
         return rerun
+
+    def apply_meeting_summary(
+        self,
+        job: PluginJob,
+        edited_markdown: str,
+        expected_version: int,
+        actor: User,
+    ) -> dict:
+        if job.action_id != "ai-work-assistant.meeting_summary":
+            raise ValueError("job does not produce a meeting summary")
+        if job.status != PluginJobStatus.succeeded:
+            raise ValueError("only succeeded jobs can be applied")
+        if job.applied_at is not None:
+            raise ValueError("job was already applied")
+        meeting = MeetingService(self.session).update_meeting(
+            job.target_id,
+            MeetingEdit(
+                expected_version=expected_version,
+                summary_markdown=edited_markdown,
+            ),
+            actor,
+        )
+        job = self.session.get(PluginJob, job.id)
+        if job is None or job.applied_at is not None:
+            raise ValueError("job was already applied")
+        job.applied_by = actor.id
+        job.applied_at = datetime.now().astimezone()
+        self.session.commit()
+        return MeetingService(self.session).serialize_meeting(meeting)
 
     @staticmethod
     def _json_snapshot(value: dict) -> dict:

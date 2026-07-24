@@ -33,6 +33,8 @@ def upgrade() -> None:
         sa.Column("error_code", sa.String(length=80), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("rerun_of_id", sa.String(length=36), sa.ForeignKey("plugin_jobs.id"), nullable=True),
+        sa.Column("applied_by", sa.String(length=36), sa.ForeignKey("users.id"), nullable=True),
+        sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_by", sa.String(length=36), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),

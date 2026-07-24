@@ -1,6 +1,7 @@
+from app.meetings.models import utcnow
 from app.auth.models import User
 from app.plugins.jobs import PluginJobService
-from app.plugins.models import PluginJobStatus
+from app.plugins.models import PluginJob, PluginJobStatus
 from app.plugins.worker import PluginJobWorker
 
 
@@ -110,3 +111,37 @@ def test_creator_can_cancel_queued_job_and_rerun_terminal_job(
     assert canceled.json()["status"] == "canceled"
     assert rerun.status_code == 201
     assert rerun.json()["id"] != created["id"]
+
+
+def test_meeting_summary_is_applied_only_after_explicit_confirmation(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        job = PluginJob(
+            plugin_id="ai-work-assistant",
+            action_id="ai-work-assistant.meeting_summary",
+            target_type="meeting",
+            target_id=plugin_meeting_id,
+            dedupe_key=f"summary:meeting:{plugin_meeting_id}",
+            status=PluginJobStatus.succeeded,
+            input_json={},
+            context_snapshot={},
+            result_json={"markdown": "# AI 草稿", "model": "test-model"},
+            created_by=actor_id,
+            finished_at=utcnow(),
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    before = plugin_client.get(f"/api/meetings/{plugin_meeting_id}").json()
+    assert before["summary_markdown"] == ""
+    response = plugin_client.post(
+        f"/api/plugin-jobs/{job_id}/apply",
+        json={"edited_markdown": "# 已确认纪要", "expected_version": before["version"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["summary_markdown"] == "# 已确认纪要"

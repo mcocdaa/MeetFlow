@@ -76,6 +76,12 @@ class PluginJob(Base):
     rerun_of_id: Mapped[str | None] = mapped_column(
         ForeignKey("plugin_jobs.id"), nullable=True, index=True
     )
+    applied_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True

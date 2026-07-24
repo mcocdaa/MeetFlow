@@ -39,6 +39,11 @@ class JobSubmitRequest(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
 
 
+class JobApplyRequest(BaseModel):
+    edited_markdown: str = Field(min_length=1, max_length=100_000)
+    expected_version: int = Field(ge=1)
+
+
 def serialize_job(job: PluginJob) -> dict[str, Any]:
     return {
         "id": job.id,
@@ -51,6 +56,8 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
         "error_code": job.error_code,
         "error_message": job.error_message,
         "rerun_of_id": job.rerun_of_id,
+        "applied_by": job.applied_by,
+        "applied_at": job.applied_at,
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
@@ -222,6 +229,22 @@ def rerun_job(
     except ValueError as exc:
         raise AppError(409, "plugin_job_not_rerunnable", "当前 AI 任务无法重新运行") from exc
     return serialize_job(rerun)
+
+
+@jobs_router.post("/{job_id}/apply")
+def apply_job(
+    job_id: str,
+    payload: JobApplyRequest,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    job = get_accessible_job(session, job_id, user)
+    try:
+        return PluginJobService(session, None).apply_meeting_summary(
+            job, payload.edited_markdown, payload.expected_version, user
+        )
+    except ValueError as exc:
+        raise AppError(409, "plugin_job_not_applicable", "当前 AI 草稿无法应用") from exc
 
 
 @jobs_router.get("")
