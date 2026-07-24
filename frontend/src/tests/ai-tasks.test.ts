@@ -32,59 +32,21 @@ it('submits a meeting-summary job once instead of running a draft inline', async
       input: {},
     }),
   }))
-  expect(screen.getByText('任务已加入 AI 任务中心')).toBeInTheDocument()
+  expect(screen.getByText('AI 正在生成草稿；完成后会显示在当前页面。')).toBeInTheDocument()
 })
 
-it('applies a succeeded meeting-summary draft only after the user confirms', async () => {
+it('keeps succeeded work as a recovery link back to its meeting context', async () => {
   apiMock.mockResolvedValueOnce({
     items: [{
       id: 'job-1', action_id: 'ai-work-assistant.meeting_summary', target_type: 'meeting', target_id: 'meeting-1',
       status: 'succeeded', result: { markdown: '# AI 草稿', model: 'test-model' }, created_at: '2026-07-24T00:00:00Z',
       started_at: null, finished_at: '2026-07-24T00:01:00Z', error_message: null, applied_at: null,
     }],
-  }).mockResolvedValueOnce({ id: 'meeting-1', version: 3 }).mockResolvedValueOnce({ summary_markdown: '# 已确认纪要' })
+  })
 
-  render(AiTasksView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
-  await fireEvent.update(await screen.findByLabelText('编辑会议纪要草稿'), '# 已确认纪要')
-  await fireEvent.click(screen.getByRole('button', { name: '应用到会议纪要' }))
+  render(AiTasksView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
+  const link = await screen.findByRole('link', { name: '回到会议处理草稿' })
 
-  expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs/job-1/apply', expect.objectContaining({
-    method: 'POST', body: JSON.stringify({ edited_markdown: '# 已确认纪要', expected_version: 3 }),
-  }))
-})
-
-it('applies a confirmed project-progress draft as a project update', async () => {
-  apiMock.mockResolvedValueOnce({
-    items: [{
-      id: 'job-2', action_id: 'ai-work-assistant.project_progress', target_type: 'project', target_id: 'project-1',
-      status: 'succeeded', result: { markdown: '# AI 进展' }, created_at: '2026-07-24T00:00:00Z',
-      started_at: null, finished_at: '2026-07-24T00:01:00Z', error_message: null, applied_at: null,
-    }],
-  }).mockResolvedValueOnce({ content_markdown: '# 已确认进展' })
-
-  render(AiTasksView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
-  await fireEvent.update(await screen.findByLabelText('编辑项目进展草稿'), '# 已确认进展')
-  await fireEvent.click(screen.getByRole('button', { name: '发布项目进展' }))
-
-  expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs/job-2/apply', expect.objectContaining({
-    method: 'POST', body: JSON.stringify({ edited_markdown: '# 已确认进展' }),
-  }))
-})
-
-it('creates only selected action suggestions after confirmation', async () => {
-  apiMock.mockResolvedValueOnce({
-    items: [{
-      id: 'job-3', action_id: 'ai-work-assistant.action_suggestions', target_type: 'meeting', target_id: 'meeting-1',
-      status: 'succeeded', result: { markdown: '- 整理方案\n- 发送纪要', candidates: [{ content: '整理方案' }, { content: '发送纪要' }] },
-      created_at: '2026-07-24T00:00:00Z', started_at: null, finished_at: '2026-07-24T00:01:00Z', error_message: null, applied_at: null,
-    }],
-  }).mockResolvedValueOnce({ created_count: 1 })
-
-  render(AiTasksView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
-  await fireEvent.click(await screen.findByRole('checkbox', { name: '发送纪要' }))
-  await fireEvent.click(screen.getByRole('button', { name: '创建选中的行动项' }))
-
-  expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs/job-3/apply', expect.objectContaining({
-    method: 'POST', body: JSON.stringify({ selected_indexes: [1] }),
-  }))
+  expect(link).toHaveAttribute('href', '/meetings/meeting-1')
+  expect(screen.queryByRole('button', { name: '应用到会议纪要' })).not.toBeInTheDocument()
 })
