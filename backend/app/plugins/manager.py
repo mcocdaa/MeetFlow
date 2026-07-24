@@ -325,6 +325,7 @@ class PluginManager:
                 "admin_only": action.admin_only,
                 "input_schema": action.input_schema,
                 "output_schema": action.output_schema,
+                "target_types": action.target_types,
             }
             for action in self._actions.values()
             if not action.admin_only or role == UserRole.ADMIN

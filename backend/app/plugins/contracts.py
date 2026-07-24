@@ -51,6 +51,7 @@ class MeetingAction:
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     handler: Handler
+    target_types: tuple[str, ...] = ("meeting",)
 
 
 @dataclass

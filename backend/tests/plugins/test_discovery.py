@@ -1,7 +1,33 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 import yaml
 
 from app.main import create_app
+
+
+def test_ai_work_assistant_declares_three_scoped_actions(settings):
+    settings.plugins_dir = (
+        Path(__file__).resolve().parents[3] / "plugins"
+    )
+    app = create_app(settings)
+
+    with TestClient(app):
+        actions = {
+            action.action_id: action
+            for action in app.state.plugin_manager.loaded_actions()
+        }
+        assert set(actions) == {
+            "ai-work-assistant.meeting_summary",
+            "ai-work-assistant.project_progress",
+            "ai-work-assistant.action_suggestions",
+        }
+        assert actions["ai-work-assistant.meeting_summary"].target_types == (
+            "meeting",
+        )
+        assert actions["ai-work-assistant.project_progress"].target_types == (
+            "project",
+        )
 
 
 def test_broken_plugin_is_reported_without_blocking_core(plugin_factory, settings):

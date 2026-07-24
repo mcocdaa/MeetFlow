@@ -1,0 +1,21 @@
+id: ai-work-assistant
+name: AI 工作助手
+version: 1.0.0
+api_version: 1
+backend_entry: backend.py
+description: 生成可编辑的会议纪要、项目进展和行动项建议
+config_schema:
+  fields:
+    - key: base_url
+      type: string
+      required: true
+    - key: model
+      type: string
+      required: true
+    - key: timeout_seconds
+      type: integer
+      required: true
+  secrets:
+    - key: api_key
+      type: string
+      required: true

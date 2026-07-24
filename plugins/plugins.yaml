@@ -1,1 +1,4 @@
-plugins: {}
+plugins:
+  ai-work-assistant:
+    path: ai-work-assistant
+    enabled: true
