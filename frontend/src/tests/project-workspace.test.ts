@@ -22,31 +22,56 @@ const project = {
   created_by: { id: 'u1', username: 'lin', display_name: '林宇' }, updated_by: { id: 'u1', username: 'lin', display_name: '林宇' }, created_at: '', updated_at: '',
 }
 
+function defaultProjectResponse(path: string) {
+  if (path === '/api/projects/p1') return Promise.resolve(project)
+  if (path === '/api/attention') return Promise.resolve({ items: [], unread_count: 0, truncated: false })
+  return Promise.resolve([])
+}
+
 describe('project workspace', () => {
   beforeEach(() => {
     apiMock.mockReset()
     session.user = { id: 'u1', username: 'lin', display_name: '林宇', role: 'member', status: 'active' }
     session.loaded = true
-    apiMock.mockImplementation((path: string) => {
-      if (path === '/api/projects/p1') return Promise.resolve(project)
-      if (path === '/api/attention') return Promise.resolve({ items: [], unread_count: 0, truncated: false })
-      return Promise.resolve([])
-    })
+    apiMock.mockImplementation(defaultProjectResponse)
   })
 
-  it('shows project context before compact metrics', async () => {
+  it('keeps overview focused on project state and actionable summaries', async () => {
     render(ProjectDetailView)
     expect(await screen.findByRole('heading', { name: 'MeetFlow' })).toBeInTheDocument()
-    expect(screen.getByText('需要关注')).toBeInTheDocument()
-    expect(screen.getByText('下一次会议')).toBeInTheDocument()
-    expect(screen.getByText('最近决策')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: '动态' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '项目状态' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '下一次会议' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '需要处理' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '近期行动项' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('进展记录')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-inline-progress')).not.toBeInTheDocument()
   })
 
-  it('places project progress drafts beside project updates', async () => {
+  it('places project progress editing and AI drafts in Activity', async () => {
     render(ProjectDetailView)
-    await screen.findByText('最近进展')
+    await fireEvent.click(await screen.findByRole('tab', { name: '动态' }))
+    expect(screen.getByLabelText('进展记录')).toBeInTheDocument()
     expect(screen.getByTestId('project-inline-progress')).toBeInTheDocument()
+  })
+
+  it('opens an action drawer from the global New menu', async () => {
+    render(ProjectDetailView)
+    await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
+    await fireEvent.click(screen.getByRole('menuitem', { name: '行动项' }))
+    expect(screen.getByRole('dialog', { name: '添加行动项' })).toBeInTheDocument()
+  })
+
+  it('loads project actions in the Actions tab', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/actions?project_id=p1&status=open') {
+        return Promise.resolve({ items: [{ id: 'a1', content: '确认范围', status: 'open', priority: 'high', owner_user_id: 'u1', due_date: '2026-07-25', meeting_id: 'm1' }], total: 1 })
+      }
+      return defaultProjectResponse(path)
+    })
+
+    render(ProjectDetailView)
+    await fireEvent.click(await screen.findByRole('tab', { name: '行动项' }))
+    expect(await screen.findByText('确认范围')).toBeInTheDocument()
   })
 
   it('appends a human progress update and reloads authoritative data', async () => {
