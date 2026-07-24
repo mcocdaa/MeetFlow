@@ -15,7 +15,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY backend ./backend
-RUN pip install --no-cache-dir .
+RUN --mount=type=cache,target=/root/.cache/pip pip install .
 
 COPY plugins ./plugins
 COPY scripts ./scripts
