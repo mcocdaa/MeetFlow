@@ -70,3 +70,21 @@ it('applies a confirmed project-progress draft as a project update', async () =>
     method: 'POST', body: JSON.stringify({ edited_markdown: '# 已确认进展' }),
   }))
 })
+
+it('creates only selected action suggestions after confirmation', async () => {
+  apiMock.mockResolvedValueOnce({
+    items: [{
+      id: 'job-3', action_id: 'ai-work-assistant.action_suggestions', target_type: 'meeting', target_id: 'meeting-1',
+      status: 'succeeded', result: { markdown: '- 整理方案\n- 发送纪要', candidates: [{ content: '整理方案' }, { content: '发送纪要' }] },
+      created_at: '2026-07-24T00:00:00Z', started_at: null, finished_at: '2026-07-24T00:01:00Z', error_message: null, applied_at: null,
+    }],
+  }).mockResolvedValueOnce({ created_count: 1 })
+
+  render(AiTasksView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+  await fireEvent.click(await screen.findByRole('checkbox', { name: '发送纪要' }))
+  await fireEvent.click(screen.getByRole('button', { name: '创建选中的行动项' }))
+
+  expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs/job-3/apply', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ selected_indexes: [1] }),
+  }))
+})

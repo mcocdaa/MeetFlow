@@ -57,7 +57,12 @@ async def project_progress(context, payload, config):
 
 async def action_suggestions(context, payload, config):
     draft = await _draft("建议可执行的行动项，使用清晰的 Markdown 列表。", context, payload, config)
-    return {**draft, "candidates": []}
+    candidates = []
+    for line in draft["markdown"].splitlines():
+        text = line.strip().lstrip("-*").strip()
+        if text and not text.startswith("#"):
+            candidates.append({"content": text[:1000]})
+    return {**draft, "candidates": candidates}
 
 
 def register(registry):

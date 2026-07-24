@@ -11,7 +11,7 @@ type PluginJob = {
   target_type: 'meeting' | 'project'
   target_id: string
   status: 'queued' | 'requesting' | 'succeeded' | 'failed' | 'interrupted' | 'canceled'
-  result: { markdown?: string } | null
+  result: { markdown?: string; candidates?: Array<{ content: string }> } | null
   error_message: string | null
   created_at: string
   started_at: string | null
@@ -24,6 +24,7 @@ const loading = ref(true)
 const error = ref('')
 const applying = ref('')
 const drafts = reactive<Record<string, string>>({})
+const selectedIndexes = reactive<Record<string, number[]>>({})
 let poller: ReturnType<typeof setInterval> | undefined
 
 const active = computed(() => jobs.value.some((job) => job.status === 'queued' || job.status === 'requesting'))
@@ -38,7 +39,9 @@ function source(job: PluginJob) {
 }
 
 function draftLabel(job: PluginJob) {
-  return job.action_id === 'ai-work-assistant.project_progress' ? '编辑项目进展草稿' : '编辑会议纪要草稿'
+  if (job.action_id === 'ai-work-assistant.project_progress') return '编辑项目进展草稿'
+  if (job.action_id === 'ai-work-assistant.action_suggestions') return '行动项建议草稿'
+  return '编辑会议纪要草稿'
 }
 
 async function load() {
@@ -47,6 +50,7 @@ async function load() {
     jobs.value = value.items
     for (const job of value.items) {
       if (drafts[job.id] === undefined) drafts[job.id] = job.result?.markdown ?? ''
+      if (selectedIndexes[job.id] === undefined) selectedIndexes[job.id] = []
     }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : 'AI 任务加载失败'
@@ -88,6 +92,22 @@ async function applyProjectProgress(job: PluginJob) {
   }
 }
 
+async function applyActionSuggestions(job: PluginJob) {
+  applying.value = job.id
+  error.value = ''
+  try {
+    await api(`/api/plugin-jobs/${job.id}/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ selected_indexes: selectedIndexes[job.id] }),
+    })
+    await load()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '创建行动项失败'
+  } finally {
+    applying.value = ''
+  }
+}
+
 async function cancel(job: PluginJob) {
   await api(`/api/plugin-jobs/${job.id}/cancel`, { method: 'POST' })
   await load()
@@ -115,12 +135,14 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
         <header class="section-heading"><div><p class="eyebrow">{{ labels[job.action_id] ?? job.action_id }}</p><h2>{{ job.status === 'queued' ? '排队中' : job.status === 'requesting' ? '生成中' : job.status === 'succeeded' ? '已生成草稿' : job.status === 'canceled' ? '已取消' : '未完成' }}</h2></div><RouterLink class="text-link" :to="source(job)">查看来源</RouterLink></header>
         <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>
         <label v-if="job.status === 'succeeded' && job.result?.markdown">{{ draftLabel(job) }}<textarea v-model="drafts[job.id]" rows="10" /></label>
+        <fieldset v-if="job.action_id === 'ai-work-assistant.action_suggestions' && job.result?.candidates?.length" class="mini-fields"><legend>选择要创建的行动项</legend><label v-for="(candidate, index) in job.result.candidates" :key="`${job.id}-${index}`"><input v-model="selectedIndexes[job.id]" type="checkbox" :value="index" />{{ candidate.content }}</label></fieldset>
         <p v-if="job.applied_at" class="notice">已应用</p>
         <div class="row-actions">
           <button v-if="job.status === 'queued'" class="button button-quiet" @click="cancel(job)">取消任务</button>
           <button v-if="['succeeded', 'failed', 'interrupted', 'canceled'].includes(job.status)" class="button button-quiet" @click="rerun(job)">重新运行</button>
           <button v-if="job.action_id === 'ai-work-assistant.meeting_summary' && job.status === 'succeeded' && !job.applied_at" class="button button-primary" :disabled="applying === job.id" @click="applySummary(job)">{{ applying === job.id ? '应用中…' : '应用到会议纪要' }}</button>
           <button v-if="job.action_id === 'ai-work-assistant.project_progress' && job.status === 'succeeded' && !job.applied_at" class="button button-primary" :disabled="applying === job.id" @click="applyProjectProgress(job)">{{ applying === job.id ? '发布中…' : '发布项目进展' }}</button>
+          <button v-if="job.action_id === 'ai-work-assistant.action_suggestions' && job.status === 'succeeded' && !job.applied_at" class="button button-primary" :disabled="applying === job.id || !selectedIndexes[job.id]?.length" @click="applyActionSuggestions(job)">{{ applying === job.id ? '创建中…' : '创建选中的行动项' }}</button>
         </div>
       </article>
     </section>

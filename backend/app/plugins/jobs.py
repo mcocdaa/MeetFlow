@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.meetings.schemas import MeetingEdit
 from app.meetings.service import MeetingService
+from app.meetings.models import Meeting
+from app.outcomes.schemas import ActionWrite
+from app.outcomes.service import OutcomeService
 from app.projects.schemas import ProjectUpdateWrite
 from app.projects.service import ProjectService
 from app.plugins.context import PluginContextBuilder
@@ -160,6 +163,48 @@ class PluginJobService:
         job.applied_at = datetime.now().astimezone()
         self.session.commit()
         return ProjectService(self.session).serialize_update(update)
+
+    def apply_action_suggestions(
+        self, job: PluginJob, selected_indexes: list[int], actor: User
+    ) -> dict:
+        if job.action_id != "ai-work-assistant.action_suggestions":
+            raise ValueError("job does not produce action suggestions")
+        if job.status != PluginJobStatus.succeeded or job.applied_at is not None:
+            raise ValueError("job cannot be applied")
+        candidates = (job.result_json or {}).get("candidates")
+        if not isinstance(candidates, list):
+            raise ValueError("job has no action candidates")
+        indexes = list(dict.fromkeys(selected_indexes))
+        if not indexes or any(index < 0 or index >= len(candidates) for index in indexes):
+            raise ValueError("invalid candidate selection")
+        selected = [candidates[index] for index in indexes]
+        if any(
+            not isinstance(candidate, dict)
+            or not isinstance(candidate.get("content"), str)
+            or not candidate["content"].strip()
+            for candidate in selected
+        ):
+            raise ValueError("invalid action candidate")
+        meeting = self.session.get(Meeting, job.target_id)
+        if meeting is None or job.target_type != "meeting":
+            raise ValueError("meeting target is missing")
+        for candidate in selected:
+            OutcomeService(self.session).create_action(
+                meeting.project_id,
+                ActionWrite(
+                    project_id=meeting.project_id,
+                    meeting_id=meeting.id,
+                    content=candidate["content"],
+                ),
+                actor,
+            )
+        job = self.session.get(PluginJob, job.id)
+        if job is None or job.applied_at is not None:
+            raise ValueError("job was already applied")
+        job.applied_by = actor.id
+        job.applied_at = datetime.now().astimezone()
+        self.session.commit()
+        return {"created_count": len(selected)}
 
     @staticmethod
     def _json_snapshot(value: dict) -> dict:

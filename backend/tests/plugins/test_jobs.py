@@ -179,3 +179,40 @@ def test_project_progress_is_created_only_after_explicit_confirmation(
     assert response.status_code == 200
     assert response.json()["content_markdown"] == "# 已确认项目进展"
     assert response.json()["source"] == "ai_draft_applied"
+
+
+def test_action_suggestions_create_only_the_selected_candidates(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        job = PluginJob(
+            plugin_id="ai-work-assistant",
+            action_id="ai-work-assistant.action_suggestions",
+            target_type="meeting",
+            target_id=plugin_meeting_id,
+            dedupe_key=f"actions:meeting:{plugin_meeting_id}",
+            status=PluginJobStatus.succeeded,
+            input_json={},
+            context_snapshot={},
+            result_json={
+                "markdown": "- 整理方案\n- 发送纪要",
+                "model": "test-model",
+                "candidates": [{"content": "整理方案"}, {"content": "发送纪要"}],
+            },
+            created_by=actor_id,
+            finished_at=utcnow(),
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    response = plugin_client.post(
+        f"/api/plugin-jobs/{job_id}/apply", json={"selected_indexes": [1]}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["created_count"] == 1
+    actions = plugin_client.get(f"/api/meetings/{plugin_meeting_id}").json()["meeting_actions"]
+    assert [item["content"] for item in actions] == ["发送纪要"]
