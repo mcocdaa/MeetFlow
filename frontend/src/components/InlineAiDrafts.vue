@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<{
   mode: Mode
   participants?: UserRef[]
 }>(), { participants: () => [] })
-const emit = defineEmits<{ applied: []; submitted: [] }>()
+const emit = defineEmits<{ applied: [] }>()
 
 const actionIds: Record<Mode, string[]> = {
   summary: ['ai-work-assistant.meeting_summary'],
@@ -72,8 +72,9 @@ async function reload() {
   error.value = ''
   try {
     const query = new URLSearchParams({ target_type: props.targetType, target_id: props.targetId })
-    const response = await api<{ items: PluginJob[] }>(`/api/plugin-jobs?${query}`)
-    jobs.value = response.items.filter((job) => actionIds[props.mode].includes(job.action_id))
+    const response = await api<{ items?: PluginJob[] }>(`/api/plugin-jobs?${query}`)
+    const items = Array.isArray(response?.items) ? response.items : []
+    jobs.value = items.filter((job) => actionIds[props.mode].includes(job.action_id))
     jobs.value.forEach(initDraft)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : 'AI 草稿加载失败'

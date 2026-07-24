@@ -43,6 +43,12 @@ describe('project workspace', () => {
     expect(screen.getByRole('tab', { name: '动态' })).toBeInTheDocument()
   })
 
+  it('places project progress drafts beside project updates', async () => {
+    render(ProjectDetailView)
+    await screen.findByText('最近进展')
+    expect(screen.getByTestId('project-inline-progress')).toBeInTheDocument()
+  })
+
   it('appends a human progress update and reloads authoritative data', async () => {
     render(ProjectDetailView)
     await screen.findByText('完成后端契约')

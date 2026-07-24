@@ -28,4 +28,11 @@ describe('meeting workspace', () => {
     expect(screen.getByRole('dialog', { name: '准备信息' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '会议准备' })).toBeInTheDocument()
   })
+
+  it('places summary and action AI drafts in the meeting work surface', async () => {
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+    expect(screen.getByTestId('meeting-inline-summary')).toBeInTheDocument()
+    expect(screen.getByTestId('meeting-inline-actions')).toBeInTheDocument()
+  })
 })

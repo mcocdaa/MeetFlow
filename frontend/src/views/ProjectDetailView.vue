@@ -10,6 +10,7 @@ import ContextDrawer from '../components/ContextDrawer.vue'
 import ProjectCreatePanel from '../components/ProjectCreatePanel.vue'
 import AttachmentPanel from '../components/AttachmentPanel.vue'
 import ProjectUpdateComposer from '../components/ProjectUpdateComposer.vue'
+import InlineAiDrafts from '../components/InlineAiDrafts.vue'
 import PluginActionPanel from '../components/PluginActionPanel.vue'
 import type { ProjectDetail, ProjectHealth, ProjectStatus } from '../domain/projects'
 
@@ -23,6 +24,7 @@ const editing = ref(false)
 const saving = ref(false)
 const drawerKind = ref<'meeting' | 'series' | 'decision' | 'action' | ''>('')
 const edit = ref({ name: '', summary: '', status: 'active' as ProjectStatus, health: 'unset' as ProjectHealth, target_date: '' })
+const progressDrafts = ref<{ reload: () => Promise<void> } | null>(null)
 
 const projectId = computed(() => String(route.params.id))
 const projectAttention = computed(() => attention.value.filter((item) => item.project.id === projectId.value))
@@ -87,6 +89,10 @@ function removeProjectAttachment(id: string) {
   project.value.attachments = project.value.attachments.filter((file) => file.id !== id)
 }
 
+function refreshProgressDrafts() {
+  void progressDrafts.value?.reload()
+}
+
 onMounted(load)
 </script>
 
@@ -104,7 +110,7 @@ onMounted(load)
       <nav class="workspace-tabs" aria-label="项目内容"><button v-for="item in tabs" :key="item.id" role="tab" :aria-selected="tab === item.id" @click="tab = item.id">{{ item.label }}</button></nav>
 
       <div v-if="tab === 'overview'" class="project-overview-grid">
-        <section class="workspace-section project-update-section"><div class="section-heading"><div><p class="eyebrow">Latest progress</p><h2>最近进展</h2></div></div><article v-if="latestUpdate" class="latest-update"><MarkdownView :source="latestUpdate.content_markdown" /><p class="attribution">{{ latestUpdate.created_by.display_name }} · {{ new Date(latestUpdate.created_at).toLocaleString('zh-CN') }}</p></article><p v-else class="muted">尚未发布项目进展。</p><ProjectUpdateComposer :project-id="project.id" :health="project.health" @saved="load" /><PluginActionPanel :target-type="'project'" :target-id="project.id" /></section>
+        <section class="workspace-section project-update-section"><div class="section-heading"><div><p class="eyebrow">Latest progress</p><h2>最近进展</h2></div></div><article v-if="latestUpdate" class="latest-update"><MarkdownView :source="latestUpdate.content_markdown" /><p class="attribution">{{ latestUpdate.created_by.display_name }} · {{ new Date(latestUpdate.created_at).toLocaleString('zh-CN') }}</p></article><p v-else class="muted">尚未发布项目进展。</p><ProjectUpdateComposer :project-id="project.id" :health="project.health" @saved="load" /><section data-testid="project-inline-progress"><InlineAiDrafts ref="progressDrafts" target-type="project" :target-id="project.id" mode="progress" @applied="load" /></section><PluginActionPanel :target-type="'project'" :target-id="project.id" @submitted="refreshProgressDrafts" /></section>
         <section class="workspace-section"><div class="section-heading"><h2>需要关注</h2><span class="metric"><strong>{{ projectAttention.length }}</strong> 项</span></div><RouterLink v-for="item in projectAttention.slice(0, 5)" :key="item.subject_id" class="compact-row" :to="item.subject_type === 'meeting' ? `/meetings/${item.subject_id}` : `/${item.subject_type}s?highlight=${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.reasons.join(' · ') }}</span></RouterLink><p v-if="!projectAttention.length" class="muted">当前项目没有需要你立即处理的事项。</p></section>
         <section class="workspace-section"><div class="section-heading"><h2>下一次会议</h2><button class="button button-small button-primary" @click="drawerKind = 'meeting'">添加会议</button></div><RouterLink v-if="project.next_meeting" class="next-meeting-card" :to="`/meetings/${project.next_meeting.id}`"><strong>{{ project.next_meeting.title }}</strong><time>{{ new Date(project.next_meeting.scheduled_start).toLocaleString('zh-CN') }}</time><span>进入会议 →</span></RouterLink><p v-else class="muted">暂未安排下一次会议。</p></section>
         <section class="workspace-section"><div class="section-heading"><h2>最近决策</h2><div class="row-actions"><button class="button button-small button-primary" @click="drawerKind = 'decision'">添加决策</button><RouterLink class="text-link" :to="`/decisions?project_id=${project.id}`">全部</RouterLink></div></div><RouterLink v-for="decision in project.recent_decisions.slice(0, 5)" :key="decision.id" class="compact-row" :to="`/decisions?highlight=${decision.id}`"><strong>{{ decision.title }}</strong><span>{{ decision.status }}</span></RouterLink><p v-if="!project.recent_decisions.length" class="muted">尚未形成项目决策。</p></section>

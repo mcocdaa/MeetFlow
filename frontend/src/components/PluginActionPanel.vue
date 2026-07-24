@@ -13,6 +13,7 @@ type PluginAction = {
 }
 
 const props = defineProps<{ targetType: 'meeting' | 'project'; targetId: string }>()
+const emit = defineEmits<{ submitted: [] }>()
 const actions = ref<PluginAction[]>([])
 const inputs = reactive<Record<string, Record<string, unknown>>>({})
 const running = ref('')
@@ -70,7 +71,8 @@ async function run(action: PluginAction) {
         input: payload,
       }),
     })
-    notice.value = '任务已加入 AI 任务中心'
+    notice.value = 'AI 正在生成草稿；完成后会显示在当前页面。'
+    emit('submitted')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : 'AI 任务创建失败'
   } finally {
