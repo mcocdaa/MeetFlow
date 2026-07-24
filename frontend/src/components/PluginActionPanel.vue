@@ -25,7 +25,8 @@ const visibleActions = computed(() => actions.value.filter((action) =>
 
 onMounted(async () => {
   try {
-    actions.value = (await api<PluginAction[]>('/api/plugins/actions')) ?? []
+    const response = await api<PluginAction[]>('/api/plugins/actions')
+    actions.value = Array.isArray(response) ? response : []
     for (const action of actions.value) {
       inputs[action.action_id] = {}
       for (const [key, schema] of Object.entries(action.input_schema?.properties ?? {})) {
