@@ -19,7 +19,7 @@ from app.outcomes.models import (
     OpenQuestion,
     OutcomeMigrationRecord,
 )
-from app.plugins.models import PluginConfig, PluginState
+from app.plugins.models import PluginConfig, PluginJob, PluginState
 from app.projects.models import Project, ProjectMember, ProjectUpdate
 
 __all__ = [
@@ -40,6 +40,7 @@ __all__ = [
     "OpenQuestion",
     "OutcomeMigrationRecord",
     "PluginConfig",
+    "PluginJob",
     "PluginState",
     "Project",
     "ProjectMember",
