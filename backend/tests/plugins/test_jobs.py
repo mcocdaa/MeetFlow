@@ -1,6 +1,29 @@
+from app.auth.models import User
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJobStatus
 from app.plugins.worker import PluginJobWorker
+
+
+def test_meeting_context_exposes_attachment_metadata_but_never_content(
+    plugin_client, plugin_meeting_id
+):
+    from app.plugins.context import PluginContextBuilder
+
+    uploaded = plugin_client.post(
+        f"/api/attachments/meeting/{plugin_meeting_id}",
+        files={"file": ("architecture.png", b"private attachment bytes", "image/png")},
+    )
+    assert uploaded.status_code == 201
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+
+    with plugin_client.app.state.database.session() as session:
+        context = PluginContextBuilder(session).meeting(
+            plugin_meeting_id, session.get(User, actor_id)
+        )
+
+    assert context["attachments"][0]["original_name"] == "architecture.png"
+    assert "content" not in context["attachments"][0]
+    assert "stored_name" not in context["attachments"][0]
 
 
 def test_same_active_action_returns_existing_job(

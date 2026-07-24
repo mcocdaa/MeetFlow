@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.meetings.service import MeetingService
+from app.plugins.context import PluginContextBuilder
 from app.plugins.manager import PluginManager
 from app.plugins.models import PluginJob, PluginJobStatus
 
@@ -23,14 +23,14 @@ class PluginJobService:
         input_json: dict,
         actor_id: str,
     ) -> tuple[PluginJob, bool]:
-        if target_type != "meeting":
-            raise ValueError("unsupported plugin target")
         action = next(
             (item for item in self.manager.loaded_actions() if item.action_id == action_id),
             None,
         )
         if action is None:
             raise KeyError(action_id)
+        if target_type not in action.target_types:
+            raise ValueError("unsupported plugin target")
         actor = self.session.get(User, actor_id)
         if actor is None:
             raise KeyError(actor_id)
@@ -43,9 +43,14 @@ class PluginJobService:
         )
         if existing is not None:
             return existing, False
-        context = self._json_snapshot(
-            MeetingService(self.session).plugin_context(target_id, actor)
-        )
+        context_builder = PluginContextBuilder(self.session)
+        if target_type == "meeting":
+            context = context_builder.meeting(target_id, actor)
+        elif target_type == "project":
+            context = context_builder.project(target_id, actor)
+        else:
+            raise ValueError("unsupported plugin target")
+        context = self._json_snapshot(context)
         job = PluginJob(
             plugin_id=action_id.split(".", 1)[0],
             action_id=action_id,
