@@ -53,6 +53,9 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: meetflow:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Smoke direct Docker run
+        run: bash scripts/ci-container-smoke.sh meetflow:ci

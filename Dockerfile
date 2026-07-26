@@ -10,6 +10,9 @@ RUN npm run build
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    DATABASE_URL=sqlite:////app/data/meetflow.db \
+    DATA_DIR=/app/data \
+    PLUGINS_DIR=/app/plugins \
     FRONTEND_DIST=/app/frontend-dist
 WORKDIR /app
 
