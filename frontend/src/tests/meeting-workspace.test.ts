@@ -29,6 +29,15 @@ const meeting = {
   attachments: [], created_by: user, updated_by: user, created_at: '', updated_at: '',
 } as any
 
+function meetingFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    ...meeting,
+    ...overrides,
+    agenda_items: overrides.agenda_items ?? meeting.agenda_items.map((item: any) => ({ ...item })),
+    attachments: overrides.attachments ?? [],
+  }
+}
+
 describe('meeting workspace', () => {
   beforeEach(() => { apiMock.mockReset(); apiMock.mockResolvedValue(meeting) })
 
@@ -62,5 +71,78 @@ describe('meeting workspace', () => {
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({
       method: 'PUT', body: expect.stringContaining('"summary_markdown":"# AI 生成纪要"'),
     })))
+  })
+
+  it('saves dirty agenda and meeting drafts before starting with refreshed meeting version', async () => {
+    const initial = meetingFixture({ version: 2 })
+    const savedAgenda = { ...initial.agenda_items[0], title: '发布方案已确认', version: 2 }
+    const refreshed = meetingFixture({ version: 3, agenda_items: [savedAgenda] })
+    const savedMeeting = meetingFixture({ version: 4, title: '迭代评审已确认', agenda_items: [savedAgenda] })
+    const started = meetingFixture({ version: 5, status: 'in_progress', title: '迭代评审已确认', agenda_items: [savedAgenda] })
+    apiMock
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(savedAgenda)
+      .mockResolvedValueOnce(refreshed)
+      .mockResolvedValueOnce(savedMeeting)
+      .mockResolvedValueOnce(started)
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.update(screen.getByLabelText('议题标题'), '发布方案已确认')
+    await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
+    await fireEvent.update(screen.getByLabelText('会议标题'), '迭代评审已确认')
+    await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(5))
+    expect(apiMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/meetings/m1',
+      '/api/agenda-items/a1',
+      '/api/meetings/m1',
+      '/api/meetings/m1',
+      '/api/meetings/m1/start',
+    ])
+    expect(JSON.parse(apiMock.mock.calls[1][1].body)).toMatchObject({ expected_version: 1, title: '发布方案已确认' })
+    expect(JSON.parse(apiMock.mock.calls[3][1].body)).toMatchObject({ expected_version: 3, title: '迭代评审已确认' })
+    expect(JSON.parse(apiMock.mock.calls[4][1].body)).toEqual({ expected_version: 4 })
+  })
+
+  it('does not post a lifecycle action when a dirty agenda draft cannot be saved', async () => {
+    apiMock.mockResolvedValueOnce(meetingFixture()).mockRejectedValueOnce(new Error('议题保存失败'))
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.update(screen.getByLabelText('议题标题'), '无法保存的议题')
+    await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1', expect.objectContaining({ method: 'PUT' })))
+    expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1/start', expect.anything())
+    expect(screen.getByLabelText('议题标题')).toHaveValue('无法保存的议题')
+  })
+
+  it('does not post a lifecycle action when a dirty meeting draft cannot be saved', async () => {
+    apiMock.mockResolvedValueOnce(meetingFixture()).mockRejectedValueOnce(new Error('会议保存失败'))
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
+    await fireEvent.update(screen.getByLabelText('会议标题'), '无法保存的会议')
+    await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' })))
+    expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1/start', expect.anything())
+    expect(screen.getByLabelText('会议标题')).toHaveValue('无法保存的会议')
+  })
+
+  it('posts a clean lifecycle action without refreshing or saving drafts', async () => {
+    const started = meetingFixture({ version: 3, status: 'in_progress' })
+    apiMock.mockResolvedValueOnce(meetingFixture()).mockResolvedValueOnce(started)
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
+    expect(apiMock.mock.calls.map(([path]) => path)).toEqual(['/api/meetings/m1', '/api/meetings/m1/start'])
+    expect(apiMock.mock.calls[1][1]).toEqual({ method: 'POST', body: JSON.stringify({ expected_version: 2 }) })
   })
 })
