@@ -35,7 +35,7 @@ async function submit() {
 <template>
   <form class="project-update-composer" @submit.prevent="submit">
     <div class="composer-heading"><div><p class="eyebrow">Progress update</p><h3>追加项目进展</h3></div><label>健康度<select v-model="health"><option value="on_track">进展正常</option><option value="at_risk">存在风险</option><option value="off_track">偏离计划</option><option value="unset">未设置</option></select></label></div>
-    <PluginEditorSlot v-model="content" data-testid="project-update-editor" target-type="project" :target-id="projectId" slot="project-update-editor" :metadata="{ projectId }" @notice="error = $event">
+    <PluginEditorSlot editor-label="进展记录" v-model="content" data-testid="project-update-editor" target-type="project" :target-id="projectId" slot="project-update-editor" :metadata="{ projectId }" @notice="error = $event">
       <template #editor="{ disabled }"><MarkdownEditor v-model="content" label="进展记录" placeholder="用 Markdown 记录本次进展、风险或下一步…" :disabled="saving || disabled" /></template>
     </PluginEditorSlot>
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>

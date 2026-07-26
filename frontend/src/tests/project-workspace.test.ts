@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { defineComponent } from 'vue'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import { session } from '../auth/session'
+import { registerEditorAssistant } from '../plugins/registry'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -28,6 +30,10 @@ const project = {
   meeting_count: 4, decision_count: 2, open_action_count: 3, series_summaries: [], attachments: [],
   created_by: { id: 'u1', username: 'lin', display_name: '林宇' }, updated_by: { id: 'u1', username: 'lin', display_name: '林宇' }, created_at: '', updated_at: '',
 }
+
+const ProjectUpdateAssistant = defineComponent({
+  template: '<button type="button">AI 提示</button>',
+})
 
 function defaultProjectResponse(path: string) {
   if (path === '/api/projects/p1') return Promise.resolve(project)
@@ -55,10 +61,15 @@ describe('project workspace', () => {
   })
 
   it('keeps project progress editing with its AI assistance in Activity', async () => {
+    registerEditorAssistant('project-update-editor', ProjectUpdateAssistant)
     render(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('tab', { name: '动态' }))
     expect(screen.getByLabelText('进展记录')).toBeInTheDocument()
-    expect(screen.getByTestId('project-update-editor')).toContainElement(screen.getByLabelText('进展记录'))
+    const updateEditor = screen.getByTestId('project-update-editor')
+    expect(updateEditor).toContainElement(screen.getByLabelText('进展记录'))
+    expect(within(updateEditor).getByText('进展记录')).toBeVisible()
+    await fireEvent.click(within(updateEditor).getByRole('button', { name: 'AI 工具' }))
+    expect(within(updateEditor).getByRole('button', { name: 'AI 提示' })).toBeVisible()
     expect(screen.queryByTestId('project-inline-progress')).not.toBeInTheDocument()
   })
 

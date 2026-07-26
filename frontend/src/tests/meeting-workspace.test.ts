@@ -1,5 +1,5 @@
 import { defineComponent } from 'vue'
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
@@ -46,7 +46,10 @@ describe('meeting workspace', () => {
     registerEditorAssistant('meeting-summary-editor', SummaryAssistant)
     render(MeetingWorkspaceView)
     await screen.findByText('Current topic')
-    expect(screen.getByTestId('meeting-summary-editor')).toContainElement(screen.getByLabelText('会议纪要'))
+    const summaryEditor = screen.getByTestId('meeting-summary-editor')
+    expect(summaryEditor).toContainElement(screen.getByLabelText('会议纪要'))
+    expect(within(summaryEditor).getByText('会议纪要')).toBeVisible()
+    await fireEvent.click(within(summaryEditor).getByRole('button', { name: 'AI 工具' }))
     expect(screen.queryByTestId('meeting-inline-summary')).not.toBeInTheDocument()
     expect(screen.queryByTestId('meeting-inline-actions')).not.toBeInTheDocument()
 

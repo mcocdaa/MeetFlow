@@ -112,6 +112,7 @@ onMounted(load)
         <section class="workspace-section meeting-summary-section">
           <header class="section-heading"><div><p class="eyebrow">Summary</p><h2>会议纪要</h2></div></header>
           <PluginEditorSlot
+            editor-label="会议纪要"
             v-model="draft.summary_markdown"
             data-testid="meeting-summary-editor"
             target-type="meeting"
