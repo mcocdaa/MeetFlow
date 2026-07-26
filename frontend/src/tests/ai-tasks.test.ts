@@ -37,6 +37,7 @@ it('keeps base task errors when no task extension is registered', async () => {
 
   render(AiTasksView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
   expect(await screen.findByText('AI 服务额度不足；请充值或更换有可用额度的 API Key。')).toBeInTheDocument()
+  expect(screen.getByText('unregistered-plugin · ai-work-assistant.project_progress')).toBeInTheDocument()
   const detail = await screen.findByText(/Insufficient Balance/)
   const disclosure = detail.closest('details')
 

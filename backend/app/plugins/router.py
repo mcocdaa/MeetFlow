@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import date
 from typing import Any, Literal
 
 from fastapi import (
@@ -47,23 +46,6 @@ class JobSubmitRequest(BaseModel):
     target_type: str = Field(min_length=3, max_length=40)
     target_id: str = Field(min_length=1, max_length=36)
     input: dict[str, Any] = Field(default_factory=dict)
-
-
-class JobApplyRequest(BaseModel):
-    edited_markdown: str | None = Field(default=None, min_length=1, max_length=100_000)
-    expected_version: int | None = Field(default=None, ge=1)
-    selected_indexes: list[int] = Field(default_factory=list, max_length=100)
-    candidates: list["AppliedActionCandidate"] = Field(
-        default_factory=list, max_length=100
-    )
-
-
-class AppliedActionCandidate(BaseModel):
-    index: int = Field(ge=0)
-    content: str = Field(min_length=1, max_length=1000)
-    owner_user_id: str | None = Field(default=None, max_length=64)
-    due_date: date | None = None
-    priority: Literal["low", "normal", "high", "urgent"] = "normal"
 
 
 def serialize_job(job: PluginJob) -> dict[str, Any]:
@@ -292,35 +274,14 @@ def rerun_job(
 @jobs_router.post("/{job_id}/apply")
 def apply_job(
     job_id: str,
-    payload: JobApplyRequest,
+    request: Request,
+    payload: dict[str, Any] = Body(default_factory=dict),
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     job = get_accessible_job(session, job_id, user)
     try:
-        service = PluginJobService(session, None)
-        if job.action_id == "ai-work-assistant.meeting_summary":
-            if payload.expected_version is None or payload.edited_markdown is None:
-                raise ValueError("meeting summary apply requires a version")
-            return service.apply_meeting_summary(
-                job, payload.edited_markdown, payload.expected_version, user
-            )
-        if job.action_id == "ai-work-assistant.project_progress":
-            if payload.edited_markdown is None:
-                raise ValueError("project progress apply requires markdown")
-            return service.apply_project_progress(job, payload.edited_markdown, user)
-        if job.action_id == "ai-work-assistant.action_suggestions":
-            candidates = [item.model_dump() for item in payload.candidates]
-            if not candidates:
-                stored = (job.result_json or {}).get("candidates")
-                if isinstance(stored, list):
-                    candidates = [
-                        {"index": index, **stored[index]}
-                        for index in payload.selected_indexes
-                        if 0 <= index < len(stored) and isinstance(stored[index], dict)
-                    ]
-            return service.apply_action_suggestions(job, candidates, user)
-        raise ValueError("job has no applicable draft")
+        return request.app.state.plugin_manager.apply(job, payload, user, session)
     except ValueError as exc:
         raise AppError(409, "plugin_job_not_applicable", "当前 AI 草稿无法应用") from exc
 

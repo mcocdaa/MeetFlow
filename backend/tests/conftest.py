@@ -152,9 +152,34 @@ def register(registry):
 
 
 @pytest.fixture
-def plugin_meeting_id(plugin_client):
-    user = plugin_client.get("/api/auth/me").json()
-    project = plugin_client.post(
+def ai_plugin_client(settings, plugin_factory):
+    plugin_root = (
+        Path(__file__).resolve().parents[2] / "plugins" / "ai-work-assistant"
+    )
+    plugin_factory(
+        "ai-work-assistant",
+        manifest=yaml.safe_load(
+            (plugin_root / "plugin.yaml").read_text(encoding="utf-8")
+        ),
+        backend=(plugin_root / "backend.py").read_text(encoding="utf-8"),
+        enabled=True,
+    )
+    app = create_app(settings)
+    with TestClient(app) as test_client:
+        login = test_client.post(
+            "/api/auth/login",
+            json={
+                "username": "admin",
+                "password": "correct-horse-battery",
+            },
+        )
+        assert login.status_code == 200
+        yield test_client
+
+
+def create_plugin_meeting(test_client: TestClient) -> str:
+    user = test_client.get("/api/auth/me").json()
+    project = test_client.post(
         "/api/projects",
         json={
             "name": "Plugin project",
@@ -164,7 +189,7 @@ def plugin_meeting_id(plugin_client):
             "member_ids": [user["id"]],
         },
     ).json()
-    response = plugin_client.post(
+    response = test_client.post(
         f"/api/projects/{project['id']}/meetings",
         json={
             "title": "Plugin meeting",
@@ -177,3 +202,13 @@ def plugin_meeting_id(plugin_client):
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+@pytest.fixture
+def plugin_meeting_id(plugin_client):
+    return create_plugin_meeting(plugin_client)
+
+
+@pytest.fixture
+def ai_plugin_meeting_id(ai_plugin_client):
+    return create_plugin_meeting(ai_plugin_client)

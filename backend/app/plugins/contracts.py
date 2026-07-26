@@ -1,9 +1,15 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.auth.models import User
+    from app.plugins.models import PluginJob
 
 
 class ConfigField(BaseModel):
@@ -41,6 +47,9 @@ Handler = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]],
     Awaitable[dict[str, Any]],
 ]
+ApplyHandler = Callable[
+    ["PluginJob", dict[str, Any], "User", "Session"], dict[str, Any]
+]
 
 
 @dataclass
@@ -52,6 +61,7 @@ class MeetingAction:
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     handler: Handler
+    apply_handler: ApplyHandler | None = None
     target_types: tuple[str, ...] = ("meeting",)
 
 

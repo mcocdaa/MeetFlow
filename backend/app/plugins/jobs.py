@@ -6,13 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.meetings.schemas import MeetingEdit
-from app.meetings.service import MeetingService
-from app.meetings.models import Meeting
-from app.outcomes.schemas import ActionWrite
-from app.outcomes.service import OutcomeService
-from app.projects.schemas import ProjectUpdateWrite
-from app.projects.service import ProjectService
 from app.plugins.context import PluginContextBuilder
 from app.plugins.manager import PluginManager
 from app.plugins.models import PluginJob, PluginJobStatus
@@ -128,109 +121,6 @@ class PluginJobService:
             self.session.commit()
             self.session.refresh(rerun)
         return rerun
-
-    def apply_meeting_summary(
-        self,
-        job: PluginJob,
-        edited_markdown: str,
-        expected_version: int,
-        actor: User,
-    ) -> dict:
-        if job.action_id != "ai-work-assistant.meeting_summary":
-            raise ValueError("job does not produce a meeting summary")
-        if job.status != PluginJobStatus.succeeded:
-            raise ValueError("only succeeded jobs can be applied")
-        if job.applied_at is not None:
-            raise ValueError("job was already applied")
-        meeting = MeetingService(self.session).update_meeting(
-            job.target_id,
-            MeetingEdit(
-                expected_version=expected_version,
-                summary_markdown=edited_markdown,
-            ),
-            actor,
-        )
-        job = self.session.get(PluginJob, job.id)
-        if job is None or job.applied_at is not None:
-            raise ValueError("job was already applied")
-        job.applied_by = actor.id
-        job.applied_at = datetime.now().astimezone()
-        self.session.commit()
-        return MeetingService(self.session).serialize_meeting(meeting)
-
-    def apply_project_progress(
-        self, job: PluginJob, edited_markdown: str, actor: User
-    ) -> dict:
-        if job.action_id != "ai-work-assistant.project_progress":
-            raise ValueError("job does not produce a project progress update")
-        if job.status != PluginJobStatus.succeeded:
-            raise ValueError("only succeeded jobs can be applied")
-        if job.applied_at is not None:
-            raise ValueError("job was already applied")
-        update = ProjectService(self.session).create_update(
-            job.target_id,
-            ProjectUpdateWrite(
-                content_markdown=edited_markdown,
-                source="ai_draft_applied",
-            ),
-            actor,
-        )
-        job = self.session.get(PluginJob, job.id)
-        if job is None or job.applied_at is not None:
-            raise ValueError("job was already applied")
-        job.applied_by = actor.id
-        job.applied_at = datetime.now().astimezone()
-        self.session.commit()
-        return ProjectService(self.session).serialize_update(update)
-
-    def apply_action_suggestions(
-        self, job: PluginJob, candidates: list[dict], actor: User
-    ) -> dict:
-        if job.action_id != "ai-work-assistant.action_suggestions":
-            raise ValueError("job does not produce action suggestions")
-        if job.status != PluginJobStatus.succeeded or job.applied_at is not None:
-            raise ValueError("job cannot be applied")
-        stored_candidates = (job.result_json or {}).get("candidates")
-        if not isinstance(stored_candidates, list):
-            raise ValueError("job has no action candidates")
-        selected_by_index = {
-            candidate.get("index"): candidate
-            for candidate in candidates
-            if isinstance(candidate, dict) and isinstance(candidate.get("index"), int)
-        }
-        if not selected_by_index or any(
-            index < 0 or index >= len(stored_candidates) for index in selected_by_index
-        ):
-            raise ValueError("invalid candidate selection")
-        if any(
-            not isinstance(candidate.get("content"), str)
-            or not candidate["content"].strip()
-            for candidate in selected_by_index.values()
-        ):
-            raise ValueError("invalid action candidate")
-        meeting = self.session.get(Meeting, job.target_id)
-        if meeting is None or job.target_type != "meeting":
-            raise ValueError("meeting target is missing")
-        for candidate in selected_by_index.values():
-            OutcomeService(self.session).create_action(
-                meeting.project_id,
-                ActionWrite(
-                    project_id=meeting.project_id,
-                    meeting_id=meeting.id,
-                    content=candidate["content"],
-                    owner_user_id=candidate.get("owner_user_id"),
-                    due_date=candidate.get("due_date"),
-                    priority=candidate.get("priority", "normal"),
-                ),
-                actor,
-            )
-        job = self.session.get(PluginJob, job.id)
-        if job is None or job.applied_at is not None:
-            raise ValueError("job was already applied")
-        job.applied_by = actor.id
-        job.applied_at = datetime.now().astimezone()
-        self.session.commit()
-        return {"created_count": len(selected_by_index)}
 
     @staticmethod
     def _json_snapshot(value: dict) -> dict:

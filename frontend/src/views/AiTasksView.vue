@@ -13,14 +13,18 @@ const error = ref('')
 let poller: ReturnType<typeof setInterval> | undefined
 
 const active = computed(() => jobs.value.some((job) => job.status === 'queued' || job.status === 'requesting'))
-const labels: Record<string, string> = {
-  'ai-work-assistant.meeting_summary': '会议纪要',
-  'ai-work-assistant.project_progress': '项目进展',
-  'ai-work-assistant.action_suggestions': '行动项建议',
-}
-
 function source(job: PluginJob) {
   return job.target_type === 'meeting' ? `/meetings/${job.target_id}` : `/projects/${job.target_id}`
+}
+
+function statusLabel(job: PluginJob) {
+  if (job.dismissed_at) return '已丢弃草稿'
+  if (job.applied_at) return '已应用'
+  if (job.status === 'queued') return '排队中'
+  if (job.status === 'requesting') return '生成中'
+  if (job.status === 'succeeded') return '已生成草稿'
+  if (job.status === 'canceled') return '已取消'
+  return '未完成'
 }
 
 async function load() {
@@ -58,7 +62,15 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
     <p v-if="loading" class="empty-state">正在加载 AI 任务…</p>
     <section v-else-if="jobs.length" class="task-list">
       <article v-for="job in jobs" :key="job.id" class="workspace-section ai-task-card">
-        <header class="section-heading"><div><p class="eyebrow">{{ labels[job.action_id] ?? job.action_id }}</p><h2>{{ job.dismissed_at ? '已丢弃草稿' : job.applied_at ? '已应用' : job.status === 'queued' ? '排队中' : job.status === 'requesting' ? '生成中' : job.status === 'succeeded' ? '已生成草稿' : job.status === 'canceled' ? '已取消' : '未完成' }}</h2></div><RouterLink class="text-link" :to="source(job)">回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}处理草稿</RouterLink></header>
+        <header class="section-heading">
+          <div>
+            <p class="eyebrow">{{ job.plugin_id }} · {{ job.action_id }}</p>
+            <h2>{{ statusLabel(job) }}</h2>
+          </div>
+          <RouterLink class="text-link" :to="source(job)">
+            回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}处理草稿
+          </RouterLink>
+        </header>
         <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>
         <details v-if="job.error_detail" class="task-error-detail"><summary>查看技术详情</summary><pre>{{ job.error_detail }}</pre></details>
         <PluginTaskExtension :job="job" />

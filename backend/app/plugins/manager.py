@@ -1,8 +1,10 @@
 import importlib.util
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -11,7 +13,7 @@ from jsonschema import validate
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.models import UserRole
+from app.auth.models import User, UserRole
 from app.database import Database
 from app.plugins.contracts import (
     MeetingAction,
@@ -20,7 +22,7 @@ from app.plugins.contracts import (
     PluginManifest,
     PluginRegistry,
 )
-from app.plugins.models import PluginConfig, PluginState
+from app.plugins.models import PluginConfig, PluginJob, PluginJobStatus, PluginState
 from app.plugins.secrets import SecretBox
 
 
@@ -407,4 +409,22 @@ class PluginManager:
             validate(instance=result, schema=action.output_schema)
         except JsonSchemaValidationError as exc:
             raise PluginOutputError("plugin output schema rejected result") from exc
+        return result
+
+    def apply(
+        self,
+        job: PluginJob,
+        payload: dict[str, Any],
+        actor: User,
+        session: Session,
+    ) -> dict[str, Any]:
+        action = self._actions.get(job.action_id)
+        if action is None or action.apply_handler is None:
+            raise ValueError("plugin action has no apply handler")
+        if job.status != PluginJobStatus.succeeded or job.applied_at is not None:
+            raise ValueError("plugin job cannot be applied")
+        result = action.apply_handler(job, payload, actor, session)
+        job.applied_by = actor.id
+        job.applied_at = datetime.now().astimezone()
+        session.commit()
         return result
