@@ -72,7 +72,7 @@ async function flow(action: 'start' | 'skip' | 'complete') {
   saving.value = true
   error.value = ''
   try {
-    await api(`/api/agenda-items/${props.item.id}/${action}`, { method: 'POST', body: JSON.stringify({ expected_version: props.item.version }) })
+    await api(`/api/agenda-items/${props.item.id}/${action}`, { method: 'POST', body: JSON.stringify({ expected_version: currentVersion.value }) })
     if (action === 'complete' || action === 'skip') emit('advance')
     else emit('changed')
   } catch (caught) {

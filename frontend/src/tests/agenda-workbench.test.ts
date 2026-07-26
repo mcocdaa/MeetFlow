@@ -153,6 +153,24 @@ describe('agenda workbench', () => {
     expect(apiMock).toHaveBeenCalledTimes(1)
   })
 
+  it('uses the accepted version when an agenda flow follows a manual save', async () => {
+    const item = meetingFixture().agenda_items[1]
+    const changed = vi.fn()
+    apiMock
+      .mockResolvedValueOnce({ ...item, title: '发布方案已确认', version: 2 })
+      .mockResolvedValueOnce({})
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item }, attrs: { onChanged: changed } })
+
+    await fireEvent.update(screen.getByLabelText('议题标题'), '发布方案已确认')
+    await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1))
+    await fireEvent.click(screen.getByRole('button', { name: '开始此议题' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a2/start', {
+      method: 'POST', body: JSON.stringify({ expected_version: 2 }),
+    }))
+  })
+
   it('sends the full ordered id list once after drop', async () => {
     render(AgendaQueue, { props: { meeting: meetingFixture() } })
     await fireEvent.dragStart(screen.getByTestId('agenda-row-a2'))
