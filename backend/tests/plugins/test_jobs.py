@@ -1,3 +1,5 @@
+import pytest
+
 from app.meetings.models import utcnow
 from app.auth.models import User
 from app.plugins.jobs import PluginJobService
@@ -297,7 +299,44 @@ def test_dismissed_and_applied_jobs_are_history_not_pending_drafts(
     }
 
 
-def test_only_succeeded_unapplied_job_can_be_dismissed(plugin_client, plugin_meeting_id):
+@pytest.mark.parametrize(
+    "status",
+    [
+        PluginJobStatus.succeeded,
+        PluginJobStatus.failed,
+        PluginJobStatus.interrupted,
+        PluginJobStatus.canceled,
+    ],
+)
+def test_unapplied_terminal_job_can_be_dismissed(
+    plugin_client, plugin_meeting_id, status
+):
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        job = PluginJob(
+            plugin_id="test-ai",
+            action_id="test-ai.summarize",
+            target_type="meeting",
+            target_id=plugin_meeting_id,
+            dedupe_key=f"dismiss-{status.value}:{plugin_meeting_id}",
+            status=status,
+            input_json={},
+            context_snapshot={},
+            created_by=actor_id,
+            finished_at=utcnow(),
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    response = plugin_client.post(f"/api/plugin-jobs/{job_id}/dismiss")
+
+    assert response.status_code == 200
+    assert response.json()["dismissed_by"] == actor_id
+
+
+def test_queued_job_cannot_be_dismissed(plugin_client, plugin_meeting_id):
     created = plugin_client.post(
         "/api/plugin-jobs",
         json={

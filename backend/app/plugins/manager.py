@@ -64,6 +64,61 @@ class PluginManager:
     def descriptors(self) -> list[PluginDescriptor]:
         return list(self._descriptors.values())
 
+    @staticmethod
+    def _frontend_root(descriptor: PluginDescriptor) -> Path | None:
+        frontend_root = (descriptor.path / "frontend").resolve()
+        if (
+            not frontend_root.is_dir()
+            or descriptor.path not in frontend_root.parents
+        ):
+            return None
+        return frontend_root
+
+    @classmethod
+    def _frontend_entry(cls, descriptor: PluginDescriptor) -> Path | None:
+        if not descriptor.manifest.frontend_entry:
+            return None
+        frontend_root = cls._frontend_root(descriptor)
+        if frontend_root is None:
+            return None
+        entry_path = (descriptor.path / descriptor.manifest.frontend_entry).resolve()
+        if frontend_root not in entry_path.parents or not entry_path.is_file():
+            return None
+        return entry_path
+
+    def frontend_modules(self) -> list[dict[str, str]]:
+        modules = []
+        for descriptor in self._loaded_descriptors.values():
+            if not descriptor.enabled:
+                continue
+            entry_path = self._frontend_entry(descriptor)
+            frontend_root = self._frontend_root(descriptor)
+            if entry_path is None or frontend_root is None:
+                continue
+            relative_entry = entry_path.relative_to(frontend_root).as_posix()
+            modules.append(
+                {
+                    "plugin_id": descriptor.plugin_id,
+                    "entry_url": (
+                        f"/api/plugins/{descriptor.plugin_id}/frontend/"
+                        f"{relative_entry}"
+                    ),
+                }
+            )
+        return modules
+
+    def frontend_asset(self, plugin_id: str, asset_path: str) -> Path | None:
+        descriptor = self._loaded_descriptors.get(plugin_id)
+        if descriptor is None or not descriptor.enabled:
+            return None
+        frontend_root = self._frontend_root(descriptor)
+        if frontend_root is None:
+            return None
+        resolved_asset = (frontend_root / asset_path).resolve()
+        if frontend_root not in resolved_asset.parents or not resolved_asset.is_file():
+            return None
+        return resolved_asset
+
     def _record_error(self, plugin_id: str, exc: Exception) -> None:
         error_type = (
             "ManifestError" if isinstance(exc, ManifestError) else type(exc).__name__

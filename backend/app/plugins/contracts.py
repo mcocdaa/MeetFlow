@@ -18,6 +18,7 @@ class PluginManifest(BaseModel):
     version: str
     api_version: int
     backend_entry: str = "backend.py"
+    frontend_entry: str | None = Field(default=None, max_length=240)
     description: str = ""
     config_schema: dict[str, list[ConfigField]] = Field(default_factory=dict)
 

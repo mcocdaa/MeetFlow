@@ -3,7 +3,16 @@ import logging
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -165,6 +174,26 @@ def list_actions(
     request: Request, user: User = Depends(current_user)
 ) -> list[dict]:
     return request.app.state.plugin_manager.visible_actions(user.role)
+
+
+@actions_router.get("/frontend-modules")
+def list_frontend_modules(
+    request: Request, _user: User = Depends(current_user)
+) -> dict[str, list[dict[str, str]]]:
+    return {"items": request.app.state.plugin_manager.frontend_modules()}
+
+
+@actions_router.get("/{plugin_id}/frontend/{asset_path:path}")
+def get_frontend_asset(
+    plugin_id: str,
+    asset_path: str,
+    request: Request,
+    _user: User = Depends(current_user),
+) -> FileResponse:
+    asset = request.app.state.plugin_manager.frontend_asset(plugin_id, asset_path)
+    if asset is None:
+        raise HTTPException(status_code=404)
+    return FileResponse(asset)
 
 
 @jobs_router.post("", status_code=status.HTTP_201_CREATED)
