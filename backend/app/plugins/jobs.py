@@ -89,6 +89,19 @@ class PluginJobService:
         self.session.refresh(job)
         return job
 
+    def dismiss(self, job: PluginJob, actor_id: str) -> PluginJob:
+        if (
+            job.status != PluginJobStatus.succeeded
+            or job.applied_at is not None
+            or job.dismissed_at is not None
+        ):
+            raise ValueError("only succeeded unapplied jobs can be dismissed")
+        job.dismissed_by = actor_id
+        job.dismissed_at = datetime.now().astimezone()
+        self.session.commit()
+        self.session.refresh(job)
+        return job
+
     def rerun(self, job: PluginJob, actor_id: str) -> PluginJob:
         if job.status not in {
             PluginJobStatus.succeeded,

@@ -71,6 +71,8 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
         "rerun_of_id": job.rerun_of_id,
         "applied_by": job.applied_by,
         "applied_at": job.applied_at,
+        "dismissed_by": job.dismissed_by,
+        "dismissed_at": job.dismissed_at,
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
@@ -227,6 +229,19 @@ def cancel_job(
         raise AppError(409, "plugin_job_not_cancelable", "当前 AI 任务无法取消") from exc
 
 
+@jobs_router.post("/{job_id}/dismiss")
+def dismiss_job(
+    job_id: str,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    job = get_accessible_job(session, job_id, user)
+    try:
+        return serialize_job(PluginJobService(session, None).dismiss(job, user.id))
+    except ValueError as exc:
+        raise AppError(409, "plugin_job_not_dismissible", "当前 AI 草稿无法丢弃") from exc
+
+
 @jobs_router.post("/{job_id}/rerun", status_code=status.HTTP_201_CREATED)
 def rerun_job(
     job_id: str,
@@ -284,6 +299,7 @@ def apply_job(
 def list_jobs(
     target_type: Literal["meeting", "project"] | None = None,
     target_id: str | None = None,
+    include_history: bool = False,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
@@ -293,6 +309,10 @@ def list_jobs(
     if target_type is not None:
         statement = statement.where(
             PluginJob.target_type == target_type, PluginJob.target_id == target_id
+        )
+    if not include_history:
+        statement = statement.where(
+            PluginJob.applied_at.is_(None), PluginJob.dismissed_at.is_(None)
         )
     jobs = session.scalars(statement.order_by(PluginJob.created_at.desc(), PluginJob.id.desc()))
     return {"items": [serialize_job(job) for job in jobs]}

@@ -240,6 +240,79 @@ def test_list_jobs_can_be_scoped_to_one_meeting(plugin_client, plugin_meeting_id
     ]
 
 
+def test_dismissed_and_applied_jobs_are_history_not_pending_drafts(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        dismissed = PluginJob(
+            plugin_id="ai-work-assistant",
+            action_id="ai-work-assistant.meeting_summary",
+            target_type="meeting",
+            target_id=plugin_meeting_id,
+            dedupe_key=f"dismiss:meeting:{plugin_meeting_id}",
+            status=PluginJobStatus.succeeded,
+            input_json={},
+            context_snapshot={},
+            result_json={"markdown": "# 草稿"},
+            created_by=actor_id,
+            finished_at=utcnow(),
+        )
+        applied = PluginJob(
+            plugin_id="ai-work-assistant",
+            action_id="ai-work-assistant.meeting_summary",
+            target_type="meeting",
+            target_id=plugin_meeting_id,
+            dedupe_key=f"applied:meeting:{plugin_meeting_id}",
+            status=PluginJobStatus.succeeded,
+            input_json={},
+            context_snapshot={},
+            result_json={"markdown": "# 已应用"},
+            created_by=actor_id,
+            applied_by=actor_id,
+            applied_at=utcnow(),
+            finished_at=utcnow(),
+        )
+        session.add_all([dismissed, applied])
+        session.commit()
+        dismissed_id = dismissed.id
+        applied_id = applied.id
+
+    response = plugin_client.post(f"/api/plugin-jobs/{dismissed_id}/dismiss")
+    pending = plugin_client.get(
+        f"/api/plugin-jobs?target_type=meeting&target_id={plugin_meeting_id}"
+    )
+    history = plugin_client.get(
+        f"/api/plugin-jobs?target_type=meeting&target_id={plugin_meeting_id}&include_history=true"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["dismissed_by"] == actor_id
+    assert response.json()["dismissed_at"]
+    assert pending.json()["items"] == []
+    assert {item["id"] for item in history.json()["items"]} == {
+        dismissed_id,
+        applied_id,
+    }
+
+
+def test_only_succeeded_unapplied_job_can_be_dismissed(plugin_client, plugin_meeting_id):
+    created = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "meeting",
+            "target_id": plugin_meeting_id,
+            "input": {},
+        },
+    ).json()
+
+    response = plugin_client.post(f"/api/plugin-jobs/{created['id']}/dismiss")
+
+    assert response.status_code == 409
+
+
 def test_action_suggestions_apply_uses_edited_selected_candidates(
     plugin_client, plugin_meeting_id
 ):
