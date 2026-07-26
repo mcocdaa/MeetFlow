@@ -10,8 +10,9 @@ MIGRATION_RESOURCES = {
     "share/meetflow/alembic.ini",
     "share/meetflow/migrations/env.py",
     "share/meetflow/migrations/script.py.mako",
-    "share/meetflow/migrations/versions/0001_meetflow_1.py",
-    "share/meetflow/migrations/versions/0002_comment_resolution.py",
+} | {
+    f"share/meetflow/migrations/versions/{path.name}"
+    for path in (PROJECT_ROOT / "backend" / "migrations" / "versions").glob("*.py")
 }
 
 
@@ -87,14 +88,18 @@ def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
     )
     database = tmp_path / "installed.db"
     script = """
-from app.database import Database
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from app.database import Database, migration_config_path
 from sqlalchemy import inspect, text
 
 database = Database(%r)
 database.migrate()
 assert %r <= set(inspect(database.engine).get_table_names())
 with database.engine.connect() as connection:
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(
+        Config(migration_config_path())
+    ).get_current_head()
 """ % (
         f"sqlite:///{database}",
         {
