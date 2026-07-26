@@ -82,7 +82,7 @@ function createAssistantComponent(pluginApi, definition) {
       targetId: { type: String, default: '' },
       metadata: { type: Object, default: () => ({}) },
     },
-    emits: ['update:modelValue', 'update:busy', 'notice'],
+    emits: ['draft', 'update:busy', 'notice'],
     setup(props, { emit }) {
       const running = ref(false)
 
@@ -113,7 +113,7 @@ function createAssistantComponent(pluginApi, definition) {
             notice('AI 未返回可用草稿')
             return
           }
-          emit('update:modelValue', job.result.markdown)
+          emit('draft', job.result.markdown)
         } catch (error) {
           notice(failureMessage(error))
         } finally {

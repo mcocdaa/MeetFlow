@@ -46,7 +46,7 @@ it('registers assistants for all editor slots and its task extension', () => {
   expect([...registered.taskExtensions.keys()]).toEqual(['ai-work-assistant'])
 })
 
-it('applies the terminal job markdown exactly once after active polling', async () => {
+it('emits the terminal job markdown as an unapplied draft after active polling', async () => {
   vi.useFakeTimers()
   const registered = registerAssistant()
   registered.apiMock
@@ -67,14 +67,15 @@ it('applies the terminal job markdown exactly once after active polling', async 
     }),
   })
   expect(registered.apiMock).toHaveBeenNthCalledWith(2, '/api/plugin-jobs/job-1')
-  expect(emitted()['update:modelValue']).toEqual([['# 真实 AI 结果']])
+  expect(emitted()['update:modelValue']).toBeUndefined()
+  expect(emitted().draft).toEqual([['# 真实 AI 结果']])
   expect(emitted()['update:busy']).toEqual([
     [{ active: true, label: '正在生成会议纪要…' }],
     [{ active: false, label: '' }],
   ])
 })
 
-it('writes an action suggestion into the existing editable action field', async () => {
+it('emits an action suggestion as an unapplied draft', async () => {
   vi.useFakeTimers()
   const registered = registerAssistant()
   registered.apiMock
@@ -89,14 +90,15 @@ it('writes an action suggestion into the existing editable action field', async 
   await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
   await vi.advanceTimersByTimeAsync(3_000)
 
-  expect(emitted()['update:modelValue']).toEqual([['- 明确负责人并补充截止日期']])
+  expect(emitted()['update:modelValue']).toBeUndefined()
+  expect(emitted().draft).toEqual([['- 明确负责人并补充截止日期']])
   expect(screen.queryByRole('button', { name: /创建所选行动项/ })).not.toBeInTheDocument()
 })
 
 it.each([
   ['decision-composer', 'AI 建议决策', 'decision_suggestions', '采用灰度发布。'],
   ['question-composer', 'AI 梳理开放问题', 'open_question_suggestions', '- 如何确认发布范围？'],
-])('writes %s output directly into the editable outcome field', async (slot, label, actionId, markdown) => {
+])('emits %s output as an unapplied draft', async (slot, label, actionId, markdown) => {
   vi.useFakeTimers()
   const registered = registerAssistant()
   registered.apiMock
@@ -116,7 +118,8 @@ it.each([
       input: { current_markdown: '原有内容' },
     }),
   })
-  expect(emitted()['update:modelValue']).toEqual([[markdown]])
+  expect(emitted()['update:modelValue']).toBeUndefined()
+  expect(emitted().draft).toEqual([[markdown]])
 })
 
 it('does not mutate editor content when a job fails', async () => {
@@ -131,5 +134,6 @@ it('does not mutate editor content when a job fails', async () => {
   await vi.advanceTimersByTimeAsync(3_000)
 
   expect(emitted()['update:modelValue']).toBeUndefined()
+  expect(emitted().draft).toBeUndefined()
   expect(emitted().notice).toEqual([['模型不可用']])
 })

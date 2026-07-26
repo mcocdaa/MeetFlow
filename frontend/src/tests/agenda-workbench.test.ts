@@ -1,5 +1,5 @@
 import { defineComponent, ref } from 'vue'
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AgendaDetail from '../components/AgendaDetail.vue'
@@ -106,6 +106,8 @@ describe('agenda workbench', () => {
     await fireEvent.click(screen.getByRole('button', { name: '+ 决策' }))
     expect(screen.getByTestId('decision-composer')).toContainElement(screen.getByLabelText('决策内容'))
     await fireEvent.click(screen.getByLabelText('决策内容'))
+    expect(screen.queryByTestId('decision-assistant-clicks')).not.toBeInTheDocument()
+    await fireEvent.click(within(screen.getByTestId('decision-composer')).getByRole('button', { name: 'AI 工具' }))
     expect(screen.getByTestId('decision-assistant-clicks')).toHaveTextContent('0')
     await fireEvent.click(screen.getByRole('button', { name: 'AI 建议决策' }))
     expect(screen.getByTestId('decision-assistant-clicks')).toHaveTextContent('1')
@@ -115,6 +117,8 @@ describe('agenda workbench', () => {
     await fireEvent.click(screen.getByRole('button', { name: '+ 行动' }))
     expect(screen.getByTestId('action-composer')).toContainElement(screen.getByLabelText('行动项内容'))
     await fireEvent.click(screen.getByLabelText('行动项内容'))
+    expect(screen.queryByTestId('action-assistant-clicks')).not.toBeInTheDocument()
+    await fireEvent.click(within(screen.getByTestId('action-composer')).getByRole('button', { name: 'AI 工具' }))
     expect(screen.getByTestId('action-assistant-clicks')).toHaveTextContent('0')
     await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
     expect(screen.getByTestId('action-assistant-clicks')).toHaveTextContent('1')
@@ -126,6 +130,8 @@ describe('agenda workbench', () => {
     await fireEvent.click(screen.getByRole('button', { name: '+ 开放问题' }))
     expect(screen.getByTestId('question-composer')).toContainElement(screen.getByLabelText('开放问题内容'))
     await fireEvent.click(screen.getByLabelText('开放问题内容'))
+    expect(screen.queryByTestId('question-assistant-clicks')).not.toBeInTheDocument()
+    await fireEvent.click(within(screen.getByTestId('question-composer')).getByRole('button', { name: 'AI 工具' }))
     expect(screen.getByTestId('question-assistant-clicks')).toHaveTextContent('0')
     await fireEvent.click(screen.getByRole('button', { name: 'AI 梳理开放问题' }))
     expect(screen.getByTestId('question-assistant-clicks')).toHaveTextContent('1')
