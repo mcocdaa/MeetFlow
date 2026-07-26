@@ -5,12 +5,14 @@ import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { api } from './api/client'
 import { clearSession, session, type SessionUser } from './auth/session'
 import AppSidebar from './components/AppSidebar.vue'
+import { loadPluginFrontendModules } from './plugins/runtime'
 
 const router = useRouter()
 
 function onLoggedIn(user: SessionUser) {
   session.user = user
   session.loaded = true
+  void loadPluginFrontendModules()
   router.push('/')
 }
 

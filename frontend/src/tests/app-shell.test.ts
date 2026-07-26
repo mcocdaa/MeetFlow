@@ -4,17 +4,26 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import App from '../App.vue'
 import { session } from '../auth/session'
 
-const { apiMock, pushMock } = vi.hoisted(() => ({ apiMock: vi.fn(), pushMock: vi.fn() }))
+const { apiMock, pushMock, loadPluginFrontendModulesMock } = vi.hoisted(() => ({
+  apiMock: vi.fn(),
+  pushMock: vi.fn(),
+  loadPluginFrontendModulesMock: vi.fn(),
+}))
 vi.mock('../api/client', () => ({ api: apiMock }))
+vi.mock('../plugins/runtime', () => ({ loadPluginFrontendModules: loadPluginFrontendModulesMock }))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: pushMock }),
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
-  RouterView: { template: '<div></div>' },
+  RouterView: {
+    emits: ['logged-in'],
+    template: '<button type="button" @click="$emit(\'logged-in\', { id: \'u2\', username: \'member\', display_name: \'成员\', role: \'member\', status: \'active\' })">模拟登录</button>',
+  },
 }))
 
 beforeEach(() => {
   apiMock.mockReset()
   pushMock.mockReset()
+  loadPluginFrontendModulesMock.mockReset()
   session.user = { id: 'u1', username: 'admin', display_name: '管理员', role: 'admin', status: 'active' }
   session.loaded = true
 })
@@ -52,4 +61,16 @@ it('clears the shell when the API announces an expired session', async () => {
   window.dispatchEvent(new CustomEvent('meetflow:auth-expired'))
   await waitFor(() => expect(session.user).toBeNull())
   expect(pushMock).toHaveBeenCalledWith('/login')
+})
+
+it('loads plugin frontend modules after a successful login', async () => {
+  session.user = null
+  session.loaded = false
+  render(App)
+
+  await fireEvent.click(screen.getByRole('button', { name: '模拟登录' }))
+
+  expect(session.user).toMatchObject({ id: 'u2', username: 'member' })
+  expect(loadPluginFrontendModulesMock).toHaveBeenCalledTimes(1)
+  expect(pushMock).toHaveBeenCalledWith('/')
 })
