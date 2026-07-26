@@ -49,7 +49,7 @@ async function flow(action: 'start' | 'skip' | 'complete') {
 </script>
 
 <template>
-  <section class="workspace-section agenda-detail" data-testid="agenda-detail">
+  <div class="agenda-detail" data-testid="agenda-detail">
     <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" /></div><span class="status-pill" :data-status="item.status">{{ item.status }}</span></header>
     <div class="agenda-meta-fields"><label>类型<select v-model="draft.agenda_type"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label><label>预计时长<input v-model.number="draft.estimated_minutes" type="number" min="1" max="480" /></label></div>
     <label class="agenda-notes">议题记录<MarkdownEditor v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" /></label>
@@ -63,5 +63,5 @@ async function flow(action: 'start' | 'skip' | 'complete') {
 
     <footer class="agenda-flow-actions" data-testid="flow-actions"><button v-if="item.status === 'planned'" class="button button-quiet" :disabled="saving" @click="flow('start')">开始此议题</button><button v-if="item.status === 'planned' || item.status === 'in_progress'" class="button button-quiet" :disabled="saving" @click="flow('skip')">跳过并进入下一项</button><button v-if="item.status === 'in_progress'" class="button button-primary" :disabled="saving" @click="flow('complete')">完成议题并进入下一项</button></footer>
     <VersionConflictDialog v-if="conflict" :local-markdown="draft.notes_markdown" :server-markdown="conflict.server" :actual-version="conflict.version" @close="conflict = null" @reload="emit('changed'); conflict = null" @overwrite="save" />
-  </section>
+  </div>
 </template>

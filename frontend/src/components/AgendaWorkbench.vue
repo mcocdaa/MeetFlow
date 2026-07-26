@@ -34,12 +34,12 @@ function requestAdd() {
 </script>
 
 <template>
-  <div class="agenda-workbench">
+  <section class="workspace-section agenda-workbench" data-testid="meeting-workbench">
     <AgendaDetail v-if="selected" :meeting="meeting" :item="selected" @changed="emit('reload')" @advance="advance" />
-    <section v-else class="workspace-section agenda-empty-compact" data-testid="agenda-detail">
+    <div v-else class="agenda-empty-compact" data-testid="agenda-detail">
       <div><p class="eyebrow">Agenda</p><h2>还没有议题</h2><p>从右侧队列添加本次会议的第一个议题。</p></div>
       <button class="button button-primary" @click="requestAdd">添加议题</button>
-    </section>
+    </div>
     <AgendaQueue ref="queue" :meeting="meeting" :selected-id="selectedId" @select="selectedId = $event" @changed="emit('reload')" />
-  </div>
+  </section>
 </template>

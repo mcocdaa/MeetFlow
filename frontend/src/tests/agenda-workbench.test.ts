@@ -63,18 +63,32 @@ describe('agenda workbench', () => {
     apiMock.mockResolvedValue({})
   })
 
-  it('keeps detail left and the narrow queue right', () => {
+  it('keeps the active topic and selectable queue in one shared workbench surface', async () => {
     render(AgendaWorkbench, { props: { meeting: meetingFixture() } })
+    const workbench = screen.getByTestId('meeting-workbench')
     const detail = screen.getByTestId('agenda-detail')
     const queue = screen.getByTestId('agenda-queue')
+
+    expect(workbench).toHaveClass('workspace-section')
+    expect(workbench).toContainElement(detail)
+    expect(workbench).toContainElement(queue)
     expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(queue).toHaveClass('agenda-queue-narrow')
+    expect(detail).not.toHaveClass('workspace-section')
+    expect(queue).not.toHaveClass('workspace-section')
+    expect(screen.getByLabelText('议题标题')).toHaveValue('进展同步')
+
+    await fireEvent.click(screen.getByTestId('agenda-row-a2').querySelector('button')!)
+    expect(screen.getByLabelText('议题标题')).toHaveValue('发布方案')
   })
 
-  it('uses a compact empty detail card alongside the queue', () => {
+  it('keeps the empty topic affordance and queue inside the shared surface', () => {
     render(AgendaWorkbench, { props: { meeting: emptyMeetingFixture() } })
+    const workbench = screen.getByTestId('meeting-workbench')
     const detail = screen.getByTestId('agenda-detail')
     const queue = screen.getByTestId('agenda-queue')
+
+    expect(workbench).toContainElement(detail)
+    expect(workbench).toContainElement(queue)
     expect(detail).toHaveClass('agenda-empty-compact')
     expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })

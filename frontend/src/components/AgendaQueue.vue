@@ -112,7 +112,7 @@ async function remove(item: AgendaItem) {
 </script>
 
 <template>
-  <aside class="workspace-section agenda-queue-narrow" data-testid="agenda-queue">
+  <aside class="agenda-queue" data-testid="agenda-queue">
     <header class="section-heading"><div><p class="eyebrow">Agenda</p><h2>议题队列</h2></div><button class="button button-small button-primary" @click="adding = !adding">{{ adding ? '收起' : '+ 议题' }}</button></header>
     <form v-if="adding" class="agenda-add-form" @submit.prevent="addAgenda">
       <label>议题标题<input v-model="title" required /></label>
