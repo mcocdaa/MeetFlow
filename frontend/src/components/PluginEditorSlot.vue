@@ -31,18 +31,20 @@ function updateBusy(state: PluginBusyState) {
 
 <template>
   <section class="plugin-editor-slot" :data-busy="busy.active || undefined">
+    <div v-if="assistants.length" class="plugin-editor-assistants" data-placement="editor-toolbar">
+      <component
+        :is="assistant"
+        v-for="(assistant, index) in assistants"
+        :key="index"
+        :model-value="modelValue"
+        :context="context"
+        :disabled="busy.active"
+        @update:model-value="emit('update:modelValue', $event)"
+        @update:busy="updateBusy"
+        @notice="emit('notice', $event)"
+      />
+    </div>
     <slot name="editor" :disabled="busy.active" />
-    <component
-      :is="assistant"
-      v-for="(assistant, index) in assistants"
-      :key="index"
-      :model-value="modelValue"
-      :context="context"
-      :disabled="busy.active"
-      @update:model-value="emit('update:modelValue', $event)"
-      @update:busy="updateBusy"
-      @notice="emit('notice', $event)"
-    />
     <div v-if="busy.active" class="plugin-editor-busy" role="status" aria-live="polite">
       <p>{{ busy.label }}</p>
     </div>
@@ -51,5 +53,6 @@ function updateBusy(state: PluginBusyState) {
 
 <style scoped>
 .plugin-editor-slot { position: relative; }
+.plugin-editor-assistants { align-items: center; border-bottom: 1px solid var(--line, #d8dde5); display: flex; gap: .5rem; justify-content: flex-end; margin-bottom: .875rem; padding-bottom: .75rem; }
 .plugin-editor-busy { align-items: center; background: color-mix(in srgb, var(--surface, white) 84%, transparent); display: flex; inset: 0; justify-content: center; position: absolute; text-align: center; }
 </style>

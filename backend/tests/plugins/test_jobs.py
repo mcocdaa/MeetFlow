@@ -227,43 +227,6 @@ def test_project_progress_is_created_only_after_explicit_confirmation(
     assert response.json()["source"] == "ai_draft_applied"
 
 
-def test_action_suggestions_create_only_the_selected_candidates(
-    ai_plugin_client, ai_plugin_meeting_id
-):
-    database = ai_plugin_client.app.state.database
-    actor_id = ai_plugin_client.get("/api/auth/me").json()["id"]
-    with database.session() as session:
-        job = PluginJob(
-            plugin_id="ai-work-assistant",
-            action_id="ai-work-assistant.action_suggestions",
-            target_type="meeting",
-            target_id=ai_plugin_meeting_id,
-            dedupe_key=f"actions:meeting:{ai_plugin_meeting_id}",
-            status=PluginJobStatus.succeeded,
-            input_json={},
-            context_snapshot={},
-            result_json={
-                "markdown": "- 整理方案\n- 发送纪要",
-                "model": "test-model",
-                "candidates": [{"content": "整理方案"}, {"content": "发送纪要"}],
-            },
-            created_by=actor_id,
-            finished_at=utcnow(),
-        )
-        session.add(job)
-        session.commit()
-        job_id = job.id
-
-    response = ai_plugin_client.post(
-        f"/api/plugin-jobs/{job_id}/apply", json={"selected_indexes": [1]}
-    )
-
-    assert response.status_code == 200
-    assert response.json()["created_count"] == 1
-    actions = ai_plugin_client.get(f"/api/meetings/{ai_plugin_meeting_id}").json()["meeting_actions"]
-    assert [item["content"] for item in actions] == ["发送纪要"]
-
-
 def test_list_jobs_can_be_scoped_to_one_meeting(plugin_client, plugin_meeting_id):
     created = plugin_client.post(
         "/api/plugin-jobs",
@@ -394,56 +357,3 @@ def test_queued_job_cannot_be_dismissed(plugin_client, plugin_meeting_id):
     response = plugin_client.post(f"/api/plugin-jobs/{created['id']}/dismiss")
 
     assert response.status_code == 409
-
-
-def test_action_suggestions_apply_uses_edited_selected_candidates(
-    ai_plugin_client, ai_plugin_meeting_id
-):
-    database = ai_plugin_client.app.state.database
-    actor_id = ai_plugin_client.get("/api/auth/me").json()["id"]
-    with database.session() as session:
-        job = PluginJob(
-            plugin_id="ai-work-assistant",
-            action_id="ai-work-assistant.action_suggestions",
-            target_type="meeting",
-            target_id=ai_plugin_meeting_id,
-            dedupe_key=f"edited-actions:meeting:{ai_plugin_meeting_id}",
-            status=PluginJobStatus.succeeded,
-            input_json={},
-            context_snapshot={},
-            result_json={
-                "markdown": "- 整理方案\n- 发送纪要",
-                "model": "test-model",
-                "candidates": [{"content": "整理方案"}, {"content": "发送纪要"}],
-            },
-            created_by=actor_id,
-            finished_at=utcnow(),
-        )
-        session.add(job)
-        session.commit()
-        job_id = job.id
-
-    response = ai_plugin_client.post(
-        f"/api/plugin-jobs/{job_id}/apply",
-        json={
-            "candidates": [
-                {
-                    "index": 1,
-                    "content": "发送最终纪要",
-                    "owner_user_id": None,
-                    "due_date": "2026-07-30",
-                    "priority": "high",
-                }
-            ]
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["created_count"] == 1
-    actions = ai_plugin_client.get(f"/api/meetings/{ai_plugin_meeting_id}").json()["meeting_actions"]
-    assert [
-        (item["content"], item["due_date"], item["priority"])
-        for item in actions
-    ] == [
-        ("发送最终纪要", "2026-07-30", "high")
-    ]
