@@ -2,17 +2,10 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 
 import { api } from '../api/client'
+import type { PluginJob } from '../domain/plugin-jobs'
 
 type UserRef = { id: string; display_name: string; username: string }
 type Mode = 'summary' | 'progress' | 'actions'
-type PluginJob = {
-  id: string
-  action_id: string
-  status: 'queued' | 'requesting' | 'succeeded' | 'failed' | 'interrupted' | 'canceled'
-  result: { markdown?: string; candidates?: Array<{ content: string }> } | null
-  error_message?: string | null
-  applied_at: string | null
-}
 type DraftAction = {
   index: number
   selected: boolean
@@ -41,17 +34,12 @@ const error = ref('')
 const applying = ref('')
 const drafts = reactive<Record<string, string>>({})
 const actionDrafts = reactive<Record<string, DraftAction[]>>({})
-const discardedIds = ref(new Set<string>())
 let timer: ReturnType<typeof setInterval> | undefined
 
-const visibleJobs = computed(() => jobs.value.filter((job) => !discardedIds.value.has(job.id)))
+const visibleJobs = computed(() => jobs.value)
 
 function actionCount(job: PluginJob) {
   return actionDrafts[job.id]?.filter((item) => item.selected).length ?? 0
-}
-
-function discard(jobId: string) {
-  discardedIds.value = new Set([...discardedIds.value, jobId])
 }
 
 function initDraft(job: PluginJob) {
@@ -65,6 +53,32 @@ function initDraft(job: PluginJob) {
       due_date: '',
       priority: 'normal',
     }))
+  }
+}
+
+function track(job: PluginJob) {
+  if (
+    job.target_type !== props.targetType
+    || job.target_id !== props.targetId
+    || !actionIds[props.mode].includes(job.action_id)
+    || job.applied_at
+    || job.dismissed_at
+  ) return
+  jobs.value = [job, ...jobs.value.filter((item) => item.id !== job.id)]
+  initDraft(job)
+  loading.value = false
+}
+
+async function discard(job: PluginJob) {
+  applying.value = job.id
+  error.value = ''
+  try {
+    await api(`/api/plugin-jobs/${job.id}/dismiss`, { method: 'POST' })
+    jobs.value = jobs.value.filter((item) => item.id !== job.id)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '丢弃 AI 草稿失败'
+  } finally {
+    applying.value = ''
   }
 }
 
@@ -106,7 +120,7 @@ async function apply(job: PluginJob) {
         method: 'POST', body: JSON.stringify({ candidates }),
       })
     }
-    discard(job.id)
+    jobs.value = jobs.value.filter((item) => item.id !== job.id)
     emit('applied')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '应用 AI 草稿失败'
@@ -122,7 +136,7 @@ onMounted(() => {
   }, 3000)
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
-defineExpose({ reload })
+defineExpose({ reload, track })
 </script>
 
 <template>
@@ -130,7 +144,7 @@ defineExpose({ reload })
     <article v-if="loading" class="inline-ai-draft" data-status="loading">AI 草稿加载中…</article>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
     <article v-for="job in visibleJobs" :key="job.id" class="inline-ai-draft" :data-status="job.status">
-      <div class="section-heading"><div><p class="eyebrow">AI 建议 · 尚未创建</p><h3>{{ job.status === 'queued' ? 'AI 任务排队中…' : job.status === 'requesting' ? '正在生成草稿…' : job.status === 'succeeded' ? '待确认草稿' : 'AI 任务未完成' }}</h3></div><button class="button button-quiet" @click="discard(job.id)">丢弃草稿</button></div>
+      <div class="section-heading"><div><p class="eyebrow">AI 建议 · 尚未创建</p><h3>{{ job.status === 'queued' ? 'AI 任务排队中…' : job.status === 'requesting' ? '正在生成草稿…' : job.status === 'succeeded' ? '待确认草稿' : 'AI 任务未完成' }}</h3></div><button class="button button-quiet" :disabled="applying === job.id || job.status !== 'succeeded'" @click="discard(job)">丢弃草稿</button></div>
       <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>
       <template v-if="job.status === 'succeeded'">
         <label v-if="mode === 'summary'">AI 会议纪要草稿<textarea v-model="drafts[job.id]" rows="8" /></label>
@@ -139,7 +153,7 @@ defineExpose({ reload })
           <fieldset class="inline-action-drafts"><legend>待创建行动项</legend><div v-for="item in actionDrafts[job.id]" :key="item.index" class="inline-action-row"><label><input v-model="item.selected" type="checkbox" :aria-label="item.content" /></label><input v-model.trim="item.content" :aria-label="`行动项：${item.content}`" /><select v-model="item.owner_user_id"><option :value="null">未指定负责人</option><option v-for="person in participants" :key="person.id" :value="person.id">{{ person.display_name || person.username }}</option></select><input v-model="item.due_date" type="date" /><select v-model="item.priority"><option value="low">低</option><option value="normal">普通</option><option value="high">高</option><option value="urgent">紧急</option></select></div></fieldset>
           <details><summary>查看 AI 依据</summary><pre>{{ drafts[job.id] }}</pre></details>
         </template>
-        <div class="row-actions"><button v-if="mode === 'summary'" class="button button-primary" :disabled="applying === job.id" @click="apply(job)">应用到会议纪要</button><button v-else-if="mode === 'progress'" class="button button-primary" :disabled="applying === job.id" @click="apply(job)">发布项目进展</button><button v-else class="button button-primary" :disabled="applying === job.id || !actionCount(job)" @click="apply(job)">创建已选 {{ actionCount(job) }} 项</button></div>
+        <div class="row-actions inline-ai-draft-actions"><button v-if="mode === 'summary'" class="button button-primary" :disabled="applying === job.id" @click="apply(job)">应用到会议纪要</button><button v-else-if="mode === 'progress'" class="button button-primary" :disabled="applying === job.id" @click="apply(job)">发布项目进展</button><button v-else class="button button-primary" :disabled="applying === job.id || !actionCount(job)" @click="apply(job)">创建已选 {{ actionCount(job) }} 项</button></div>
       </template>
     </article>
   </section>

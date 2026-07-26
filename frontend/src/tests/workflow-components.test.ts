@@ -40,11 +40,12 @@ describe('meeting workflow components', () => {
       if (path === '/api/plugins/actions') return Promise.resolve([{ action_id: 'test-ai.summarize', label: '生成会议纪要', description: '生成可编辑草稿', input_schema: { type: 'object' }, target_types: ['meeting'] }])
       return Promise.resolve({ id: 'job-1', status: 'queued' })
     })
-    render(PluginActionPanel, { props: { targetType: 'meeting', targetId: 'm1' } })
+    const { emitted } = render(PluginActionPanel, { props: { targetType: 'meeting', targetId: 'm1' } })
     await fireEvent.click(await screen.findByRole('button', { name: '生成会议纪要' }))
     expect(await screen.findByText('AI 正在生成草稿；完成后会显示在当前页面。')).toBeInTheDocument()
     expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs', expect.objectContaining({ method: 'POST' }))
     expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' }))
+    expect(emitted().submitted?.[0]).toEqual([{ id: 'job-1', status: 'queued' }])
   })
 
   it('builds typed, action-scoped inputs from JSON Schema', async () => {

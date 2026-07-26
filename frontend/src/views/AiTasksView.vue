@@ -4,19 +4,7 @@ import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
 import PageHeader from '../components/PageHeader.vue'
-
-type PluginJob = {
-  id: string
-  action_id: string
-  target_type: 'meeting' | 'project'
-  target_id: string
-  status: 'queued' | 'requesting' | 'succeeded' | 'failed' | 'interrupted' | 'canceled'
-  error_message: string | null
-  created_at: string
-  started_at: string | null
-  finished_at: string | null
-  applied_at: string | null
-}
+import type { PluginJob } from '../domain/plugin-jobs'
 
 const jobs = ref<PluginJob[]>([])
 const loading = ref(true)
@@ -36,7 +24,7 @@ function source(job: PluginJob) {
 
 async function load() {
   try {
-    const value = await api<{ items: PluginJob[] }>('/api/plugin-jobs')
+    const value = await api<{ items: PluginJob[] }>('/api/plugin-jobs?include_history=true')
     jobs.value = value.items
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : 'AI 任务加载失败'
@@ -69,9 +57,10 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
     <p v-if="loading" class="empty-state">正在加载 AI 任务…</p>
     <section v-else-if="jobs.length" class="task-list">
       <article v-for="job in jobs" :key="job.id" class="workspace-section ai-task-card">
-        <header class="section-heading"><div><p class="eyebrow">{{ labels[job.action_id] ?? job.action_id }}</p><h2>{{ job.status === 'queued' ? '排队中' : job.status === 'requesting' ? '生成中' : job.status === 'succeeded' ? '已生成草稿' : job.status === 'canceled' ? '已取消' : '未完成' }}</h2></div><RouterLink class="text-link" :to="source(job)">回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}处理草稿</RouterLink></header>
+        <header class="section-heading"><div><p class="eyebrow">{{ labels[job.action_id] ?? job.action_id }}</p><h2>{{ job.dismissed_at ? '已丢弃草稿' : job.applied_at ? '已应用' : job.status === 'queued' ? '排队中' : job.status === 'requesting' ? '生成中' : job.status === 'succeeded' ? '已生成草稿' : job.status === 'canceled' ? '已取消' : '未完成' }}</h2></div><RouterLink class="text-link" :to="source(job)">回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}处理草稿</RouterLink></header>
         <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>
         <p v-if="job.applied_at" class="notice">已应用</p>
+        <p v-else-if="job.dismissed_at" class="notice">已丢弃</p>
         <div class="row-actions">
           <button v-if="job.status === 'queued'" class="button button-quiet" @click="cancel(job)">取消任务</button>
           <button v-if="['succeeded', 'failed', 'interrupted', 'canceled'].includes(job.status)" class="button button-quiet" @click="rerun(job)">重新运行</button>

@@ -39,3 +39,15 @@ it('creates only checked edited action candidates from the inline draft', async 
     method: 'POST', body: expect.stringContaining('发送最终纪要'),
   }))
 })
+
+it('persists a discarded draft before removing it from the inline panel', async () => {
+  apiMock.mockResolvedValueOnce({
+    items: [{ id: 'job-3', action_id: 'ai-work-assistant.meeting_summary', status: 'succeeded', result: { markdown: '# AI 草稿' }, applied_at: null }],
+  }).mockResolvedValueOnce({ id: 'job-3', dismissed_at: '2026-07-26T10:00:00Z' })
+
+  render(InlineAiDrafts, { props: { targetType: 'meeting', targetId: 'meeting-1', mode: 'summary' } })
+  await fireEvent.click(await screen.findByRole('button', { name: '丢弃草稿' }))
+
+  expect(apiMock).toHaveBeenCalledWith('/api/plugin-jobs/job-3/dismiss', { method: 'POST' })
+  expect(screen.queryByLabelText('AI 会议纪要草稿')).not.toBeInTheDocument()
+})

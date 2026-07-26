@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { api } from '../api/client'
+import type { PluginJob } from '../domain/plugin-jobs'
 
 type SchemaProperty = { title?: string; type?: string; enum?: Array<string | number>; default?: unknown }
 type PluginAction = {
@@ -13,7 +14,7 @@ type PluginAction = {
 }
 
 const props = defineProps<{ targetType: 'meeting' | 'project'; targetId: string }>()
-const emit = defineEmits<{ submitted: [] }>()
+const emit = defineEmits<{ submitted: [job: PluginJob] }>()
 const actions = ref<PluginAction[]>([])
 const inputs = reactive<Record<string, Record<string, unknown>>>({})
 const running = ref('')
@@ -62,7 +63,7 @@ async function run(action: PluginAction) {
   if (!payload) return
   running.value = action.action_id
   try {
-    await api('/api/plugin-jobs', {
+    const job = await api<PluginJob>('/api/plugin-jobs', {
       method: 'POST',
       body: JSON.stringify({
         action_id: action.action_id,
@@ -72,7 +73,7 @@ async function run(action: PluginAction) {
       }),
     })
     notice.value = 'AI 正在生成草稿；完成后会显示在当前页面。'
-    emit('submitted')
+    emit('submitted', job)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : 'AI 任务创建失败'
   } finally {

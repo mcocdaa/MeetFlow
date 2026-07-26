@@ -13,6 +13,7 @@ import PageHeader from '../components/PageHeader.vue'
 import InlineAiDrafts from '../components/InlineAiDrafts.vue'
 import PluginActionPanel from '../components/PluginActionPanel.vue'
 import type { Attachment, Meeting } from '../domain/meetings'
+import type { PluginJob } from '../domain/plugin-jobs'
 
 const route = useRoute()
 const meeting = ref<Meeting | null>(null)
@@ -26,8 +27,8 @@ const preparationOpen = ref(false)
 const materialsOpen = ref(false)
 const materialItems = ref<Attachment[]>([])
 const draft = ref({ title: '', purpose_markdown: '', raw_notes_markdown: '', summary_markdown: '', scheduled_start: '', scheduled_end: '' })
-const summaryDrafts = ref<{ reload: () => Promise<void> } | null>(null)
-const actionDrafts = ref<{ reload: () => Promise<void> } | null>(null)
+const summaryDrafts = ref<{ track: (job: PluginJob) => void } | null>(null)
+const actionDrafts = ref<{ track: (job: PluginJob) => void } | null>(null)
 const unresolved = computed(() => meeting.value?.agenda_items.filter((item) => item.status === 'planned' || item.status === 'in_progress') ?? [])
 
 function toLocalInput(value: string) {
@@ -95,9 +96,9 @@ async function refreshAgenda() {
   }
 }
 
-function refreshInlineDrafts() {
-  void summaryDrafts.value?.reload()
-  void actionDrafts.value?.reload()
+function refreshInlineDrafts(job: PluginJob) {
+  summaryDrafts.value?.track(job)
+  actionDrafts.value?.track(job)
 }
 
 onMounted(load)

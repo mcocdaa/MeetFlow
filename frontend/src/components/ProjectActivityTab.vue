@@ -6,11 +6,12 @@ import MarkdownView from './MarkdownView.vue'
 import PluginActionPanel from './PluginActionPanel.vue'
 import ProjectUpdateComposer from './ProjectUpdateComposer.vue'
 import type { ProjectDetail } from '../domain/projects'
+import type { PluginJob } from '../domain/plugin-jobs'
 
 const props = defineProps<{ project: ProjectDetail }>()
 const emit = defineEmits<{ reload: [] }>()
-const progressDrafts = ref<{ reload: () => Promise<void> } | null>(null)
-function refreshProgressDrafts() { void progressDrafts.value?.reload() }
+const progressDrafts = ref<{ track: (job: PluginJob) => void } | null>(null)
+function refreshProgressDrafts(job: PluginJob) { progressDrafts.value?.track(job) }
 </script>
 
 <template>
