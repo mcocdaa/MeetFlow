@@ -5,24 +5,23 @@ const assistantDefinitions = [
   {
     slot: 'meeting-summary-editor',
     actionId: 'ai-work-assistant.meeting_summary',
-    label: '生成会议纪要',
+    label: 'AI 生成会议纪要',
     busyLabel: '正在生成会议纪要…',
     targetType: 'meeting',
   },
   {
     slot: 'project-update-editor',
     actionId: 'ai-work-assistant.project_progress',
-    label: '总结项目进展',
+    label: 'AI 总结项目进展',
     busyLabel: '正在总结项目进展…',
     targetType: 'project',
   },
   {
     slot: 'action-composer',
     actionId: 'ai-work-assistant.action_suggestions',
-    label: '建议行动项',
+    label: 'AI 建议行动项',
     busyLabel: '正在建议行动项…',
     targetType: 'meeting',
-    createsActions: true,
   },
 ]
 
@@ -56,14 +55,9 @@ function failureMessage(jobOrError) {
   return 'AI 生成失败，请稍后重试'
 }
 
-function actionEndpoint(context) {
-  const projectId = context.metadata.projectId || context.metadata.project_id
-  return projectId ? `/api/projects/${projectId}/actions` : ''
-}
-
 function createAssistantComponent(pluginApi, definition) {
   const vue = pluginApi.vue || pluginApi
-  const { h, ref, onUnmounted } = vue
+  const { h, ref } = vue
   const request = pluginApi.api
 
   return {
@@ -77,8 +71,6 @@ function createAssistantComponent(pluginApi, definition) {
     emits: ['update:modelValue', 'update:busy', 'notice'],
     setup(props, { emit }) {
       const running = ref(false)
-      const candidates = ref([])
-      const beforeGeneration = ref(null)
 
       const setBusy = (active, label = '') => emit('update:busy', { active, label })
       const notice = (message) => emit('notice', message)
@@ -86,7 +78,6 @@ function createAssistantComponent(pluginApi, definition) {
       async function run() {
         if (running.value) return
         running.value = true
-        beforeGeneration.value = props.modelValue
         setBusy(true, definition.busyLabel)
         try {
           const context = contextFor(props, definition.targetType)
@@ -104,12 +95,6 @@ function createAssistantComponent(pluginApi, definition) {
             notice(failureMessage(job))
             return
           }
-          if (definition.createsActions) {
-            candidates.value = (job.result?.candidates || [])
-              .filter((candidate) => typeof candidate?.content === 'string' && candidate.content.trim())
-              .map((candidate) => ({ content: candidate.content, selected: true }))
-            return
-          }
           if (typeof job.result?.markdown !== 'string') {
             notice('AI 未返回可用草稿')
             return
@@ -123,91 +108,14 @@ function createAssistantComponent(pluginApi, definition) {
         }
       }
 
-      function restoreBeforeGeneration(event) {
-        if (!definition.createsActions || !candidates.value.length || beforeGeneration.value === null) return
-        if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return
-        event.preventDefault()
-        emit('update:modelValue', beforeGeneration.value)
-        candidates.value = []
-        beforeGeneration.value = null
-      }
-
-      function updateCandidate(index, content) {
-        candidates.value[index] = { ...candidates.value[index], content }
-      }
-
-      function selectCandidate(index, selected) {
-        candidates.value[index] = { ...candidates.value[index], selected }
-      }
-
-      async function createSelectedActions() {
-        const context = contextFor(props, definition.targetType)
-        const endpoint = actionEndpoint(context)
-        const selected = candidates.value.filter((candidate) => candidate.selected && candidate.content.trim())
-        if (!endpoint || !selected.length) {
-          notice('缺少可创建行动项所需的项目信息')
-          return
-        }
-        try {
-          for (const candidate of selected) {
-            await request(endpoint, {
-              method: 'POST',
-              body: JSON.stringify({
-                project_id: context.metadata.projectId || context.metadata.project_id,
-                meeting_id: context.metadata.meetingId || context.metadata.meeting_id || context.targetId,
-                agenda_item_id: context.metadata.agendaId || context.metadata.agenda_id || null,
-                content: candidate.content.trim(),
-                owner_user_id: null,
-                due_date: null,
-                priority: 'normal',
-              }),
-            })
-          }
-          candidates.value = candidates.value.filter((candidate) => !candidate.selected)
-        } catch (error) {
-          notice(failureMessage(error))
-        }
-      }
-
-      if (onUnmounted) onUnmounted(() => { candidates.value = [] })
-
-      return () => {
-        const controls = [
-          h('button', {
-            type: 'button',
-            class: 'button button-quiet',
-            disabled: running.value,
-            onClick: run,
-          }, running.value ? definition.busyLabel : definition.label),
-        ]
-        if (definition.createsActions && candidates.value.length) {
-          controls.push(h('section', {
-            class: 'ai-work-assistant-candidates',
-            tabindex: -1,
-            onKeydown: restoreBeforeGeneration,
-          }, [
-            h('p', 'AI 建议行动项（尚未创建）'),
-            ...candidates.value.map((candidate, index) => h('label', { key: `${index}-${candidate.content}` }, [
-              h('input', {
-                type: 'checkbox',
-                checked: candidate.selected,
-                onChange: (event) => selectCandidate(index, event.target.checked),
-              }),
-              h('input', {
-                value: candidate.content,
-                'aria-label': `行动项建议 ${index + 1}`,
-                onInput: (event) => updateCandidate(index, event.target.value),
-              }),
-            ])),
-            h('button', {
-              type: 'button',
-              class: 'button button-primary',
-              onClick: createSelectedActions,
-            }, `创建所选行动项 (${candidates.value.filter((candidate) => candidate.selected).length})`),
-          ]))
-        }
-        return h('div', { class: 'ai-work-assistant-control' }, controls)
-      }
+      return () => h('div', { class: 'ai-work-assistant-control' }, [
+        h('button', {
+          type: 'button',
+          class: 'button button-quiet',
+          disabled: running.value,
+          onClick: run,
+        }, running.value ? definition.busyLabel : definition.label),
+      ])
     },
   }
 }

@@ -62,6 +62,52 @@ def test_ai_work_assistant_sends_current_editor_text_with_server_snapshot(
     assert result == {"markdown": "# AI 草稿", "model": "test-model"}
 
 
+def test_action_suggestions_return_editable_markdown(
+    ai_work_assistant_backend, monkeypatch
+):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "- 明确负责人并补充截止日期"
+                        }
+                    }
+                ]
+            }
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def post(self, _url, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(ai_work_assistant_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(
+        ai_work_assistant_backend.action_suggestions(
+            {"title": "行动项讨论"},
+            {"current_markdown": "原有行动内容"},
+            {
+                "base_url": "https://example.test/v1",
+                "api_key": "test-key",
+                "model": "test-model",
+                "timeout_seconds": 10,
+            },
+        )
+    )
+
+    assert result == {
+        "markdown": "- 明确负责人并补充截止日期",
+        "model": "test-model",
+    }
+
+
 def test_ai_work_assistant_declares_bounded_editor_input(ai_work_assistant_backend):
     class Registry:
         def __init__(self):

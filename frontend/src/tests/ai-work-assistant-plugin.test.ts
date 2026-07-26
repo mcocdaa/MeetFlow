@@ -52,7 +52,7 @@ it('applies the terminal job markdown exactly once after active polling', async 
     .mockResolvedValueOnce({ id: 'job-1', status: 'succeeded', result: { markdown: '# 真实 AI 结果' } })
   const { emitted } = renderAssistant(registered, 'meeting-summary-editor')
 
-  await fireEvent.click(screen.getByRole('button', { name: '生成会议纪要' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'AI 生成会议纪要' }))
   await vi.advanceTimersByTimeAsync(3_000)
 
   expect(registered.apiMock).toHaveBeenNthCalledWith(1, '/api/plugin-jobs', {
@@ -72,7 +72,26 @@ it('applies the terminal job markdown exactly once after active polling', async 
   ])
 })
 
-it('does not mutate editor content or action candidates when a job fails', async () => {
+it('writes an action suggestion into the existing editable action field', async () => {
+  vi.useFakeTimers()
+  const registered = registerAssistant()
+  registered.apiMock
+    .mockResolvedValueOnce({ id: 'job-action', status: 'queued' })
+    .mockResolvedValueOnce({
+      id: 'job-action',
+      status: 'succeeded',
+      result: { markdown: '- 明确负责人并补充截止日期' },
+    })
+  const { emitted } = renderAssistant(registered, 'action-composer', '原有行动内容')
+
+  await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
+  await vi.advanceTimersByTimeAsync(3_000)
+
+  expect(emitted()['update:modelValue']).toEqual([['- 明确负责人并补充截止日期']])
+  expect(screen.queryByRole('button', { name: /创建所选行动项/ })).not.toBeInTheDocument()
+})
+
+it('does not mutate editor content when a job fails', async () => {
   vi.useFakeTimers()
   const registered = registerAssistant()
   registered.apiMock
@@ -80,10 +99,9 @@ it('does not mutate editor content or action candidates when a job fails', async
     .mockResolvedValueOnce({ id: 'job-2', status: 'failed', error_message: '模型不可用' })
   const { emitted } = renderAssistant(registered, 'action-composer', '保留的行动内容')
 
-  await fireEvent.click(screen.getByRole('button', { name: '建议行动项' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
   await vi.advanceTimersByTimeAsync(3_000)
 
   expect(emitted()['update:modelValue']).toBeUndefined()
-  expect(screen.queryByRole('button', { name: /创建所选行动项/ })).not.toBeInTheDocument()
   expect(emitted().notice).toEqual([['模型不可用']])
 })

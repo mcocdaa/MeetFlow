@@ -21,10 +21,18 @@ it('renders a registered assistant and its generic busy overlay', async () => {
       slot: 'meeting-summary-editor',
       metadata: {},
     },
+    slots: {
+      editor: '<textarea aria-label="编辑器" />',
+    },
   })
 
   await fireEvent.click(screen.getByRole('button', { name: '插件建议' }))
 
   const host = screen.getByText('正在生成建议…').closest('.plugin-editor-slot')
+  const toolbar = screen.getByRole('button', { name: '插件建议' }).parentElement
+  const editor = screen.getByLabelText('编辑器')
   expect(host).toHaveAttribute('data-busy', 'true')
+  expect(toolbar).toHaveClass('plugin-editor-assistants')
+  expect(toolbar?.dataset.placement).toBe('editor-toolbar')
+  expect(toolbar?.compareDocumentPosition(editor)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 })
