@@ -52,7 +52,9 @@ def test_classify_execution_error_returns_safe_actionable_diagnostics(
 
 def test_classify_execution_error_redacts_credentials_from_detail():
     diagnostic = classify_execution_error(
-        RuntimeError("Authorization: Bearer sk-test-secret-token api_key=another-secret")
+        RuntimeError(
+            'Authorization: Bearer sk-test-secret-token {"api_key":"another-secret"}'
+        )
     )
 
     assert diagnostic.code == "plugin_failed"

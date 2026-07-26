@@ -26,7 +26,9 @@ class ExecutionDiagnostic:
 def _redact_detail(value: str) -> str:
     redacted = re.sub(r"(?i)(bearer\s+)[^\s,;]+", r"\1[redacted]", value)
     redacted = re.sub(
-        r"(?i)(api[_-]?key\s*[=:]\s*)[^\s,;]+", r"\1[redacted]", redacted
+        r"(?i)([\"']?api[_-]?key[\"']?\s*[=:]\s*[\"']?)[^\s,;\"']+",
+        r"\1[redacted]",
+        redacted,
     )
     redacted = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", "[redacted]", redacted)
     return redacted[:800]
