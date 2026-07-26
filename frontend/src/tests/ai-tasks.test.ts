@@ -51,10 +51,10 @@ it('keeps succeeded work as a recovery link back to its meeting context', async 
   expect(screen.queryByRole('button', { name: '应用到会议纪要' })).not.toBeInTheDocument()
 })
 
-it('keeps failed-task technical detail collapsed until the user asks for it', async () => {
+it('keeps base task errors when no task extension is registered', async () => {
   apiMock.mockResolvedValueOnce({
     items: [{
-      id: 'job-2', action_id: 'ai-work-assistant.project_progress', target_type: 'project', target_id: 'project-1',
+      id: 'job-2', plugin_id: 'unregistered-plugin', action_id: 'ai-work-assistant.project_progress', target_type: 'project', target_id: 'project-1',
       status: 'failed', result: null, created_at: '2026-07-26T00:00:00Z', started_at: null, finished_at: '2026-07-26T00:00:01Z',
       error_message: 'AI 服务额度不足；请充值或更换有可用额度的 API Key。',
       error_detail: 'HTTP 402 · {"error":{"message":"Insufficient Balance"}}',
@@ -63,6 +63,7 @@ it('keeps failed-task technical detail collapsed until the user asks for it', as
   })
 
   render(AiTasksView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
+  expect(await screen.findByText('AI 服务额度不足；请充值或更换有可用额度的 API Key。')).toBeInTheDocument()
   const detail = await screen.findByText(/Insufficient Balance/)
   const disclosure = detail.closest('details')
 

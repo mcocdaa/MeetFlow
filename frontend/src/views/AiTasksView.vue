@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
 import PageHeader from '../components/PageHeader.vue'
+import PluginTaskExtension from '../components/PluginTaskExtension.vue'
 import type { PluginJob } from '../domain/plugin-jobs'
 
 const jobs = ref<PluginJob[]>([])
@@ -60,6 +61,7 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
         <header class="section-heading"><div><p class="eyebrow">{{ labels[job.action_id] ?? job.action_id }}</p><h2>{{ job.dismissed_at ? '已丢弃草稿' : job.applied_at ? '已应用' : job.status === 'queued' ? '排队中' : job.status === 'requesting' ? '生成中' : job.status === 'succeeded' ? '已生成草稿' : job.status === 'canceled' ? '已取消' : '未完成' }}</h2></div><RouterLink class="text-link" :to="source(job)">回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}处理草稿</RouterLink></header>
         <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>
         <details v-if="job.error_detail" class="task-error-detail"><summary>查看技术详情</summary><pre>{{ job.error_detail }}</pre></details>
+        <PluginTaskExtension :job="job" />
         <p v-if="job.applied_at" class="notice">已应用</p>
         <p v-else-if="job.dismissed_at" class="notice">已丢弃</p>
         <div class="row-actions">
