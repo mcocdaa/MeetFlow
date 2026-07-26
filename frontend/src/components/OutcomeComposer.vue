@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import type { AgendaItem, Meeting } from '../domain/meetings'
 import type { ActionPriority } from '../domain/outcomes'
 import MarkdownEditor from './MarkdownEditor.vue'
+import PluginEditorSlot from './PluginEditorSlot.vue'
 
 type Mode = 'decision' | 'action' | 'question'
 const props = defineProps<{ mode: Mode; meeting: Meeting; item: AgendaItem }>()
@@ -44,7 +45,12 @@ async function save() {
   <form class="outcome-composer" @submit.prevent="save">
     <header class="section-heading"><h3>添加{{ labels }}</h3><button type="button" class="icon-button" aria-label="关闭" @click="emit('close')">×</button></header>
     <label v-if="mode === 'decision'">标题<input v-model="title" required /></label>
-    <label>{{ mode === 'question' ? '问题' : mode === 'action' ? '行动内容' : '决策内容' }}<MarkdownEditor v-model="content" :label="`${labels}内容`" /></label>
+    <label>{{ mode === 'question' ? '问题' : mode === 'action' ? '行动内容' : '决策内容' }}
+      <PluginEditorSlot v-if="mode === 'action'" v-model="content" data-testid="action-composer" target-type="meeting" :target-id="meeting.id" slot="action-composer" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id, participants: meeting.participants.map((participant) => participant.user) }" @notice="error = $event">
+        <template #editor="{ disabled }"><MarkdownEditor v-model="content" :label="`${labels}内容`" :disabled="saving || disabled" /></template>
+      </PluginEditorSlot>
+      <MarkdownEditor v-else v-model="content" :label="`${labels}内容`" :disabled="saving" />
+    </label>
     <div v-if="mode !== 'decision'" class="outcome-fields">
       <label>负责人<select v-model="ownerId"><option value="">未指定</option><option v-for="participant in meeting.participants" :key="participant.user.id" :value="participant.user.id">{{ participant.user.display_name }}</option></select></label>
       <label v-if="mode === 'action'">截止日期<input v-model="dueDate" type="date" /></label>

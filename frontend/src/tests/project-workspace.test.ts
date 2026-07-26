@@ -10,6 +10,13 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'p1' } }),
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
 }))
+vi.mock('../components/MarkdownEditor.vue', () => ({
+  default: {
+    props: ['modelValue', 'label', 'disabled'],
+    emits: ['update:modelValue'],
+    template: '<textarea :aria-label="label" :disabled="disabled" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+  },
+}))
 
 const project = {
   id: 'p1', name: 'MeetFlow', slug: 'meetflow', summary: '团队会议工作区', description_markdown: '项目说明',
@@ -47,11 +54,12 @@ describe('project workspace', () => {
     expect(screen.queryByTestId('project-inline-progress')).not.toBeInTheDocument()
   })
 
-  it('places project progress editing and AI drafts in Activity', async () => {
+  it('keeps project progress editing with its AI assistance in Activity', async () => {
     render(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('tab', { name: '动态' }))
     expect(screen.getByLabelText('进展记录')).toBeInTheDocument()
-    expect(screen.getByTestId('project-inline-progress')).toBeInTheDocument()
+    expect(screen.getByTestId('project-update-editor')).toContainElement(screen.getByLabelText('进展记录'))
+    expect(screen.queryByTestId('project-inline-progress')).not.toBeInTheDocument()
   })
 
   it('opens an action drawer from the global New menu', async () => {

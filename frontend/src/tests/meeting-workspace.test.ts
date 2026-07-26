@@ -1,12 +1,25 @@
-import { fireEvent, render, screen } from '@testing-library/vue'
+import { defineComponent } from 'vue'
+import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'm1' } }) }))
-vi.mock('../components/MarkdownEditor.vue', () => ({ default: { template: '<textarea />' } }))
+vi.mock('../components/MarkdownEditor.vue', () => ({
+  default: {
+    props: ['modelValue', 'label', 'disabled'],
+    emits: ['update:modelValue'],
+    template: '<textarea :aria-label="label" :disabled="disabled" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+  },
+}))
 
 import MeetingWorkspaceView from '../views/MeetingWorkspaceView.vue'
+import { registerEditorAssistant } from '../plugins/registry'
+
+const SummaryAssistant = defineComponent({
+  emits: ['update:modelValue'],
+  template: '<button type="button" @click="$emit(\'update:modelValue\', \'# AI 生成纪要\')">生成会议纪要</button>',
+})
 
 const user = { id: 'u1', username: 'lin', display_name: '林宇' }
 const meeting = {
@@ -29,10 +42,22 @@ describe('meeting workspace', () => {
     expect(screen.getByRole('heading', { name: '会议准备' })).toBeInTheDocument()
   })
 
-  it('places summary and action AI drafts in the meeting work surface', async () => {
+  it('keeps a generated meeting summary local until the meeting is saved', async () => {
+    registerEditorAssistant('meeting-summary-editor', SummaryAssistant)
     render(MeetingWorkspaceView)
     await screen.findByText('Current topic')
-    expect(screen.getByTestId('meeting-inline-summary')).toBeInTheDocument()
-    expect(screen.getByTestId('meeting-inline-actions')).toBeInTheDocument()
+    expect(screen.getByTestId('meeting-summary-editor')).toContainElement(screen.getByLabelText('会议纪要'))
+    expect(screen.queryByTestId('meeting-inline-summary')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('meeting-inline-actions')).not.toBeInTheDocument()
+
+    await fireEvent.click(screen.getByRole('button', { name: '生成会议纪要' }))
+    expect(screen.getByLabelText('会议纪要')).toHaveValue('# AI 生成纪要')
+    expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' }))
+
+    await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
+    await fireEvent.click(screen.getByRole('button', { name: '保存会议信息' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({
+      method: 'PUT', body: expect.stringContaining('"summary_markdown":"# AI 生成纪要"'),
+    })))
   })
 })

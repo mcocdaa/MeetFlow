@@ -1,9 +1,16 @@
+import { defineComponent } from 'vue'
 import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AgendaDetail from '../components/AgendaDetail.vue'
 import AgendaQueue from '../components/AgendaQueue.vue'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
+import { registerEditorAssistant } from '../plugins/registry'
+
+const ActionContextProbe = defineComponent({
+  props: ['context'],
+  template: '<output data-testid="action-context">{{ JSON.stringify(context.metadata) }}</output>',
+})
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', async (importOriginal) => {
@@ -76,6 +83,26 @@ describe('agenda workbench', () => {
     expect(screen.getByTestId('outcome-actions')).toHaveTextContent('+ 决策')
     expect(screen.getByTestId('flow-actions')).toHaveTextContent('完成议题并进入下一项')
     expect(screen.getByTestId('outcome-actions')).not.toContainElement(screen.getByRole('button', { name: '完成议题并进入下一项' }))
+  })
+
+  it('adds action AI assistance with the current project, meeting, agenda, and participants', async () => {
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0] } })
+    await fireEvent.click(screen.getByRole('button', { name: '+ 决策' }))
+    expect(screen.getByLabelText('决策内容')).toBeInTheDocument()
+    expect(screen.queryByTestId('action-composer')).not.toBeInTheDocument()
+    await fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+
+    await fireEvent.click(screen.getByRole('button', { name: '+ 开放问题' }))
+    expect(screen.getByLabelText('开放问题内容')).toBeInTheDocument()
+    expect(screen.queryByTestId('action-composer')).not.toBeInTheDocument()
+    await fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+
+    registerEditorAssistant('action-composer', ActionContextProbe)
+    await fireEvent.click(screen.getByRole('button', { name: '+ 行动' }))
+    expect(screen.getByTestId('action-composer')).toContainElement(screen.getByLabelText('行动项内容'))
+    expect(JSON.parse(screen.getByTestId('action-context').textContent ?? '{}')).toMatchObject({
+      projectId: 'p1', meetingId: 'm1', agendaId: 'a1', participants: [users.lin, users.qiao],
+    })
   })
 
   it('shows a useful guard when an agenda with outcomes cannot be deleted', async () => {
