@@ -6,6 +6,13 @@ export type AgendaStatus = 'planned' | 'in_progress' | 'completed' | 'skipped' |
 export type AgendaType = 'information' | 'discussion' | 'decision'
 export type ParticipationRole = 'attendee' | 'host' | 'recorder' | 'presenter'
 
+export type AgendaDraft = {
+  title: string
+  agenda_type: AgendaType
+  notes_markdown: string
+  estimated_minutes: number | null
+}
+
 export type MeetingParticipant = {
   user: UserRef
   participation_role: ParticipationRole

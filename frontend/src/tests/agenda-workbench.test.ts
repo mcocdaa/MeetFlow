@@ -57,6 +57,24 @@ function emptyMeetingFixture() {
   return { ...meetingFixture(), agenda_items: [] }
 }
 
+type AgendaWorkbenchHandle = { flushCurrentDraft: () => Promise<boolean> }
+
+const AgendaFlushHarness = defineComponent({
+  components: { AgendaWorkbench },
+  setup() {
+    const workbench = ref<AgendaWorkbenchHandle | null>(null)
+    const result = ref('')
+    const reloads = ref(0)
+
+    async function flush() {
+      result.value = String(await workbench.value!.flushCurrentDraft())
+    }
+
+    return { flush, meeting: meetingFixture(), reloads, result, workbench }
+  },
+  template: '<AgendaWorkbench ref="workbench" :meeting="meeting" @reload="reloads += 1" /><button type="button" @click="flush">刷新当前议题草稿</button><output data-testid="flush-result">{{ result }}</output><output data-testid="reload-count">{{ reloads }}</output>',
+})
+
 describe('agenda workbench', () => {
   beforeEach(() => {
     apiMock.mockReset()
@@ -91,6 +109,48 @@ describe('agenda workbench', () => {
     expect(workbench).toContainElement(queue)
     expect(detail).toHaveClass('agenda-empty-compact')
     expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('exposes a clean current draft flush that does not request or reload', async () => {
+    render(AgendaFlushHarness)
+    await fireEvent.click(screen.getByRole('button', { name: '刷新当前议题草稿' }))
+
+    await waitFor(() => expect(screen.getByTestId('flush-result')).toHaveTextContent('false'))
+    expect(apiMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('reload-count')).toHaveTextContent('0')
+  })
+
+  it('flushes a dirty current draft once without emitting a workbench reload', async () => {
+    const saved = { ...meetingFixture().agenda_items[0], title: '已确认进展', version: 3 }
+    apiMock.mockResolvedValueOnce(saved)
+    render(AgendaFlushHarness)
+
+    await fireEvent.update(screen.getByLabelText('议题标题'), '已确认进展')
+    await fireEvent.click(screen.getByRole('button', { name: '刷新当前议题草稿' }))
+
+    await waitFor(() => expect(screen.getByTestId('flush-result')).toHaveTextContent('true'))
+    expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1', {
+      method: 'PUT',
+      body: JSON.stringify({ expected_version: 2, title: '已确认进展', agenda_type: 'information', notes_markdown: '', estimated_minutes: 20 }),
+    })
+    expect(screen.getByTestId('reload-count')).toHaveTextContent('0')
+
+    await fireEvent.click(screen.getByRole('button', { name: '刷新当前议题草稿' }))
+    expect(apiMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('only manually saves a dirty topic and emits changed after success', async () => {
+    const changed = vi.fn()
+    apiMock.mockResolvedValueOnce({ ...meetingFixture().agenda_items[0], title: '更新后的进展', version: 3 })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0] }, attrs: { onChanged: changed } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
+    expect(apiMock).not.toHaveBeenCalled()
+
+    await fireEvent.update(screen.getByLabelText('议题标题'), '更新后的进展')
+    await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1))
+    expect(apiMock).toHaveBeenCalledTimes(1)
   })
 
   it('sends the full ordered id list once after drop', async () => {
