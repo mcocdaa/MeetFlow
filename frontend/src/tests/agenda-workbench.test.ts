@@ -109,6 +109,8 @@ describe('agenda workbench', () => {
     expect(workbench).toContainElement(queue)
     expect(detail).toHaveClass('agenda-empty-compact')
     expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(queue).getByRole('button', { name: '+ 议题' })).toBeVisible()
+    expect(within(detail).queryByRole('button', { name: '添加议题' })).not.toBeInTheDocument()
   })
 
   it('exposes a clean current draft flush that does not request or reload', async () => {
