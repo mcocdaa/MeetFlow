@@ -1,4 +1,4 @@
-import { defineComponent } from 'vue'
+import { defineComponent, ref } from 'vue'
 import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -11,6 +11,18 @@ const ActionContextProbe = defineComponent({
   props: ['context'],
   template: '<output data-testid="action-context">{{ JSON.stringify(context.metadata) }}</output>',
 })
+
+function outcomeAssistantProbe(testId: string, label: string) {
+  return defineComponent({
+    props: ['modelValue', 'context', 'disabled'],
+    emits: ['notice', 'update:modelValue', 'update:busy'],
+    setup() {
+      const clicks = ref(0)
+      return { clicks, onClick: () => { clicks.value += 1 } }
+    },
+    template: `<div><button type="button" aria-label="${label}" @click="onClick">${label}</button><output data-testid="${testId}">{{ clicks }}</output></div>`,
+  })
+}
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', async (importOriginal) => {
@@ -85,24 +97,38 @@ describe('agenda workbench', () => {
     expect(screen.getByTestId('outcome-actions')).not.toContainElement(screen.getByRole('button', { name: '完成议题并进入下一项' }))
   })
 
-  it('adds action AI assistance with the current project, meeting, agenda, and participants', async () => {
+  it('places outcome assistants in every editor without treating editor clicks as assistant clicks', async () => {
+    registerEditorAssistant('decision-composer', outcomeAssistantProbe('decision-assistant-clicks', 'AI 建议决策'))
+    registerEditorAssistant('action-composer', outcomeAssistantProbe('action-assistant-clicks', 'AI 建议行动项'))
+    registerEditorAssistant('question-composer', outcomeAssistantProbe('question-assistant-clicks', 'AI 梳理开放问题'))
     render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0] } })
-    await fireEvent.click(screen.getByRole('button', { name: '+ 决策' }))
-    expect(screen.getByLabelText('决策内容')).toBeInTheDocument()
-    expect(screen.queryByTestId('action-composer')).not.toBeInTheDocument()
-    await fireEvent.click(screen.getByRole('button', { name: '关闭' }))
 
-    await fireEvent.click(screen.getByRole('button', { name: '+ 开放问题' }))
-    expect(screen.getByLabelText('开放问题内容')).toBeInTheDocument()
-    expect(screen.queryByTestId('action-composer')).not.toBeInTheDocument()
+    await fireEvent.click(screen.getByRole('button', { name: '+ 决策' }))
+    expect(screen.getByTestId('decision-composer')).toContainElement(screen.getByLabelText('决策内容'))
+    await fireEvent.click(screen.getByLabelText('决策内容'))
+    expect(screen.getByTestId('decision-assistant-clicks')).toHaveTextContent('0')
+    await fireEvent.click(screen.getByRole('button', { name: 'AI 建议决策' }))
+    expect(screen.getByTestId('decision-assistant-clicks')).toHaveTextContent('1')
     await fireEvent.click(screen.getByRole('button', { name: '关闭' }))
 
     registerEditorAssistant('action-composer', ActionContextProbe)
     await fireEvent.click(screen.getByRole('button', { name: '+ 行动' }))
     expect(screen.getByTestId('action-composer')).toContainElement(screen.getByLabelText('行动项内容'))
+    await fireEvent.click(screen.getByLabelText('行动项内容'))
+    expect(screen.getByTestId('action-assistant-clicks')).toHaveTextContent('0')
+    await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
+    expect(screen.getByTestId('action-assistant-clicks')).toHaveTextContent('1')
     expect(JSON.parse(screen.getByTestId('action-context').textContent ?? '{}')).toMatchObject({
       projectId: 'p1', meetingId: 'm1', agendaId: 'a1', participants: [users.lin, users.qiao],
     })
+    await fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+
+    await fireEvent.click(screen.getByRole('button', { name: '+ 开放问题' }))
+    expect(screen.getByTestId('question-composer')).toContainElement(screen.getByLabelText('开放问题内容'))
+    await fireEvent.click(screen.getByLabelText('开放问题内容'))
+    expect(screen.getByTestId('question-assistant-clicks')).toHaveTextContent('0')
+    await fireEvent.click(screen.getByRole('button', { name: 'AI 梳理开放问题' }))
+    expect(screen.getByTestId('question-assistant-clicks')).toHaveTextContent('1')
   })
 
   it('shows a useful guard when an agenda with outcomes cannot be deleted', async () => {

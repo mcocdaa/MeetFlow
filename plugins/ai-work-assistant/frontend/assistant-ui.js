@@ -23,6 +23,20 @@ const assistantDefinitions = [
     busyLabel: '正在建议行动项…',
     targetType: 'meeting',
   },
+  {
+    slot: 'decision-composer',
+    actionId: 'ai-work-assistant.decision_suggestions',
+    label: 'AI 建议决策',
+    busyLabel: '正在生成决策建议…',
+    targetType: 'meeting',
+  },
+  {
+    slot: 'question-composer',
+    actionId: 'ai-work-assistant.open_question_suggestions',
+    label: 'AI 梳理开放问题',
+    busyLabel: '正在梳理开放问题…',
+    targetType: 'meeting',
+  },
 ]
 
 function contextFor(props, fallbackTargetType) {

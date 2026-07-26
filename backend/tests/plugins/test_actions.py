@@ -108,6 +108,48 @@ def test_action_suggestions_return_editable_markdown(
     }
 
 
+@pytest.mark.parametrize(
+    ("generator_name", "expected_markdown"),
+    [
+        ("decision_suggestions", "采用灰度发布，并在一周后复盘效果。"),
+        ("open_question_suggestions", "- 如何确认灰度发布的覆盖范围？"),
+    ],
+)
+def test_outcome_suggestions_return_editable_markdown(
+    ai_work_assistant_backend, monkeypatch, generator_name, expected_markdown
+):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": expected_markdown}}]}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def post(self, _url, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(ai_work_assistant_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(
+        getattr(ai_work_assistant_backend, generator_name)(
+            {"title": "结果讨论"},
+            {"current_markdown": "原有内容"},
+            {
+                "base_url": "https://example.test/v1",
+                "api_key": "test-key",
+                "model": "test-model",
+                "timeout_seconds": 10,
+            },
+        )
+    )
+
+    assert result == {"markdown": expected_markdown, "model": "test-model"}
+
+
 def test_ai_work_assistant_declares_bounded_editor_input(ai_work_assistant_backend):
     class Registry:
         def __init__(self):

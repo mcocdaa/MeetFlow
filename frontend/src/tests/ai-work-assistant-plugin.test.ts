@@ -40,6 +40,8 @@ it('registers assistants for all editor slots and its task extension', () => {
     'meeting-summary-editor',
     'project-update-editor',
     'action-composer',
+    'decision-composer',
+    'question-composer',
   ])
   expect([...registered.taskExtensions.keys()]).toEqual(['ai-work-assistant'])
 })
@@ -89,6 +91,32 @@ it('writes an action suggestion into the existing editable action field', async 
 
   expect(emitted()['update:modelValue']).toEqual([['- 明确负责人并补充截止日期']])
   expect(screen.queryByRole('button', { name: /创建所选行动项/ })).not.toBeInTheDocument()
+})
+
+it.each([
+  ['decision-composer', 'AI 建议决策', 'decision_suggestions', '采用灰度发布。'],
+  ['question-composer', 'AI 梳理开放问题', 'open_question_suggestions', '- 如何确认发布范围？'],
+])('writes %s output directly into the editable outcome field', async (slot, label, actionId, markdown) => {
+  vi.useFakeTimers()
+  const registered = registerAssistant()
+  registered.apiMock
+    .mockResolvedValueOnce({ id: `job-${actionId}`, status: 'queued' })
+    .mockResolvedValueOnce({ id: `job-${actionId}`, status: 'succeeded', result: { markdown } })
+  const { emitted } = renderAssistant(registered, slot, '原有内容')
+
+  await fireEvent.click(screen.getByRole('button', { name: label }))
+  await vi.advanceTimersByTimeAsync(3_000)
+
+  expect(registered.apiMock).toHaveBeenNthCalledWith(1, '/api/plugin-jobs', {
+    method: 'POST',
+    body: JSON.stringify({
+      action_id: `ai-work-assistant.${actionId}`,
+      target_type: 'meeting',
+      target_id: 'target-1',
+      input: { current_markdown: '原有内容' },
+    }),
+  })
+  expect(emitted()['update:modelValue']).toEqual([[markdown]])
 })
 
 it('does not mutate editor content when a job fails', async () => {

@@ -6,7 +6,7 @@ import yaml
 from app.main import create_app
 
 
-def test_ai_work_assistant_declares_three_scoped_actions(settings):
+def test_ai_work_assistant_declares_five_scoped_actions(settings):
     settings.plugins_dir = (
         Path(__file__).resolve().parents[3] / "plugins"
     )
@@ -21,6 +21,8 @@ def test_ai_work_assistant_declares_three_scoped_actions(settings):
             "ai-work-assistant.meeting_summary",
             "ai-work-assistant.project_progress",
             "ai-work-assistant.action_suggestions",
+            "ai-work-assistant.decision_suggestions",
+            "ai-work-assistant.open_question_suggestions",
         }
         assert actions["ai-work-assistant.meeting_summary"].target_types == (
             "meeting",

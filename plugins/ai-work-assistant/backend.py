@@ -78,6 +78,26 @@ async def action_suggestions(context, payload, config):
     )
 
 
+async def decision_suggestions(context, payload, config):
+    return await _draft(
+        "根据当前讨论，生成一项可直接填写到“决策内容”中的决策草稿。"
+        "只输出可编辑的 Markdown 文本；不要添加标题、实施计划或多个候选项。",
+        context,
+        payload,
+        config,
+    )
+
+
+async def open_question_suggestions(context, payload, config):
+    return await _draft(
+        "根据当前讨论，生成一项可直接填写到“开放问题内容”中的问题草稿。"
+        "只输出可编辑的 Markdown 文本；不要假设问题已经解决。",
+        context,
+        payload,
+        config,
+    )
+
+
 def apply_meeting_summary(job, payload, actor, session):
     markdown = payload.get("edited_markdown")
     expected_version = payload.get("expected_version")
@@ -126,6 +146,30 @@ def register(registry):
             output_schema=common_output,
             handler=meeting_summary,
             apply_handler=apply_meeting_summary,
+            target_types=("meeting",),
+        )
+    )
+    registry.register_meeting_action(
+        MeetingAction(
+            action_id="ai-work-assistant.decision_suggestions",
+            label="AI 建议决策",
+            description="基于会议资料生成可编辑决策草稿",
+            admin_only=False,
+            input_schema=editor_input,
+            output_schema=common_output,
+            handler=decision_suggestions,
+            target_types=("meeting",),
+        )
+    )
+    registry.register_meeting_action(
+        MeetingAction(
+            action_id="ai-work-assistant.open_question_suggestions",
+            label="AI 梳理开放问题",
+            description="基于会议资料生成可编辑开放问题草稿",
+            admin_only=False,
+            input_schema=editor_input,
+            output_schema=common_output,
+            handler=open_question_suggestions,
             target_types=("meeting",),
         )
     )

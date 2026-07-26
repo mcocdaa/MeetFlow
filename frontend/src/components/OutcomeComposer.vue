@@ -18,6 +18,11 @@ const priority = ref<ActionPriority>('normal')
 const saving = ref(false)
 const error = ref('')
 const labels = computed(() => ({ decision: '决策', action: '行动项', question: '开放问题' }[props.mode]))
+const assistantSlot = computed(() => ({
+  decision: 'decision-composer',
+  action: 'action-composer',
+  question: 'question-composer',
+}[props.mode]))
 
 async function save() {
   if (!content.value.trim() || saving.value) return
@@ -45,12 +50,9 @@ async function save() {
   <form class="outcome-composer" @submit.prevent="save">
     <header class="section-heading"><h3>添加{{ labels }}</h3><button type="button" class="icon-button" aria-label="关闭" @click="emit('close')">×</button></header>
     <label v-if="mode === 'decision'">标题<input v-model="title" required /></label>
-    <label>{{ mode === 'question' ? '问题' : mode === 'action' ? '行动内容' : '决策内容' }}
-      <PluginEditorSlot v-if="mode === 'action'" v-model="content" data-testid="action-composer" target-type="meeting" :target-id="meeting.id" slot="action-composer" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id, participants: meeting.participants.map((participant) => participant.user) }" @notice="error = $event">
-        <template #editor="{ disabled }"><MarkdownEditor v-model="content" :label="`${labels}内容`" :disabled="saving || disabled" /></template>
-      </PluginEditorSlot>
-      <MarkdownEditor v-else v-model="content" :label="`${labels}内容`" :disabled="saving" />
-    </label>
+    <PluginEditorSlot v-model="content" :data-testid="assistantSlot" target-type="meeting" :target-id="meeting.id" :slot="assistantSlot" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id, participants: meeting.participants.map((participant) => participant.user) }" @notice="error = $event">
+      <template #editor="{ disabled }"><MarkdownEditor v-model="content" :label="`${labels}内容`" :disabled="saving || disabled" /></template>
+    </PluginEditorSlot>
     <div v-if="mode !== 'decision'" class="outcome-fields">
       <label>负责人<select v-model="ownerId"><option value="">未指定</option><option v-for="participant in meeting.participants" :key="participant.user.id" :value="participant.user.id">{{ participant.user.display_name }}</option></select></label>
       <label v-if="mode === 'action'">截止日期<input v-model="dueDate" type="date" /></label>
