@@ -1,4 +1,86 @@
+import asyncio
+import importlib.util
 import logging
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def ai_work_assistant_backend():
+    entry = (
+        Path(__file__).resolve().parents[3]
+        / "plugins"
+        / "ai-work-assistant"
+        / "backend.py"
+    )
+    spec = importlib.util.spec_from_file_location("ai_work_assistant_backend", entry)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_ai_work_assistant_sends_current_editor_text_with_server_snapshot(
+    ai_work_assistant_backend, monkeypatch
+):
+    captured: dict = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "# AI 草稿"}}]}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def post(self, _url, **kwargs):
+            captured.update(kwargs)
+            return Response()
+
+    monkeypatch.setattr(ai_work_assistant_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(
+        ai_work_assistant_backend.meeting_summary(
+            {"title": "服务端会议快照"},
+            {"current_markdown": "## 用户原稿"},
+            {
+                "base_url": "https://example.test/v1",
+                "api_key": "test-key",
+                "model": "test-model",
+                "timeout_seconds": 10,
+            },
+        )
+    )
+
+    content = captured["json"]["messages"][1]["content"]
+    assert "当前编辑内容：## 用户原稿" in content
+    assert "资料：{'title': '服务端会议快照'}" in content
+    assert result == {"markdown": "# AI 草稿", "model": "test-model"}
+
+
+def test_ai_work_assistant_declares_bounded_editor_input(ai_work_assistant_backend):
+    class Registry:
+        def __init__(self):
+            self.actions = []
+
+        def register_meeting_action(self, action):
+            self.actions.append(action)
+
+    registry = Registry()
+    ai_work_assistant_backend.register(registry)
+
+    for action in registry.actions:
+        assert action.input_schema == {
+            "type": "object",
+            "properties": {
+                "current_markdown": {"type": "string", "maxLength": 100_000}
+            },
+            "additionalProperties": False,
+        }
 
 
 def configure_plugin(plugin_client):

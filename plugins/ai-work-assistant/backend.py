@@ -18,9 +18,12 @@ def _endpoint(base_url: str) -> str:
 async def _draft(
     instruction: str,
     context: dict[str, Any],
-    _payload: dict[str, Any],
+    payload: dict[str, Any],
     config: dict[str, Any],
 ) -> dict[str, Any]:
+    current_markdown = payload.get("current_markdown", "")
+    if not isinstance(current_markdown, str):
+        current_markdown = ""
     response = await httpx.AsyncClient(
         timeout=float(config["timeout_seconds"])
     ).post(
@@ -36,7 +39,13 @@ async def _draft(
                         "不要声称执行了未给出的事实。输出 Markdown，不调用工具。"
                     ),
                 },
-                {"role": "user", "content": f"{instruction}\n\n资料：{context}"},
+                {
+                    "role": "user",
+                    "content": (
+                        f"{instruction}\n\n当前编辑内容：{current_markdown}"
+                        f"\n\n资料：{context}"
+                    ),
+                },
             ],
             "temperature": 0.2,
         },
@@ -67,12 +76,19 @@ async def action_suggestions(context, payload, config):
 
 def register(registry):
     common_output = {"type": "object", "required": ["markdown", "model"]}
+    editor_input = {
+        "type": "object",
+        "properties": {
+            "current_markdown": {"type": "string", "maxLength": 100_000}
+        },
+        "additionalProperties": False,
+    }
     registry.register_meeting_action(MeetingAction(
         action_id="ai-work-assistant.meeting_summary",
         label="生成会议纪要",
         description="基于当前会议资料生成可编辑纪要草稿",
         admin_only=False,
-        input_schema={"type": "object"},
+        input_schema=editor_input,
         output_schema=common_output,
         handler=meeting_summary,
         target_types=("meeting",),
@@ -82,7 +98,7 @@ def register(registry):
         label="总结项目进展",
         description="基于当前项目资料生成可编辑进展草稿",
         admin_only=False,
-        input_schema={"type": "object"},
+        input_schema=editor_input,
         output_schema=common_output,
         handler=project_progress,
         target_types=("project",),
@@ -92,7 +108,7 @@ def register(registry):
         label="建议行动项",
         description="基于会议资料生成待确认行动项建议",
         admin_only=False,
-        input_schema={"type": "object"},
+        input_schema=editor_input,
         output_schema={"type": "object", "required": ["markdown", "model", "candidates"]},
         handler=action_suggestions,
         target_types=("meeting",),
