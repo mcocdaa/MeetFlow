@@ -154,7 +154,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     }
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0003"
+            "0005"
         )
 
 

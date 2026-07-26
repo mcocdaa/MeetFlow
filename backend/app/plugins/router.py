@@ -68,6 +68,7 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
         "result": job.result_json,
         "error_code": job.error_code,
         "error_message": job.error_message,
+        "error_detail": job.error_detail,
         "rerun_of_id": job.rerun_of_id,
         "applied_by": job.applied_by,
         "applied_at": job.applied_at,

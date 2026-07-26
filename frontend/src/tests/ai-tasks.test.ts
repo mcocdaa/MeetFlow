@@ -50,3 +50,24 @@ it('keeps succeeded work as a recovery link back to its meeting context', async 
   expect(link).toHaveAttribute('href', '/meetings/meeting-1')
   expect(screen.queryByRole('button', { name: '应用到会议纪要' })).not.toBeInTheDocument()
 })
+
+it('keeps failed-task technical detail collapsed until the user asks for it', async () => {
+  apiMock.mockResolvedValueOnce({
+    items: [{
+      id: 'job-2', action_id: 'ai-work-assistant.project_progress', target_type: 'project', target_id: 'project-1',
+      status: 'failed', result: null, created_at: '2026-07-26T00:00:00Z', started_at: null, finished_at: '2026-07-26T00:00:01Z',
+      error_message: 'AI 服务额度不足；请充值或更换有可用额度的 API Key。',
+      error_detail: 'HTTP 402 · {"error":{"message":"Insufficient Balance"}}',
+      applied_at: null,
+    }],
+  })
+
+  render(AiTasksView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
+  const detail = await screen.findByText(/Insufficient Balance/)
+  const disclosure = detail.closest('details')
+
+  expect(disclosure).not.toBeNull()
+  expect(disclosure?.open).toBe(false)
+  await fireEvent.click(screen.getByText('查看技术详情'))
+  expect(disclosure?.open).toBe(true)
+})

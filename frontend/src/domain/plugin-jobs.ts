@@ -9,6 +9,7 @@ export type PluginJob = {
   status: PluginJobStatus
   result: { markdown?: string; candidates?: Array<{ content: string }> } | null
   error_message?: string | null
+  error_detail?: string | null
   applied_at: string | null
   dismissed_at?: string | null
   dismissed_by?: string | null

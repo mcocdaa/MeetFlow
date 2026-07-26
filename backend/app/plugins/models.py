@@ -73,6 +73,7 @@ class PluginJob(Base):
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     rerun_of_id: Mapped[str | None] = mapped_column(
         ForeignKey("plugin_jobs.id"), nullable=True, index=True
     )
