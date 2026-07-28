@@ -1,4 +1,4 @@
-import { defineComponent } from 'vue'
+import { defineComponent, onBeforeUnmount, onMounted } from 'vue'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,11 +13,17 @@ vi.mock('vue-router', () => ({
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
 }))
 vi.mock('../components/MarkdownEditor.vue', () => ({
-  default: {
-    props: ['modelValue', 'label', 'disabled'],
+  default: defineComponent({
+    props: ['modelValue', 'label', 'disabled', 'registerEditor'],
     emits: ['update:modelValue'],
+    setup(props, { emit }) {
+      const writer = (markdown: string) => emit('update:modelValue', markdown)
+      onMounted(() => props.registerEditor?.(writer))
+      onBeforeUnmount(() => props.registerEditor?.(null))
+      return {}
+    },
     template: '<textarea :aria-label="label" :disabled="disabled" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
-  },
+  }),
 }))
 
 const project = {
@@ -32,7 +38,8 @@ const project = {
 }
 
 const ProjectUpdateAssistant = defineComponent({
-  template: '<button type="button">AI 提示</button>',
+  emits: ['update:modelValue'],
+  template: '<button type="button" @click="$emit(\'update:modelValue\', \'# AI 项目进展\')">AI 提示</button>',
 })
 
 function defaultProjectResponse(path: string) {
@@ -70,6 +77,9 @@ describe('project workspace', () => {
     expect(within(updateEditor).getByText('进展记录')).toBeVisible()
     await fireEvent.click(within(updateEditor).getByRole('button', { name: 'AI 工具' }))
     expect(within(updateEditor).getByRole('button', { name: 'AI 提示' })).toBeVisible()
+    await fireEvent.click(within(updateEditor).getByRole('button', { name: 'AI 提示' }))
+    expect(screen.getByLabelText('进展记录')).toHaveValue('# AI 项目进展')
+    expect(apiMock).not.toHaveBeenCalledWith('/api/projects/p1/updates', expect.anything())
     expect(screen.queryByTestId('project-inline-progress')).not.toBeInTheDocument()
   })
 

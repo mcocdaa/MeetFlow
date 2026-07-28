@@ -15,6 +15,17 @@ def _endpoint(base_url: str) -> str:
     return f"{base_url.rstrip('/')}/chat/completions"
 
 
+def _editor_context(current_markdown: str) -> str:
+    if current_markdown.strip():
+        return (
+            "当前编辑栏已有内容；生成结果会整体替换该编辑栏。"
+            "必须保留其中可证实的具体事实，并在其基础上整理补充；"
+            "不得忽略、清空或编造已有内容。"
+            f"\n\n当前编辑内容：\n{current_markdown}"
+        )
+    return "当前编辑栏当前为空；请仅根据资料生成可编辑内容。"
+
+
 async def _draft(
     instruction: str,
     context: dict[str, Any],
@@ -42,7 +53,7 @@ async def _draft(
                 {
                     "role": "user",
                     "content": (
-                        f"{instruction}\n\n当前编辑内容：{current_markdown}"
+                        f"{instruction}\n\n{_editor_context(current_markdown)}"
                         f"\n\n资料：{context}"
                     ),
                 },
