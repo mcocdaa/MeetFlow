@@ -159,7 +159,7 @@ def test_plugin_registered_apply_handler_marks_any_succeeded_action_applied(
         assert applied.applied_at is not None
 
 
-def test_meeting_summary_is_applied_only_after_explicit_confirmation(
+def test_meeting_summary_result_cannot_bypass_the_editor_by_using_the_apply_api(
     ai_plugin_client, ai_plugin_meeting_id
 ):
     database = ai_plugin_client.app.state.database
@@ -189,11 +189,13 @@ def test_meeting_summary_is_applied_only_after_explicit_confirmation(
         json={"edited_markdown": "# 已确认纪要", "expected_version": before["version"]},
     )
 
-    assert response.status_code == 200
-    assert response.json()["summary_markdown"] == "# 已确认纪要"
+    assert response.status_code == 409
+    assert ai_plugin_client.get(f"/api/meetings/{ai_plugin_meeting_id}").json()[
+        "summary_markdown"
+    ] == ""
 
 
-def test_project_progress_is_created_only_after_explicit_confirmation(
+def test_project_progress_result_cannot_create_an_update_through_the_apply_api(
     ai_plugin_client, ai_plugin_meeting_id
 ):
     database = ai_plugin_client.app.state.database
@@ -222,9 +224,9 @@ def test_project_progress_is_created_only_after_explicit_confirmation(
         json={"edited_markdown": "# 已确认项目进展"},
     )
 
-    assert response.status_code == 200
-    assert response.json()["content_markdown"] == "# 已确认项目进展"
-    assert response.json()["source"] == "ai_draft_applied"
+    assert response.status_code == 409
+    project = ai_plugin_client.get(f"/api/projects/{project_id}").json()
+    assert project["updates"] == []
 
 
 def test_list_jobs_can_be_scoped_to_one_meeting(plugin_client, plugin_meeting_id):

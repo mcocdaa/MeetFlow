@@ -30,6 +30,7 @@ def test_ai_work_assistant_declares_five_scoped_actions(settings):
         assert actions["ai-work-assistant.project_progress"].target_types == (
             "project",
         )
+        assert all(action.apply_handler is None for action in actions.values())
 
 
 def test_broken_plugin_is_reported_without_blocking_core(plugin_factory, settings):

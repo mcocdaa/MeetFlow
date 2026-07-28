@@ -1,4 +1,4 @@
-import { defineComponent, ref } from 'vue'
+import { defineComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { fireEvent, render, screen } from '@testing-library/vue'
 import { expect, it, vi } from 'vitest'
 
@@ -18,39 +18,40 @@ const FakeAssistant = defineComponent({
   template: '<button type="button" @click="$emit(\'update:busy\', { active: true, label: \'正在生成建议…\' })">插件建议</button>',
 })
 
-const DraftAssistant = defineComponent({
-  emits: ['draft'],
-  template: '<button type="button" @click="$emit(\'draft\', \'# AI 草稿\')">生成草稿</button>',
-})
-
 const DirectUpdateAssistant = defineComponent({
   emits: ['update:modelValue'],
-  template: '<button type="button" @click="$emit(\'update:modelValue\', \'兼容的直接更新\')">直接更新</button>',
+  template: '<button type="button" @click="$emit(\'update:modelValue\', \'# AI 结果\')">生成建议</button>',
 })
 
-const DraftReviewHarness = defineComponent({
-  components: { PluginEditorSlot },
+const NativeEditor = defineComponent({
+  props: {
+    modelValue: { type: String, required: true },
+    disabled: { type: Boolean, default: false },
+    registerEditor: { type: Function, default: undefined },
+  },
+  emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    const applyCount = ref(0)
+    const applyMarkdown = (markdown: string) => {
+      applyCount.value += 1
+      emit('update:modelValue', markdown)
+    }
+    onMounted(() => props.registerEditor?.(applyMarkdown))
+    onBeforeUnmount(() => props.registerEditor?.(null))
+    return { applyCount }
+  },
+  template: '<textarea aria-label="编辑器" :disabled="disabled" :value="modelValue" /><output data-testid="native-apply-count">{{ applyCount }}</output>',
+})
+
+const DirectEditorHarness = defineComponent({
+  components: { NativeEditor, PluginEditorSlot },
   setup() {
     const content = ref('原内容')
     return { content }
   },
   template: `
     <PluginEditorSlot v-model="content" target-type="project" target-id="p1" slot="project-update-editor" editor-label="进展记录">
-      <template #editor="{ disabled }"><textarea aria-label="编辑器" :disabled="disabled" :value="content" /></template>
-    </PluginEditorSlot>
-    <output data-testid="editor-content">{{ content }}</output>
-  `,
-})
-
-const DirectUpdateHarness = defineComponent({
-  components: { PluginEditorSlot },
-  setup() {
-    const content = ref('原内容')
-    return { content }
-  },
-  template: `
-    <PluginEditorSlot v-model="content" target-type="meeting" target-id="m1" slot="direct-update-editor" editor-label="会议纪要">
-      <template #editor="{ disabled }"><textarea aria-label="编辑器" :disabled="disabled" :value="content" /></template>
+      <template #editor="{ disabled, registerEditor }"><NativeEditor v-model="content" :disabled="disabled" :register-editor="registerEditor" /></template>
     </PluginEditorSlot>
     <output data-testid="editor-content">{{ content }}</output>
   `,
@@ -110,34 +111,15 @@ it('does not render editor chrome without registered assistants', () => {
   expect(screen.queryByRole('button', { name: 'AI 工具' })).not.toBeInTheDocument()
 })
 
-it('keeps an AI draft editable until the user applies or discards it', async () => {
-  registerEditorAssistant('project-update-editor', DraftAssistant)
-  render(DraftReviewHarness)
+it('routes an AI result through the registered editor once without rendering a draft review', async () => {
+  registerEditorAssistant('project-update-editor', DirectUpdateAssistant)
+  render(DirectEditorHarness)
 
   await fireEvent.click(screen.getByRole('button', { name: 'AI 工具' }))
-  await fireEvent.click(screen.getByRole('button', { name: '生成草稿' }))
+  await fireEvent.click(screen.getByRole('button', { name: '生成建议' }))
 
-  expect(screen.getByTestId('editor-content')).toHaveTextContent('原内容')
-  expect(screen.getByLabelText('编辑器')).toBeDisabled()
-  expect(screen.getByLabelText('AI 草稿')).toHaveValue('# AI 草稿')
-  await fireEvent.update(screen.getByLabelText('AI 草稿'), '# 修改后的草稿')
-  await fireEvent.click(screen.getByRole('button', { name: '应用草稿' }))
-  expect(screen.getByTestId('editor-content')).toHaveTextContent('# 修改后的草稿')
-  expect(screen.getByLabelText('编辑器')).not.toBeDisabled()
-
-  await fireEvent.click(screen.getByRole('button', { name: 'AI 工具' }))
-  await fireEvent.click(screen.getByRole('button', { name: '生成草稿' }))
-  await fireEvent.click(screen.getByRole('button', { name: '放弃' }))
-  expect(screen.queryByLabelText('AI 草稿')).not.toBeInTheDocument()
-  expect(screen.getByTestId('editor-content')).toHaveTextContent('# 修改后的草稿')
-})
-
-it('continues to apply direct model updates from non-draft assistants', async () => {
-  registerEditorAssistant('direct-update-editor', DirectUpdateAssistant)
-  render(DirectUpdateHarness)
-
-  await fireEvent.click(screen.getByRole('button', { name: 'AI 工具' }))
-  await fireEvent.click(screen.getByRole('button', { name: '直接更新' }))
-
-  expect(screen.getByTestId('editor-content')).toHaveTextContent('兼容的直接更新')
+  expect(screen.getByTestId('editor-content')).toHaveTextContent('# AI 结果')
+  expect(screen.getByTestId('native-apply-count')).toHaveTextContent('1')
+  expect(screen.queryByText('AI 草稿')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '应用草稿' })).not.toBeInTheDocument()
 })

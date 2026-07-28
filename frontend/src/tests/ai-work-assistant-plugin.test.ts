@@ -46,7 +46,7 @@ it('registers assistants for all editor slots and its task extension', () => {
   expect([...registered.taskExtensions.keys()]).toEqual(['ai-work-assistant'])
 })
 
-it('emits the terminal job markdown as an unapplied draft after active polling', async () => {
+it('writes the terminal job markdown directly into the active editor after polling', async () => {
   vi.useFakeTimers()
   const registered = registerAssistant()
   registered.apiMock
@@ -67,15 +67,15 @@ it('emits the terminal job markdown as an unapplied draft after active polling',
     }),
   })
   expect(registered.apiMock).toHaveBeenNthCalledWith(2, '/api/plugin-jobs/job-1')
-  expect(emitted()['update:modelValue']).toBeUndefined()
-  expect(emitted().draft).toEqual([['# 真实 AI 结果']])
+  expect(emitted()['update:modelValue']).toEqual([['# 真实 AI 结果']])
+  expect(emitted().draft).toBeUndefined()
   expect(emitted()['update:busy']).toEqual([
     [{ active: true, label: '正在生成会议纪要…' }],
     [{ active: false, label: '' }],
   ])
 })
 
-it('emits an action suggestion as an unapplied draft', async () => {
+it('writes an action suggestion directly into the active editor', async () => {
   vi.useFakeTimers()
   const registered = registerAssistant()
   registered.apiMock
@@ -90,15 +90,15 @@ it('emits an action suggestion as an unapplied draft', async () => {
   await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
   await vi.advanceTimersByTimeAsync(3_000)
 
-  expect(emitted()['update:modelValue']).toBeUndefined()
-  expect(emitted().draft).toEqual([['- 明确负责人并补充截止日期']])
+  expect(emitted()['update:modelValue']).toEqual([['- 明确负责人并补充截止日期']])
+  expect(emitted().draft).toBeUndefined()
   expect(screen.queryByRole('button', { name: /创建所选行动项/ })).not.toBeInTheDocument()
 })
 
 it.each([
   ['decision-composer', 'AI 建议决策', 'decision_suggestions', '采用灰度发布。'],
   ['question-composer', 'AI 梳理开放问题', 'open_question_suggestions', '- 如何确认发布范围？'],
-])('emits %s output as an unapplied draft', async (slot, label, actionId, markdown) => {
+])('writes %s output directly into the active editor', async (slot, label, actionId, markdown) => {
   vi.useFakeTimers()
   const registered = registerAssistant()
   registered.apiMock
@@ -118,8 +118,8 @@ it.each([
       input: { current_markdown: '原有内容' },
     }),
   })
-  expect(emitted()['update:modelValue']).toBeUndefined()
-  expect(emitted().draft).toEqual([[markdown]])
+  expect(emitted()['update:modelValue']).toEqual([[markdown]])
+  expect(emitted().draft).toBeUndefined()
 })
 
 it('does not mutate editor content when a job fails', async () => {

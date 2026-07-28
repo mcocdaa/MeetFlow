@@ -18,11 +18,11 @@ function source(job: PluginJob) {
 }
 
 function statusLabel(job: PluginJob) {
-  if (job.dismissed_at) return '已丢弃草稿'
+  if (job.dismissed_at) return '已丢弃结果'
   if (job.applied_at) return '已应用'
   if (job.status === 'queued') return '排队中'
   if (job.status === 'requesting') return '生成中'
-  if (job.status === 'succeeded') return '已生成草稿'
+  if (job.status === 'succeeded') return '已生成'
   if (job.status === 'canceled') return '已取消'
   return '未完成'
 }
@@ -57,7 +57,7 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
 
 <template>
   <main class="workspace-page ai-tasks-page">
-    <PageHeader eyebrow="AI work" title="AI 任务" summary="这里保留运行状态与失败恢复；草稿请在对应会议或项目中编辑并确认。" />
+    <PageHeader eyebrow="AI work" title="AI 任务" summary="这里保留运行状态、结果与失败恢复；生成内容会直接写入发起时的编辑器。" />
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
     <p v-if="loading" class="empty-state">正在加载 AI 任务…</p>
     <section v-else-if="jobs.length" class="task-list">
@@ -68,7 +68,7 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
             <h2>{{ statusLabel(job) }}</h2>
           </div>
           <RouterLink class="text-link" :to="source(job)">
-            回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}处理草稿
+            回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}
           </RouterLink>
         </header>
         <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>

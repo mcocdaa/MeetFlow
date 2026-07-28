@@ -1,7 +1,7 @@
-"""OpenAI-compatible draft generation for MeetFlow.
+"""OpenAI-compatible editor content generation for MeetFlow.
 
-This plugin deliberately has no MeetFlow write access.  Each result is a draft
-that a user must review and apply through the core application's normal APIs.
+This plugin deliberately has no MeetFlow write access. Each result is returned
+to the active client editor, where the user can edit, undo, and save normally.
 """
 
 from typing import Any
@@ -9,10 +9,6 @@ from typing import Any
 import httpx
 
 from app.plugins.contracts import MeetingAction
-from app.meetings.schemas import MeetingEdit
-from app.meetings.service import MeetingService
-from app.projects.schemas import ProjectUpdateWrite
-from app.projects.service import ProjectService
 
 
 def _endpoint(base_url: str) -> str:
@@ -39,7 +35,7 @@ async def _draft(
                 {
                     "role": "system",
                     "content": (
-                        "你是 MeetFlow 的工作助手。只根据给定资料生成中文草稿，"
+                        "你是 MeetFlow 的工作助手。只根据给定资料生成中文内容，"
                         "不要声称执行了未给出的事实。输出 Markdown，不调用工具。"
                     ),
                 },
@@ -70,7 +66,7 @@ async def project_progress(context, payload, config):
 
 async def action_suggestions(context, payload, config):
     return await _draft(
-        "根据当前讨论，生成一项可直接填写到“行动内容”中的行动项草稿。"
+        "根据当前讨论，生成一项可直接填写到“行动内容”中的行动项内容。"
         "只输出可编辑的 Markdown 文本；不要列出检查流程、会议状态或多个候选项。",
         context,
         payload,
@@ -80,7 +76,7 @@ async def action_suggestions(context, payload, config):
 
 async def decision_suggestions(context, payload, config):
     return await _draft(
-        "根据当前讨论，生成一项可直接填写到“决策内容”中的决策草稿。"
+        "根据当前讨论，生成一项可直接填写到“决策内容”中的决策内容。"
         "只输出可编辑的 Markdown 文本；不要添加标题、实施计划或多个候选项。",
         context,
         payload,
@@ -90,41 +86,12 @@ async def decision_suggestions(context, payload, config):
 
 async def open_question_suggestions(context, payload, config):
     return await _draft(
-        "根据当前讨论，生成一项可直接填写到“开放问题内容”中的问题草稿。"
+        "根据当前讨论，生成一项可直接填写到“开放问题内容”中的问题内容。"
         "只输出可编辑的 Markdown 文本；不要假设问题已经解决。",
         context,
         payload,
         config,
     )
-
-
-def apply_meeting_summary(job, payload, actor, session):
-    markdown = payload.get("edited_markdown")
-    expected_version = payload.get("expected_version")
-    if (
-        not isinstance(markdown, str)
-        or not markdown.strip()
-        or not isinstance(expected_version, int)
-    ):
-        raise ValueError("meeting summary requires markdown and version")
-    meeting = MeetingService(session).update_meeting(
-        job.target_id,
-        MeetingEdit(expected_version=expected_version, summary_markdown=markdown),
-        actor,
-    )
-    return MeetingService(session).serialize_meeting(meeting)
-
-
-def apply_project_progress(job, payload, actor, session):
-    markdown = payload.get("edited_markdown")
-    if not isinstance(markdown, str) or not markdown.strip():
-        raise ValueError("project progress requires markdown")
-    update = ProjectService(session).create_update(
-        job.target_id,
-        ProjectUpdateWrite(content_markdown=markdown, source="ai_draft_applied"),
-        actor,
-    )
-    return ProjectService(session).serialize_update(update)
 
 
 def register(registry):
@@ -140,12 +107,11 @@ def register(registry):
         MeetingAction(
             action_id="ai-work-assistant.meeting_summary",
             label="生成会议纪要",
-            description="基于当前会议资料生成可编辑纪要草稿",
+            description="基于当前会议资料生成可编辑纪要内容",
             admin_only=False,
             input_schema=editor_input,
             output_schema=common_output,
             handler=meeting_summary,
-            apply_handler=apply_meeting_summary,
             target_types=("meeting",),
         )
     )
@@ -153,7 +119,7 @@ def register(registry):
         MeetingAction(
             action_id="ai-work-assistant.decision_suggestions",
             label="AI 建议决策",
-            description="基于会议资料生成可编辑决策草稿",
+            description="基于会议资料生成可编辑决策内容",
             admin_only=False,
             input_schema=editor_input,
             output_schema=common_output,
@@ -165,7 +131,7 @@ def register(registry):
         MeetingAction(
             action_id="ai-work-assistant.open_question_suggestions",
             label="AI 梳理开放问题",
-            description="基于会议资料生成可编辑开放问题草稿",
+            description="基于会议资料生成可编辑开放问题内容",
             admin_only=False,
             input_schema=editor_input,
             output_schema=common_output,
@@ -177,12 +143,11 @@ def register(registry):
         MeetingAction(
             action_id="ai-work-assistant.project_progress",
             label="总结项目进展",
-            description="基于当前项目资料生成可编辑进展草稿",
+            description="基于当前项目资料生成可编辑进展内容",
             admin_only=False,
             input_schema=editor_input,
             output_schema=common_output,
             handler=project_progress,
-            apply_handler=apply_project_progress,
             target_types=("project",),
         )
     )
@@ -190,7 +155,7 @@ def register(registry):
         MeetingAction(
             action_id="ai-work-assistant.action_suggestions",
             label="AI 建议行动项",
-            description="基于会议资料生成可编辑行动项草稿",
+            description="基于会议资料生成可编辑行动项内容",
             admin_only=False,
             input_schema=editor_input,
             output_schema=common_output,

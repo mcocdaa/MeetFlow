@@ -11,6 +11,7 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   placeholder?: string
   label?: string
+  registerEditor?: (writer: ((markdown: string) => void) | null) => void
 }>(), { disabled: false, placeholder: '输入 Markdown…', label: 'Markdown 编辑器' })
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
@@ -19,6 +20,13 @@ const failed = ref(false)
 let editor: Crepe | null = null
 let ready = false
 let latestMarkdown = props.modelValue
+
+function applyMarkdown(markdown: string) {
+  if (!ready || !editor) return
+  latestMarkdown = markdown
+  editor.editor.action(replaceAll(markdown))
+  emit('update:modelValue', markdown)
+}
 
 onMounted(async () => {
   await nextTick()
@@ -44,6 +52,7 @@ onMounted(async () => {
     await editor.create()
     ready = true
     editor.setReadonly(props.disabled)
+    props.registerEditor?.(applyMarkdown)
   } catch {
     failed.value = true
   }
@@ -60,6 +69,7 @@ watch(() => props.modelValue, (value) => {
 })
 
 onBeforeUnmount(() => {
+  props.registerEditor?.(null)
   ready = false
   void editor?.destroy()
   editor = null

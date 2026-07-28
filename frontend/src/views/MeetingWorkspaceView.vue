@@ -180,8 +180,8 @@ onMounted(load)
             :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, participants: meeting.participants.map((participant) => participant.user) }"
             @notice="error = $event"
           >
-            <template #editor="{ disabled }">
-              <MarkdownEditor v-model="draft.summary_markdown" label="会议纪要" placeholder="记录会议结论、行动项和后续安排…" :disabled="busy || disabled" />
+            <template #editor="{ disabled, registerEditor }">
+              <MarkdownEditor v-model="draft.summary_markdown" label="会议纪要" placeholder="记录会议结论、行动项和后续安排…" :disabled="busy || disabled" :register-editor="registerEditor" />
             </template>
           </PluginEditorSlot>
         </section>

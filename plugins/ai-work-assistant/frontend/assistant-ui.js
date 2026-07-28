@@ -82,7 +82,7 @@ function createAssistantComponent(pluginApi, definition) {
       targetId: { type: String, default: '' },
       metadata: { type: Object, default: () => ({}) },
     },
-    emits: ['draft', 'update:busy', 'notice'],
+    emits: ['update:modelValue', 'update:busy', 'notice'],
     setup(props, { emit }) {
       const running = ref(false)
 
@@ -110,10 +110,10 @@ function createAssistantComponent(pluginApi, definition) {
             return
           }
           if (typeof job.result?.markdown !== 'string') {
-            notice('AI 未返回可用草稿')
+            notice('AI 未返回可用结果')
             return
           }
-          emit('draft', job.result.markdown)
+          emit('update:modelValue', job.result.markdown)
         } catch (error) {
           notice(failureMessage(error))
         } finally {
@@ -141,7 +141,7 @@ function createTaskExtension(pluginApi) {
     props: { job: { type: Object, required: true } },
     setup(props) {
       return () => h('details', { class: 'ai-work-assistant-task' }, [
-        h('summary', '查看 AI 草稿'),
+        h('summary', '查看 AI 结果'),
         props.job.result?.markdown ? h('pre', props.job.result.markdown) : null,
       ])
     },

@@ -1,4 +1,4 @@
-import { defineComponent } from 'vue'
+import { defineComponent, onBeforeUnmount, onMounted } from 'vue'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -6,11 +6,17 @@ const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'm1' } }) }))
 vi.mock('../components/MarkdownEditor.vue', () => ({
-  default: {
-    props: ['modelValue', 'label', 'disabled'],
+  default: defineComponent({
+    props: ['modelValue', 'label', 'disabled', 'registerEditor'],
     emits: ['update:modelValue'],
+    setup(props, { emit }) {
+      const writer = (markdown: string) => emit('update:modelValue', markdown)
+      onMounted(() => props.registerEditor?.(writer))
+      onBeforeUnmount(() => props.registerEditor?.(null))
+      return {}
+    },
     template: '<textarea :aria-label="label" :disabled="disabled" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
-  },
+  }),
 }))
 
 import MeetingWorkspaceView from '../views/MeetingWorkspaceView.vue'

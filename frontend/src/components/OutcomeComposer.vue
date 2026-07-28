@@ -51,7 +51,7 @@ async function save() {
     <header class="section-heading"><h3>添加{{ labels }}</h3><button type="button" class="icon-button" aria-label="关闭" @click="emit('close')">×</button></header>
     <label v-if="mode === 'decision'">标题<input v-model="title" required /></label>
     <PluginEditorSlot :editor-label="`${labels}内容`" v-model="content" :data-testid="assistantSlot" target-type="meeting" :target-id="meeting.id" :slot="assistantSlot" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id, participants: meeting.participants.map((participant) => participant.user) }" @notice="error = $event">
-      <template #editor="{ disabled }"><MarkdownEditor v-model="content" :label="`${labels}内容`" :disabled="saving || disabled" /></template>
+      <template #editor="{ disabled, registerEditor }"><MarkdownEditor v-model="content" :label="`${labels}内容`" :disabled="saving || disabled" :register-editor="registerEditor" /></template>
     </PluginEditorSlot>
     <div v-if="mode !== 'decision'" class="outcome-fields">
       <label>负责人<select v-model="ownerId"><option value="">未指定</option><option v-for="participant in meeting.participants" :key="participant.user.id" :value="participant.user.id">{{ participant.user.display_name }}</option></select></label>

@@ -18,7 +18,7 @@ it('keeps succeeded work as a recovery link back to its meeting context', async 
   })
 
   render(AiTasksView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
-  const link = await screen.findByRole('link', { name: '回到会议处理草稿' })
+  const link = await screen.findByRole('link', { name: '回到会议' })
 
   expect(link).toHaveAttribute('href', '/meetings/meeting-1')
   expect(screen.queryByRole('button', { name: '应用到会议纪要' })).not.toBeInTheDocument()
