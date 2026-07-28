@@ -57,8 +57,9 @@ def test_ai_work_assistant_sends_current_editor_text_with_server_snapshot(
     )
 
     content = captured["json"]["messages"][1]["content"]
-    assert "当前编辑栏已有内容；生成结果会整体替换该编辑栏" in content
-    assert "必须保留其中可证实的具体事实，并在其基础上整理补充" in content
+    assert "当前编辑栏已有内容；它是待改写的用户草稿" in content
+    assert "不得只原样复述当前编辑内容" in content
+    assert "资料不足时，只能改写和组织表达，不得编造事实" in content
     assert "当前编辑内容：\n## 用户原稿" in content
     assert "资料：{'title': '服务端会议快照'}" in content
     assert result == {"markdown": "# AI 草稿", "model": "test-model"}
