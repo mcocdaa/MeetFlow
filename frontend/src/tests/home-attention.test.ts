@@ -52,6 +52,10 @@ describe('personal workspace home', () => {
 
     render(HomeView, { global: { stubs: { RouterLink } } })
 
+    const workBriefPanel = (await screen.findByText('AI 工作简报')).closest('.ai-work-brief-panel')
+    expect(workBriefPanel).not.toBeNull()
+    expect(workBriefPanel?.closest('aside')).toBeNull()
+
     await fireEvent.click(await screen.findByRole('button', { name: '生成工作简报' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/plugins/stream', expect.objectContaining({

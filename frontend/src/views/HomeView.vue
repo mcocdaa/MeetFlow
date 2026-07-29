@@ -83,20 +83,25 @@ onBeforeUnmount(cancelWorkBrief)
     </header>
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
     <p v-if="loading" class="empty-state">正在整理你的工作区…</p>
-    <div v-else class="attention-layout">
-      <section class="workspace-section">
-        <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2>需要关注</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> 项</span></div>
-        <div v-if="priorities.length" class="attention-list"><AttentionCard v-for="item in priorities" :key="`${item.subject_type}:${item.subject_id}`" :item="item" /></div>
-        <div v-else class="empty-state compact"><strong>目前没有需要立即处理的事项</strong><p>新的指派、评审和回复会出现在这里。</p></div>
-      </section>
-      <aside class="workspace-section upcoming-panel">
-        <div class="section-heading"><div><p class="eyebrow">Next up</p><h2>近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
-        <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }}</time></RouterLink>
-        <p v-if="!meetings.length" class="muted">未来七天没有需要你参加的会议。</p>
-        <div class="ai-brief-card">
-          <span>✦</span>
+    <div v-else class="home-workspace">
+      <div class="attention-layout">
+        <section class="workspace-section">
+          <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2>需要关注</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> 项</span></div>
+          <div v-if="priorities.length" class="attention-list"><AttentionCard v-for="item in priorities" :key="`${item.subject_type}:${item.subject_id}`" :item="item" /></div>
+          <div v-else class="empty-state compact"><strong>目前没有需要立即处理的事项</strong><p>新的指派、评审和回复会出现在这里。</p></div>
+        </section>
+        <aside class="workspace-section upcoming-panel">
+          <div class="section-heading"><div><p class="eyebrow">Next up</p><h2>近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
+          <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }}</time></RouterLink>
+          <p v-if="!meetings.length" class="muted">未来七天没有需要你参加的会议。</p>
+        </aside>
+      </div>
+
+      <section class="workspace-section ai-work-brief-panel">
+        <div class="ai-work-brief-heading">
           <div>
-            <strong>AI 工作简报</strong>
+            <p class="eyebrow">Work brief</p>
+            <h2>AI 工作简报</h2>
             <p>{{ workBriefEnabled ? '汇总你全部项目中的当前工作，仅供阅读。' : '加载工作简报插件后，可汇总你的跨项目工作。' }}</p>
           </div>
           <div v-if="workBriefEnabled" class="ai-brief-actions">
@@ -104,13 +109,13 @@ onBeforeUnmount(cancelWorkBrief)
             <button v-if="workBriefRunning" class="button button-small button-quiet" @click="cancelWorkBrief">取消</button>
           </div>
           <button v-else class="button button-small" disabled>尚未启用</button>
-          <p v-if="workBriefError" class="notice notice-error ai-brief-output" role="alert">{{ workBriefError }}</p>
-          <section v-else-if="workBriefRunning || workBriefMarkdown" class="ai-brief-output" aria-live="polite">
-            <p v-if="workBriefRunning && !workBriefMarkdown" class="muted">正在汇总全部项目的当前工作…</p>
-            <MarkdownView v-else :source="workBriefMarkdown" />
-          </section>
         </div>
-      </aside>
+        <p v-if="workBriefError" class="notice notice-error ai-brief-output" role="alert">{{ workBriefError }}</p>
+        <section v-else-if="workBriefRunning || workBriefMarkdown" class="ai-brief-output" aria-live="polite">
+          <p v-if="workBriefRunning && !workBriefMarkdown" class="muted">正在汇总全部项目的当前工作…</p>
+          <MarkdownView v-else :source="workBriefMarkdown" />
+        </section>
+      </section>
     </div>
   </main>
 </template>
