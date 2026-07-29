@@ -46,6 +46,21 @@ it('registers assistants for all editor slots and its task extension', () => {
   expect([...registered.taskExtensions.keys()]).toEqual(['ai-work-assistant'])
 })
 
+it.each([
+  ['meeting-summary-editor', 'AI 协助纪要', '生成会议纪要'],
+  ['project-update-editor', 'AI 协助进展', '总结项目进展'],
+  ['action-composer', 'AI 协助行动项', '生成行动项建议'],
+  ['decision-composer', 'AI 协助决策', '生成决策建议'],
+  ['question-composer', 'AI 协助问题', '梳理开放问题'],
+])('renders the %s contextual menu action', (slot, title, actionLabel) => {
+  const registered = registerAssistant()
+  renderAssistant(registered, slot)
+
+  expect(screen.getByText(title)).toHaveClass('ai-work-assistant-menu-title')
+  expect(screen.getByText('当前编辑块')).toHaveClass('ai-work-assistant-menu-tag')
+  expect(screen.getByRole('button', { name: actionLabel })).toHaveClass('ai-work-assistant-menu-action', 'is-primary')
+})
+
 it('writes the terminal job markdown directly into the active editor after polling', async () => {
   vi.useFakeTimers()
   const registered = registerAssistant()
@@ -54,7 +69,7 @@ it('writes the terminal job markdown directly into the active editor after polli
     .mockResolvedValueOnce({ id: 'job-1', status: 'succeeded', result: { markdown: '# 真实 AI 结果' } })
   const { emitted } = renderAssistant(registered, 'meeting-summary-editor')
 
-  await fireEvent.click(screen.getByRole('button', { name: 'AI 生成会议纪要' }))
+  await fireEvent.click(screen.getByRole('button', { name: '生成会议纪要' }))
   await vi.advanceTimersByTimeAsync(3_000)
 
   expect(registered.apiMock).toHaveBeenNthCalledWith(1, '/api/plugin-jobs', {
@@ -87,7 +102,7 @@ it('writes an action suggestion directly into the active editor', async () => {
     })
   const { emitted } = renderAssistant(registered, 'action-composer', '原有行动内容')
 
-  await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
+  await fireEvent.click(screen.getByRole('button', { name: '生成行动项建议' }))
   await vi.advanceTimersByTimeAsync(3_000)
 
   expect(emitted()['update:modelValue']).toEqual([['- 明确负责人并补充截止日期']])
@@ -96,8 +111,8 @@ it('writes an action suggestion directly into the active editor', async () => {
 })
 
 it.each([
-  ['decision-composer', 'AI 建议决策', 'decision_suggestions', '采用灰度发布。'],
-  ['question-composer', 'AI 梳理开放问题', 'open_question_suggestions', '- 如何确认发布范围？'],
+  ['decision-composer', '生成决策建议', 'decision_suggestions', '采用灰度发布。'],
+  ['question-composer', '梳理开放问题', 'open_question_suggestions', '- 如何确认发布范围？'],
 ])('writes %s output directly into the active editor', async (slot, label, actionId, markdown) => {
   vi.useFakeTimers()
   const registered = registerAssistant()
@@ -130,7 +145,7 @@ it('does not mutate editor content when a job fails', async () => {
     .mockResolvedValueOnce({ id: 'job-2', status: 'failed', error_message: '模型不可用' })
   const { emitted } = renderAssistant(registered, 'action-composer', '保留的行动内容')
 
-  await fireEvent.click(screen.getByRole('button', { name: 'AI 建议行动项' }))
+  await fireEvent.click(screen.getByRole('button', { name: '生成行动项建议' }))
   await vi.advanceTimersByTimeAsync(3_000)
 
   expect(emitted()['update:modelValue']).toBeUndefined()

@@ -112,6 +112,15 @@ function writeAssistantResult(markdown: string) {
 .editor-assistant-trigger.is-active { color: white; background: var(--green); box-shadow: 0 4px 10px rgba(11, 106, 88, .22); }
 .editor-assistant-trigger:disabled { cursor: wait; opacity: 1; }
 .editor-assistant-menu { position: absolute; z-index: 3; top: calc(100% + .35rem); right: 0; width: min(15.25rem, calc(100vw - 2rem)); padding: .5rem; border: 1px solid #cfded5; border-radius: 11px; background: var(--paper); box-shadow: 0 14px 32px rgba(18, 55, 36, .16); }
+.editor-assistant-menu :deep(.ai-work-assistant-control) { display: grid; gap: .35rem; }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-heading) { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .15rem .15rem .25rem; }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-title) { color: var(--ink); font-size: .76rem; font-weight: 800; }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-tag) { padding: .15rem .35rem; border-radius: 999px; color: var(--green-dark); background: var(--green-soft); font-size: .62rem; font-weight: 750; white-space: nowrap; }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-action) { display: flex; width: 100%; min-height: 38px; align-items: center; gap: .45rem; padding: .45rem .55rem; border: 1px solid transparent; border-radius: 8px; color: var(--ink); background: transparent; cursor: pointer; font: inherit; font-size: .75rem; font-weight: 750; text-align: left; }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-action.is-primary) { color: var(--green-dark); background: #eef8f2; }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-action:hover:not(:disabled)), .editor-assistant-menu :deep(.ai-work-assistant-menu-action:focus-visible) { border-color: #b8d7c4; outline: 0; box-shadow: 0 0 0 3px rgba(11, 106, 88, .1); }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-action:disabled) { cursor: wait; opacity: .65; }
+.editor-assistant-menu :deep(.ai-work-assistant-menu-spark) { color: var(--green); font-size: .9rem; }
 .plugin-editor-busy { position: absolute; z-index: 2; inset: 34px 0 0; display: grid; align-items: end; overflow: hidden; background: rgba(246, 250, 247, .67); backdrop-filter: blur(2px); pointer-events: auto; }
 .plugin-editor-busy-stripes { position: absolute; inset: -60%; opacity: .56; background: repeating-linear-gradient(135deg, transparent 0 22px, rgba(11, 106, 88, .16) 22px 25px, transparent 25px 49px); animation: plugin-editor-construction-scan 2.4s linear infinite; }
 .plugin-editor-busy-activity { position: relative; display: flex; align-items: center; gap: .5rem; min-height: 38px; padding: .6rem .8rem; border-top: 1px solid rgba(11, 106, 88, .2); color: var(--green-dark); background: rgba(247, 252, 249, .56); font-size: .72rem; font-weight: 750; }

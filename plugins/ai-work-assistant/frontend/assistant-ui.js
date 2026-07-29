@@ -5,35 +5,40 @@ const assistantDefinitions = [
   {
     slot: 'meeting-summary-editor',
     actionId: 'ai-work-assistant.meeting_summary',
-    label: 'AI 生成会议纪要',
+    menuTitle: 'AI 协助纪要',
+    label: '生成会议纪要',
     busyLabel: '正在生成会议纪要…',
     targetType: 'meeting',
   },
   {
     slot: 'project-update-editor',
     actionId: 'ai-work-assistant.project_progress',
-    label: 'AI 总结项目进展',
+    menuTitle: 'AI 协助进展',
+    label: '总结项目进展',
     busyLabel: '正在总结项目进展…',
     targetType: 'project',
   },
   {
     slot: 'action-composer',
     actionId: 'ai-work-assistant.action_suggestions',
-    label: 'AI 建议行动项',
+    menuTitle: 'AI 协助行动项',
+    label: '生成行动项建议',
     busyLabel: '正在建议行动项…',
     targetType: 'meeting',
   },
   {
     slot: 'decision-composer',
     actionId: 'ai-work-assistant.decision_suggestions',
-    label: 'AI 建议决策',
+    menuTitle: 'AI 协助决策',
+    label: '生成决策建议',
     busyLabel: '正在生成决策建议…',
     targetType: 'meeting',
   },
   {
     slot: 'question-composer',
     actionId: 'ai-work-assistant.open_question_suggestions',
-    label: 'AI 梳理开放问题',
+    menuTitle: 'AI 协助问题',
+    label: '梳理开放问题',
     busyLabel: '正在梳理开放问题…',
     targetType: 'meeting',
   },
@@ -123,12 +128,19 @@ function createAssistantComponent(pluginApi, definition) {
       }
 
       return () => h('div', { class: 'ai-work-assistant-control' }, [
+        h('div', { class: 'ai-work-assistant-menu-heading' }, [
+          h('span', { class: 'ai-work-assistant-menu-title' }, definition.menuTitle),
+          h('span', { class: 'ai-work-assistant-menu-tag' }, '当前编辑块'),
+        ]),
         h('button', {
           type: 'button',
-          class: 'button button-quiet',
+          class: 'ai-work-assistant-menu-action is-primary',
           disabled: running.value,
           onClick: run,
-        }, running.value ? definition.busyLabel : definition.label),
+        }, [
+          h('span', { class: 'ai-work-assistant-menu-spark', 'aria-hidden': 'true' }, '✦'),
+          h('span', running.value ? definition.busyLabel : definition.label),
+        ]),
       ])
     },
   }
