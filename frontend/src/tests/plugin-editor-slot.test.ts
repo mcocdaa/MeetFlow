@@ -1,4 +1,4 @@
-import { defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
 import { fireEvent, render, screen } from '@testing-library/vue'
 import { expect, it, vi } from 'vitest'
 
@@ -16,6 +16,20 @@ import { registerEditorAssistant } from '../plugins/registry'
 const FakeAssistant = defineComponent({
   emits: ['update:busy'],
   template: '<button type="button" @click="$emit(\'update:busy\', { active: true, label: \'正在生成建议…\' })">插件建议</button>',
+})
+
+const CompletingAssistant = defineComponent({
+  emits: ['update:busy'],
+  setup(_, { emit }) {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const start = () => {
+      emit('update:busy', { active: true, label: '正在生成建议…' })
+      timer = setTimeout(() => emit('update:busy', { active: false, label: '' }), 0)
+    }
+    onUnmounted(() => timer && clearTimeout(timer))
+    return { start }
+  },
+  template: '<button type="button" @click="start">完成后恢复</button>',
 })
 
 const DirectUpdateAssistant = defineComponent({
@@ -98,10 +112,43 @@ it('retracts the AI menu into its busy Star and keeps construction feedback loca
   expect(trigger).toHaveAttribute('aria-expanded', 'false')
   expect(trigger).toHaveClass('is-active')
   expect(screen.getByRole('status')).toHaveTextContent('正在生成建议…')
+  expect(document.activeElement).toBe(screen.getByRole('status'))
   expect(screen.getByLabelText('编辑器')).toBeDisabled()
   expect(host?.querySelector('.editor-assistant-menu')).toHaveStyle({ display: 'none' })
+  expect(host?.querySelector('[role="group"]')).not.toBeNull()
   expect(host?.querySelector('.plugin-editor-busy-rail')).not.toBeNull()
   expect(host?.querySelector('.plugin-editor-busy-card')).toBeNull()
+})
+
+it('keeps the active assistant mounted until it clears its busy state', async () => {
+  vi.useFakeTimers()
+  registerEditorAssistant('decision-composer', CompletingAssistant)
+
+  render(PluginEditorSlot, {
+    props: {
+      modelValue: '原记录',
+      targetType: 'meeting',
+      targetId: 'meeting-1',
+      slot: 'decision-composer',
+      editorLabel: 'AI 血族决策',
+      metadata: {},
+    },
+    slots: {
+      editor: ({ disabled }: { disabled: boolean }) => h('textarea', { 'aria-label': '编辑器', disabled }),
+    },
+  })
+
+  await fireEvent.click(screen.getByRole('button', { name: 'AI 工具' }))
+  await fireEvent.click(screen.getByRole('button', { name: '完成后恢复' }))
+  expect(screen.getByRole('status')).toBeVisible()
+
+  await vi.runAllTimersAsync()
+  await nextTick()
+
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'AI 工具' })).toBeEnabled()
+  expect(screen.getByLabelText('编辑器')).toBeEnabled()
+  vi.useRealTimers()
 })
 
 it('does not render editor chrome without registered assistants', () => {

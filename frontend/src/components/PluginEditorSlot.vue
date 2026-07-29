@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 
 import type { PluginBusyState, PluginEditorContext } from '../plugins/contracts'
 import { assistantsForSlot } from '../plugins/registry'
@@ -22,6 +22,7 @@ const emit = defineEmits<{
 const busy = ref<PluginBusyState>({ active: false, label: '' })
 const menuOpen = ref(false)
 const editorWriter = ref<MarkdownWriter | null>(null)
+const busyStatus = ref<HTMLElement | null>(null)
 const context = computed<PluginEditorContext>(() => ({
   targetType: props.targetType,
   targetId: props.targetId,
@@ -29,8 +30,14 @@ const context = computed<PluginEditorContext>(() => ({
 }))
 const assistants = computed(() => assistantsForSlot(props.slot))
 
-function updateBusy(state: PluginBusyState) {
-  if (state.active) menuOpen.value = false
+async function updateBusy(state: PluginBusyState) {
+  if (state.active) {
+    menuOpen.value = false
+    busy.value = state
+    await nextTick()
+    busyStatus.value?.focus()
+    return
+  }
   busy.value = state
 }
 
@@ -63,7 +70,6 @@ function writeAssistantResult(markdown: string) {
           class="editor-assistant-trigger"
           :class="{ 'is-active': menuOpen || busy.active }"
           :aria-label="busy.active ? 'AI 工具，正在处理' : 'AI 工具'"
-          aria-haspopup="menu"
           :aria-expanded="menuOpen"
           :disabled="busy.active"
           @click="menuOpen = !menuOpen"
@@ -72,9 +78,8 @@ function writeAssistantResult(markdown: string) {
           v-if="menuOpen || busy.active"
           v-show="menuOpen"
           class="editor-assistant-menu"
-          role="menu"
+          role="group"
           aria-label="AI 操作"
-          :aria-hidden="!menuOpen"
         >
           <component
             :is="assistant"
@@ -91,7 +96,7 @@ function writeAssistantResult(markdown: string) {
       </div>
     </div>
     <slot name="editor" :disabled="busy.active" :register-editor="registerEditor" />
-    <div v-if="busy.active" class="plugin-editor-busy" role="status" aria-live="polite">
+    <div ref="busyStatus" v-if="busy.active" class="plugin-editor-busy" role="status" aria-live="polite" tabindex="-1">
       <div class="plugin-editor-busy-stripes" aria-hidden="true"></div>
       <div class="plugin-editor-busy-activity">
         <span class="plugin-editor-busy-rail" aria-hidden="true"></span>
@@ -103,7 +108,7 @@ function writeAssistantResult(markdown: string) {
 </template>
 
 <style scoped>
-.plugin-editor-slot { position: relative; }
+.plugin-editor-slot { position: relative; container-type: inline-size; }
 .plugin-editor-chrome { align-items: center; display: flex; height: 34px; justify-content: space-between; padding: 0 .4rem 0 .65rem; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--paper); }
 .plugin-editor-label { overflow: hidden; color: var(--muted); font-size: .76rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .plugin-editor-menu { position: relative; }
@@ -111,7 +116,7 @@ function writeAssistantResult(markdown: string) {
 .editor-assistant-trigger:hover:not(:disabled), .editor-assistant-trigger:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(11, 106, 88, .16); }
 .editor-assistant-trigger.is-active { color: white; background: var(--green); box-shadow: 0 4px 10px rgba(11, 106, 88, .22); }
 .editor-assistant-trigger:disabled { cursor: wait; opacity: 1; }
-.editor-assistant-menu { position: absolute; z-index: 3; top: calc(100% + .35rem); right: 0; width: min(15.25rem, calc(100vw - 2rem)); padding: .5rem; border: 1px solid #cfded5; border-radius: 11px; background: var(--paper); box-shadow: 0 14px 32px rgba(18, 55, 36, .16); }
+.editor-assistant-menu { position: absolute; z-index: 3; top: calc(100% + .35rem); right: 0; width: min(15.25rem, 100cqi); max-width: calc(100vw - 2rem); padding: .5rem; border: 1px solid #cfded5; border-radius: 11px; background: var(--paper); box-shadow: 0 14px 32px rgba(18, 55, 36, .16); }
 .editor-assistant-menu :deep(.ai-work-assistant-control) { display: grid; gap: .35rem; }
 .editor-assistant-menu :deep(.ai-work-assistant-menu-heading) { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .15rem .15rem .25rem; }
 .editor-assistant-menu :deep(.ai-work-assistant-menu-title) { color: var(--ink); font-size: .76rem; font-weight: 800; }
