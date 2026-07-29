@@ -1,4 +1,4 @@
-import { defineComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { fireEvent, render, screen } from '@testing-library/vue'
 import { expect, it, vi } from 'vitest'
 
@@ -57,7 +57,7 @@ const DirectEditorHarness = defineComponent({
   `,
 })
 
-it('places registered assistants in compact editor chrome and keeps busy feedback local', async () => {
+it('retracts the AI menu into its busy Star and keeps construction feedback local', async () => {
   registerEditorAssistant('meeting-summary-editor', FakeAssistant)
 
   render(PluginEditorSlot, {
@@ -70,7 +70,10 @@ it('places registered assistants in compact editor chrome and keeps busy feedbac
       metadata: {},
     },
     slots: {
-      editor: '<textarea aria-label="编辑器" />',
+      editor: ({ disabled }: { disabled: boolean }) => h('textarea', {
+        'aria-label': '编辑器',
+        disabled,
+      }),
     },
   })
 
@@ -87,9 +90,18 @@ it('places registered assistants in compact editor chrome and keeps busy feedbac
   await fireEvent.click(screen.getByRole('button', { name: '插件建议' }))
 
   const host = screen.getByText('正在生成建议…').closest('.plugin-editor-slot')
+  const trigger = screen.getByRole('button', { name: 'AI 工具，正在处理' })
+
   expect(host).toHaveAttribute('data-busy', 'true')
-  expect(host?.querySelector('.plugin-editor-assistants')).toBeNull()
-  expect(host?.querySelector('.plugin-editor-chrome')).not.toBeNull()
+  expect(host).toHaveAttribute('aria-busy', 'true')
+  expect(trigger).toBeDisabled()
+  expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  expect(trigger).toHaveClass('is-active')
+  expect(screen.getByRole('status')).toHaveTextContent('正在生成建议…')
+  expect(screen.getByLabelText('编辑器')).toBeDisabled()
+  expect(host?.querySelector('.editor-assistant-menu')).toHaveStyle({ display: 'none' })
+  expect(host?.querySelector('.plugin-editor-busy-rail')).not.toBeNull()
+  expect(host?.querySelector('.plugin-editor-busy-card')).toBeNull()
 })
 
 it('does not render editor chrome without registered assistants', () => {
