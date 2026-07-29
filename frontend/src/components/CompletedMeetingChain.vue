@@ -14,9 +14,73 @@ const reason = ref('')
 const content = ref('')
 const saving = ref(false)
 const error = ref('')
-const snapshot = computed(() => props.meeting.current_snapshot?.snapshot_json ?? props.meeting.current_snapshot?.snapshot ?? {})
-const snapshotMeeting = computed(() => (snapshot.value.meeting ?? {}) as Record<string, any>)
-const snapshotAgenda = computed(() => (snapshot.value.agenda_items ?? []) as Array<Record<string, any>>)
+
+type SnapshotRecord = Record<string, unknown>
+type SnapshotDecision = { id: string; title: string; decisionMarkdown: string; rationaleMarkdown: string; status: string }
+type SnapshotAction = { id: string; content: string; priority: string; dueDate: string | null; status: string }
+type SnapshotQuestion = { id: string; questionMarkdown: string; status: string }
+type SnapshotOutcomeGroup = {
+  id: string
+  testId: string
+  title: string
+  status: string | null
+  decisions: SnapshotDecision[]
+  actions: SnapshotAction[]
+  openQuestions: SnapshotQuestion[]
+}
+
+function record(value: unknown): SnapshotRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as SnapshotRecord : {}
+}
+
+function records(value: unknown): SnapshotRecord[] {
+  return Array.isArray(value) ? value.filter((item): item is SnapshotRecord => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function nullableText(value: unknown): string | null {
+  const result = text(value)
+  return result || null
+}
+
+function decision(value: SnapshotRecord): SnapshotDecision {
+  return { id: text(value.id), title: text(value.title), decisionMarkdown: text(value.decision_markdown), rationaleMarkdown: text(value.rationale_markdown), status: text(value.status) }
+}
+
+function action(value: SnapshotRecord): SnapshotAction {
+  return { id: text(value.id), content: text(value.content), priority: text(value.priority), dueDate: nullableText(value.due_date), status: text(value.status) }
+}
+
+function question(value: SnapshotRecord): SnapshotQuestion {
+  return { id: text(value.id), questionMarkdown: text(value.question_markdown), status: text(value.status) }
+}
+
+function group(source: SnapshotRecord, id: string, testId: string, title: string, status: string | null, decisionKey = 'decisions', actionKey = 'actions', questionKey = 'open_questions'): SnapshotOutcomeGroup {
+  return {
+    id,
+    testId,
+    title,
+    status,
+    decisions: records(source[decisionKey]).map(decision),
+    actions: records(source[actionKey]).map(action),
+    openQuestions: records(source[questionKey]).map(question),
+  }
+}
+
+const snapshot = computed(() => record(props.meeting.current_snapshot?.snapshot_json ?? props.meeting.current_snapshot?.snapshot ?? {}))
+const snapshotMeeting = computed(() => record(snapshot.value.meeting))
+const snapshotAgenda = computed<SnapshotOutcomeGroup[]>(() => records(snapshot.value.agenda_items).map((item) => {
+  const id = text(item.id)
+  return group(item, id, `completed-agenda-${id}`, text(item.title) || '未命名议题', nullableText(item.status))
+}))
+const meetingOutcomes = computed<SnapshotOutcomeGroup | null>(() => {
+  const value = group(snapshot.value, 'meeting-outcomes', 'completed-meeting-outcomes', '会议级产出', null, 'meeting_decisions', 'meeting_actions', 'meeting_open_questions')
+  return value.decisions.length || value.actions.length || value.openQuestions.length ? value : null
+})
+const outcomeGroups = computed(() => meetingOutcomes.value ? [...snapshotAgenda.value, meetingOutcomes.value] : snapshotAgenda.value)
 
 async function addAmendment() {
   if (!reason.value.trim() || !content.value.trim()) return
@@ -51,7 +115,7 @@ async function reopen() {
     <form v-if="amendmentOpen" class="workspace-section amendment-form" @submit.prevent="addAmendment"><h2>添加更正</h2><p>更正会作为独立历史记录追加，不会修改完成快照。</p><label>更正原因<input v-model="reason" required /></label><label>更正内容<MarkdownEditor v-model="content" label="更正内容" /></label><div class="form-actions"><button type="button" class="button button-quiet" @click="amendmentOpen = false">取消</button><button class="button button-primary" :disabled="saving || !reason.trim() || !content.trim()">保存更正</button></div></form>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
 
-    <section class="workspace-section"><h2>议题与产出</h2><div class="completed-agenda-list"><article v-for="item in snapshotAgenda" :key="item.id"><div><span class="status-pill">{{ item.status }}</span><strong>{{ item.title }}</strong></div><p>{{ item.decisions?.length ?? 0 }} 个决策 · {{ item.actions?.length ?? 0 }} 个行动 · {{ item.open_questions?.length ?? 0 }} 个开放问题</p></article><p v-if="!snapshotAgenda.length" class="empty-inline">快照中没有议题</p></div></section>
+    <section class="workspace-section"><h2>议题与产出</h2><div class="completed-agenda-list"><details v-for="item in outcomeGroups" :key="item.testId" :data-testid="item.testId" class="completed-outcome-accordion"><summary class="completed-outcome-summary"><div><span v-if="item.status" class="status-pill" :data-status="item.status">{{ item.status }}</span><strong>{{ item.title }}</strong></div><dl aria-label="产出数量"><div><dt>决策</dt><dd>{{ item.decisions.length }}</dd></div><div><dt>行动</dt><dd>{{ item.actions.length }}</dd></div><div><dt>开放问题</dt><dd>{{ item.openQuestions.length }}</dd></div></dl></summary><div class="completed-outcome-body"><section v-if="item.decisions.length" class="completed-outcome-group"><h3>决策 <span>{{ item.decisions.length }}</span></h3><article v-for="decision in item.decisions" :key="decision.id || decision.title" class="completed-outcome-row"><header><strong>{{ decision.title || '未命名决策' }}</strong><span v-if="decision.status" class="status-pill" :data-status="decision.status">{{ decision.status }}</span></header><MarkdownView :source="decision.decisionMarkdown" empty-text="未记录决策正文" /><div v-if="decision.rationaleMarkdown" class="completed-outcome-rationale"><span>依据</span><MarkdownView :source="decision.rationaleMarkdown" /></div></article></section><section v-if="item.actions.length" class="completed-outcome-group"><h3>行动项 <span>{{ item.actions.length }}</span></h3><article v-for="action in item.actions" :key="action.id || action.content" class="completed-outcome-row"><header><strong>{{ action.content || '未记录行动内容' }}</strong><span v-if="action.status" class="status-pill" :data-status="action.status">{{ action.status }}</span></header><p class="completed-outcome-meta">优先级：{{ action.priority || '未设置' }}<template v-if="action.dueDate"> · 截止：{{ action.dueDate }}</template></p></article></section><section v-if="item.openQuestions.length" class="completed-outcome-group"><h3>开放问题 <span>{{ item.openQuestions.length }}</span></h3><article v-for="question in item.openQuestions" :key="question.id || question.questionMarkdown" class="completed-outcome-row"><header><span>问题</span><span v-if="question.status" class="status-pill" :data-status="question.status">{{ question.status }}</span></header><MarkdownView :source="question.questionMarkdown" empty-text="未记录问题正文" /></article></section><p v-if="!item.decisions.length && !item.actions.length && !item.openQuestions.length" class="empty-inline">{{ item.status ? '本议题未记录产出' : '本次会议未记录会议级产出' }}</p></div></details><p v-if="!snapshotAgenda.length" class="empty-inline">快照中没有议题</p></div></section>
     <section class="workspace-section"><h2>材料</h2><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="meeting.attachments ?? []" @changed="emit('reload')" /></section>
     <section class="workspace-section"><h2>更正历史</h2><article v-for="item in meeting.amendments ?? []" :key="item.id" class="amendment-item"><strong>{{ item.reason }}</strong><MarkdownView :source="item.content_markdown" /><small>{{ item.created_by.display_name }} · {{ new Date(item.created_at).toLocaleString('zh-CN') }}</small></article><p v-if="!meeting.amendments?.length" class="empty-inline">尚未添加更正</p></section>
   </div>
