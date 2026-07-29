@@ -4,6 +4,8 @@ This plugin deliberately has no MeetFlow write access. Each result is returned
 to the active client editor, where the user can edit, undo, and save normally.
 """
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -76,6 +78,56 @@ async def project_progress(context, payload, config):
     return await _draft("整理为项目进展摘要，包含进展、风险、下一步。", context, payload, config)
 
 
+async def user_work_brief_stream(
+    context: dict[str, Any], _payload: dict[str, Any], config: dict[str, Any]
+) -> AsyncIterator[str]:
+    request_payload = {
+        "model": config["model"],
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是 MeetFlow 的工作助手。只根据给定资料生成中文内容，"
+                    "不要声称执行了未给出的事实。输出 Markdown，不调用工具。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "根据项目概览与当前关注事项，生成当前用户的跨项目工作简报。"
+                    "突出优先级、风险、临近事项和下一步；不要把它写成某一个项目的进展更新，"
+                    "不要编造事实。\n\n"
+                    f"资料：{context}"
+                ),
+            },
+        ],
+        "temperature": 0.2,
+        "stream": True,
+    }
+    async with httpx.AsyncClient(timeout=float(config["timeout_seconds"])) as client:
+        async with client.stream(
+            "POST",
+            _endpoint(config["base_url"]),
+            headers={"Authorization": f"Bearer {config['api_key']}"},
+            json=request_payload,
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                payload = line.removeprefix("data:").strip()
+                if payload == "[DONE]":
+                    break
+                event = json.loads(payload)
+                text = event.get("choices", [{}])[0].get("delta", {}).get("content")
+                if isinstance(text, str) and text:
+                    yield text
+
+
+async def stream_only_action(_context, _payload, _config):
+    raise RuntimeError("this action is available only through the stream endpoint")
+
+
 async def action_suggestions(context, payload, config):
     return await _draft(
         "根据当前讨论，生成一项可直接填写到“行动内容”中的行动项内容。"
@@ -115,6 +167,20 @@ def register(registry):
         },
         "additionalProperties": False,
     }
+    stream_input = {"type": "object", "additionalProperties": False}
+    registry.register_meeting_action(
+        MeetingAction(
+            action_id="ai-work-assistant.user_work_brief",
+            label="生成工作简报",
+            description="基于当前用户全部项目生成只读跨项目工作简报",
+            admin_only=False,
+            input_schema=stream_input,
+            output_schema={"type": "object"},
+            handler=stream_only_action,
+            stream_handler=user_work_brief_stream,
+            target_types=("user",),
+        )
+    )
     registry.register_meeting_action(
         MeetingAction(
             action_id="ai-work-assistant.meeting_summary",

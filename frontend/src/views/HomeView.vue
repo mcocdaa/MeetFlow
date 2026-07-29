@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
+import { streamPluginAction } from '../api/plugin-stream'
 import AttentionCard, { type AttentionItem } from '../components/AttentionCard.vue'
-import { assistantsForSlot } from '../plugins/registry'
+import MarkdownView from '../components/MarkdownView.vue'
 
 type AttentionResponse = {
   items: AttentionItem[]
@@ -12,19 +13,30 @@ type AttentionResponse = {
   truncated: boolean
 }
 
+type PluginAction = { action_id: string }
+
 const response = ref<AttentionResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
+const workBriefEnabled = ref(false)
+const workBriefMarkdown = ref('')
+const workBriefError = ref('')
+const workBriefRunning = ref(false)
+const workBriefController = ref<AbortController | null>(null)
 
 const meetings = computed(() => response.value?.items.filter((item) => item.subject_type === 'meeting').slice(0, 5) ?? [])
 const priorities = computed(() => response.value?.items.filter((item) => item.subject_type !== 'meeting') ?? [])
-const workBriefEnabled = computed(() => assistantsForSlot('project-update-editor').length > 0)
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    response.value = await api<AttentionResponse>('/api/attention')
+    const [attention, actions] = await Promise.all([
+      api<AttentionResponse>('/api/attention'),
+      api<PluginAction[]>('/api/plugins/actions'),
+    ])
+    response.value = attention
+    workBriefEnabled.value = actions.some((action) => action.action_id === 'ai-work-assistant.user_work_brief')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '工作区加载失败'
   } finally {
@@ -32,7 +44,35 @@ async function load() {
   }
 }
 
+async function generateWorkBrief() {
+  if (!workBriefEnabled.value || workBriefRunning.value) return
+  const controller = new AbortController()
+  workBriefController.value = controller
+  workBriefMarkdown.value = ''
+  workBriefError.value = ''
+  workBriefRunning.value = true
+  try {
+    await streamPluginAction(
+      'ai-work-assistant.user_work_brief',
+      (text) => { workBriefMarkdown.value += text },
+      controller.signal,
+    )
+  } catch (reason) {
+    if (!controller.signal.aborted) {
+      workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报生成失败，请稍后重试'
+    }
+  } finally {
+    if (workBriefController.value === controller) workBriefController.value = null
+    workBriefRunning.value = false
+  }
+}
+
+function cancelWorkBrief() {
+  workBriefController.value?.abort()
+}
+
 onMounted(load)
+onBeforeUnmount(cancelWorkBrief)
 </script>
 
 <template>
@@ -57,13 +97,18 @@ onMounted(load)
           <span>✦</span>
           <div>
             <strong>AI 工作简报</strong>
-            <p>{{ workBriefEnabled ? '从项目动态编辑区生成可编辑简报。' : '加载摘要插件后，可从项目动态编辑区生成简报。' }}</p>
+            <p>{{ workBriefEnabled ? '汇总你全部项目中的当前工作，仅供阅读。' : '加载工作简报插件后，可汇总你的跨项目工作。' }}</p>
           </div>
           <div v-if="workBriefEnabled" class="ai-brief-actions">
-            <span class="ai-brief-status">已启用</span>
-            <RouterLink class="button button-small" to="/projects">生成项目简报</RouterLink>
+            <button class="button button-small" :disabled="workBriefRunning" @click="generateWorkBrief">{{ workBriefRunning ? '正在生成…' : '生成工作简报' }}</button>
+            <button v-if="workBriefRunning" class="button button-small button-quiet" @click="cancelWorkBrief">取消</button>
           </div>
           <button v-else class="button button-small" disabled>尚未启用</button>
+          <p v-if="workBriefError" class="notice notice-error ai-brief-output" role="alert">{{ workBriefError }}</p>
+          <section v-else-if="workBriefRunning || workBriefMarkdown" class="ai-brief-output" aria-live="polite">
+            <p v-if="workBriefRunning && !workBriefMarkdown" class="muted">正在汇总全部项目的当前工作…</p>
+            <MarkdownView v-else :source="workBriefMarkdown" />
+          </section>
         </div>
       </aside>
     </div>

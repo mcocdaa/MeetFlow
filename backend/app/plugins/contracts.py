@@ -1,4 +1,4 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -47,6 +47,10 @@ Handler = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]],
     Awaitable[dict[str, Any]],
 ]
+StreamHandler = Callable[
+    [dict[str, Any], dict[str, Any], dict[str, Any]],
+    AsyncIterator[str],
+]
 ApplyHandler = Callable[
     ["PluginJob", dict[str, Any], "User", "Session"], dict[str, Any]
 ]
@@ -61,6 +65,7 @@ class MeetingAction:
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     handler: Handler
+    stream_handler: StreamHandler | None = None
     apply_handler: ApplyHandler | None = None
     target_types: tuple[str, ...] = ("meeting",)
 

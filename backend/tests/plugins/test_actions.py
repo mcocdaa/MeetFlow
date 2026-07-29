@@ -164,7 +164,8 @@ def test_ai_work_assistant_declares_bounded_editor_input(ai_work_assistant_backe
     registry = Registry()
     ai_work_assistant_backend.register(registry)
 
-    for action in registry.actions:
+    editor_actions = [action for action in registry.actions if action.target_types != ("user",)]
+    for action in editor_actions:
         assert action.input_schema == {
             "type": "object",
             "properties": {
@@ -172,6 +173,63 @@ def test_ai_work_assistant_declares_bounded_editor_input(ai_work_assistant_backe
             },
             "additionalProperties": False,
         }
+
+
+def test_user_work_brief_emits_each_provider_delta(
+    ai_work_assistant_backend, monkeypatch
+):
+    captured: dict = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"跨项目"}}]}'
+            yield 'data: {"choices":[{"delta":{"content":"工作摘要"}}]}'
+            yield "data: [DONE]"
+
+    class Stream:
+        async def __aenter__(self):
+            return Response()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def stream(self, _method, _url, **kwargs):
+            captured.update(kwargs)
+            return Stream()
+
+    monkeypatch.setattr(ai_work_assistant_backend.httpx, "AsyncClient", Client)
+
+    async def collect():
+        return [
+            text
+            async for text in ai_work_assistant_backend.user_work_brief_stream(
+                {"projects": [{"name": "MeetFlow"}], "attention": {"items": []}},
+                {},
+                {
+                    "base_url": "https://example.test/v1",
+                    "api_key": "test-key",
+                    "model": "test-model",
+                    "timeout_seconds": 10,
+                },
+            )
+        ]
+
+    assert asyncio.run(collect()) == ["跨项目", "工作摘要"]
+    assert captured["json"]["stream"] is True
+    assert "跨项目工作简报" in captured["json"]["messages"][1]["content"]
 
 
 def configure_plugin(plugin_client):

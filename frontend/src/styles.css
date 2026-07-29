@@ -312,10 +312,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .upcoming-meeting span, .upcoming-meeting time { color: #7a8390; font-size: .78rem; }
 .ai-brief-card { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin-top: 10px; padding: 14px; border-radius: 11px; background: #f2f0fa; }
 .ai-brief-card p { margin: 3px 0 9px; color: #777184; font-size: .78rem; }
-.ai-brief-card button { grid-column: 2; justify-self: start; }
+.ai-brief-card > button { grid-column: 2; justify-self: start; }
 .ai-brief-actions { display: flex; grid-column: 2; align-items: center; gap: 9px; }
 .ai-brief-status { color: #497366; font-size: .78rem; font-weight: 800; }
 .ai-brief-actions .button { text-decoration: none; }
+.ai-brief-output { grid-column: 1 / -1; margin-top: 2px; padding-top: 10px; border-top: 1px solid rgb(73 115 102 / 20%); }
+.ai-brief-output .markdown { font-size: .84rem; }
 .project-filters, .project-create { display: flex; align-items: end; gap: 14px; margin-bottom: 22px; }
 .project-filters label, .project-create label { display: grid; gap: 6px; color: #626c79; font-size: .78rem; }
 .project-filters select { min-width: 150px; }

@@ -1,7 +1,9 @@
 import asyncio
+import json
 import logging
 from typing import Any, Literal
 
+import httpx
 from fastapi import (
     APIRouter,
     Body,
@@ -11,7 +13,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,7 +27,9 @@ from app.plugins.manager import (
     PluginConfigurationError,
     PluginInputError,
     PluginOutputError,
+    PluginStreamingError,
 )
+from app.plugins.context import PluginContextBuilder
 from app.plugins.models import PluginState
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
@@ -45,6 +49,11 @@ class JobSubmitRequest(BaseModel):
     action_id: str = Field(min_length=3, max_length=160)
     target_type: str = Field(min_length=3, max_length=40)
     target_id: str = Field(min_length=1, max_length=36)
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class StreamActionRequest(BaseModel):
+    action_id: str = Field(min_length=3, max_length=160)
     input: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -156,6 +165,72 @@ def list_actions(
     request: Request, user: User = Depends(current_user)
 ) -> list[dict]:
     return request.app.state.plugin_manager.visible_actions(user.role)
+
+
+def _stream_event(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@actions_router.post("/stream")
+async def stream_action(
+    payload: StreamActionRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    manager = request.app.state.plugin_manager
+    action = next(
+        (item for item in manager.loaded_actions() if item.action_id == payload.action_id),
+        None,
+    )
+    if action is None or action.stream_handler is None:
+        raise AppError(404, "plugin_stream_not_found", "插件流式动作不存在")
+    if action.admin_only and user.role.value != "admin":
+        raise AppError(403, "admin_required", "需要管理员权限")
+    if "user" not in action.target_types:
+        raise AppError(422, "invalid_stream_target", "插件流式动作目标无效")
+    try:
+        stream = manager.stream(
+            payload.action_id,
+            PluginContextBuilder(session).user_work_brief(user),
+            payload.input,
+            session,
+        )
+    except PluginInputError as exc:
+        raise AppError(422, "invalid_action_payload", "插件输入无效") from exc
+    except PluginConfigurationError as exc:
+        raise AppError(409, "plugin_not_configured", "插件配置不完整") from exc
+    except PluginStreamingError as exc:
+        raise AppError(422, "plugin_stream_unsupported", "插件不支持流式输出") from exc
+
+    async def events():
+        try:
+            async for text in stream:
+                if text:
+                    yield _stream_event("delta", {"text": text})
+            yield _stream_event("done", {})
+        except httpx.HTTPError as exc:
+            logger.error(
+                "Plugin stream failed plugin_id=%s action_id=%s error_type=%s",
+                payload.action_id.split(".", 1)[0],
+                payload.action_id,
+                type(exc).__name__,
+            )
+            yield _stream_event("error", {"message": "无法连接 AI 服务；检查服务地址和网络。"})
+        except Exception as exc:
+            logger.error(
+                "Plugin stream failed plugin_id=%s action_id=%s error_type=%s",
+                payload.action_id.split(".", 1)[0],
+                payload.action_id,
+                type(exc).__name__,
+            )
+            yield _stream_event("error", {"message": "AI 工作简报生成失败，请稍后重试"})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @actions_router.get("/frontend-modules")

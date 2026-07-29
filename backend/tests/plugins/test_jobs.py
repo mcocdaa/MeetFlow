@@ -1,10 +1,64 @@
 import pytest
+from sqlalchemy import func, select
 
 from app.meetings.models import utcnow
 from app.auth.models import User
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
 from app.plugins.worker import PluginJobWorker
+
+
+def test_user_work_brief_streams_without_creating_a_plugin_job(
+    ai_plugin_client, ai_plugin_meeting_id
+):
+    manager = ai_plugin_client.app.state.plugin_manager
+    database = ai_plugin_client.app.state.database
+    actor_id = ai_plugin_client.get("/api/auth/me").json()["id"]
+    action = next(
+        (
+            item
+            for item in manager.loaded_actions()
+            if item.action_id == "ai-work-assistant.user_work_brief"
+        ),
+        None,
+    )
+
+    assert action is not None
+
+    captured: dict = {}
+
+    async def stream(context, _payload, _config):
+        captured.update(context)
+        yield "跨项目工作摘要"
+
+    action.stream_handler = stream
+    with database.session() as session:
+        manager.update_config(
+            "ai-work-assistant",
+            {
+                "base_url": "https://example.test/v1",
+                "api_key": "test-key",
+                "model": "test-model",
+                "timeout_seconds": 10,
+            },
+            actor_id,
+            session,
+        )
+
+    response = ai_plugin_client.post(
+        "/api/plugins/stream",
+        json={"action_id": "ai-work-assistant.user_work_brief", "input": {}},
+    )
+
+    assert response.status_code == 200
+    assert "event: delta" in response.text
+    assert "跨项目工作摘要" in response.text
+    assert [project["name"] for project in captured["projects"]] == [
+        "Plugin project"
+    ]
+    assert "attention" in captured
+    with database.session() as session:
+        assert session.scalar(select(func.count(PluginJob.id))) == 0
 
 
 def test_meeting_context_exposes_attachment_metadata_but_never_content(

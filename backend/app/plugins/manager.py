@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import sys
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
 from types import ModuleType
@@ -39,6 +40,10 @@ class PluginOutputError(ValueError):
 
 
 class PluginConfigurationError(ValueError):
+    pass
+
+
+class PluginStreamingError(ValueError):
     pass
 
 
@@ -410,6 +415,26 @@ class PluginManager:
         except JsonSchemaValidationError as exc:
             raise PluginOutputError("plugin output schema rejected result") from exc
         return result
+
+    def stream(
+        self,
+        action_id: str,
+        context: dict,
+        payload: dict,
+        session: Session,
+    ) -> AsyncIterator[str]:
+        action = self._actions.get(action_id)
+        if not action:
+            raise KeyError(action_id)
+        if action.stream_handler is None:
+            raise PluginStreamingError("plugin action does not support streaming")
+        try:
+            validate(instance=payload, schema=action.input_schema)
+        except JsonSchemaValidationError as exc:
+            raise PluginInputError("plugin input schema rejected payload") from exc
+        plugin_id = action_id.split(".", 1)[0]
+        config = self.runtime_config(plugin_id, session)
+        return action.stream_handler(context, payload, config)
 
     def apply(
         self,

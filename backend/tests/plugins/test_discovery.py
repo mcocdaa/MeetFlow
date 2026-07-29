@@ -6,7 +6,7 @@ import yaml
 from app.main import create_app
 
 
-def test_ai_work_assistant_declares_five_scoped_actions(settings):
+def test_ai_work_assistant_declares_editor_and_user_work_brief_actions(settings):
     settings.plugins_dir = (
         Path(__file__).resolve().parents[3] / "plugins"
     )
@@ -23,6 +23,7 @@ def test_ai_work_assistant_declares_five_scoped_actions(settings):
             "ai-work-assistant.action_suggestions",
             "ai-work-assistant.decision_suggestions",
             "ai-work-assistant.open_question_suggestions",
+            "ai-work-assistant.user_work_brief",
         }
         assert actions["ai-work-assistant.meeting_summary"].target_types == (
             "meeting",
@@ -30,6 +31,10 @@ def test_ai_work_assistant_declares_five_scoped_actions(settings):
         assert actions["ai-work-assistant.project_progress"].target_types == (
             "project",
         )
+        assert actions["ai-work-assistant.user_work_brief"].target_types == (
+            "user",
+        )
+        assert actions["ai-work-assistant.user_work_brief"].stream_handler is not None
         assert all(action.apply_handler is None for action in actions.values())
 
 

@@ -5,10 +5,13 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
+from app.attention.service import AttentionService
 from app.auth.models import User
 from app.meetings.service import MeetingService
+from app.projects.models import Project, ProjectMember, ProjectUpdate
 from app.projects.service import ProjectService
 
 
@@ -24,6 +27,50 @@ class PluginContextBuilder:
 
     def project(self, project_id: str, _user: User) -> dict[str, Any]:
         return self._bounded(ProjectService(self.session).detail(project_id))
+
+    def user_work_brief(self, user: User) -> dict[str, Any]:
+        member_of_project = exists(
+            select(ProjectMember.project_id).where(
+                ProjectMember.project_id == Project.id,
+                ProjectMember.user_id == user.id,
+            )
+        )
+        latest_update_id = (
+            select(ProjectUpdate.id)
+            .where(ProjectUpdate.project_id == Project.id)
+            .order_by(ProjectUpdate.created_at.desc(), ProjectUpdate.id.desc())
+            .limit(1)
+            .correlate(Project)
+            .scalar_subquery()
+        )
+        rows = self.session.execute(
+            select(Project, ProjectUpdate)
+            .outerjoin(ProjectUpdate, ProjectUpdate.id == latest_update_id)
+            .where(
+                or_(Project.lead_user_id == user.id, member_of_project)
+            )
+            .order_by(Project.updated_at.desc(), Project.id)
+            .limit(60)
+        ).all()
+        projects = [
+            {
+                "id": project.id,
+                "name": project.name,
+                "summary": project.summary,
+                "status": project.status,
+                "health": project.health,
+                "target_date": project.target_date,
+                "updated_at": project.updated_at,
+                "latest_update": update.content_markdown if update else "",
+            }
+            for project, update in rows
+        ]
+        return self._bounded(
+            {
+                "projects": projects,
+                "attention": AttentionService(self.session).for_user(user),
+            }
+        )
 
     def _bounded(self, value: Any) -> dict[str, Any]:
         budget = [self.max_total_characters]

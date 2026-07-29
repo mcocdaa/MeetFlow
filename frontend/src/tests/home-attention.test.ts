@@ -4,24 +4,31 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import HomeView from '../views/HomeView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import { session } from '../auth/session'
-import { registerEditorAssistant } from '../plugins/registry'
 
-const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
+const { apiMock, fetchMock } = vi.hoisted(() => ({ apiMock: vi.fn(), fetchMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
 
 const RouterLink = { props: ['to'], template: '<a :href="to"><slot /></a>' }
 
 describe('personal workspace home', () => {
-  beforeEach(() => apiMock.mockReset())
+  beforeEach(() => {
+    apiMock.mockReset()
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+  })
 
   it('renders one prioritized subject with translated, coalesced reasons', async () => {
-    apiMock.mockResolvedValue({
-      items: [{
-        subject_type: 'action', subject_id: 'a1', title: '测试 reward',
-        project: { id: 'p1', name: '训练平台', slug: 'training' },
-        reasons: ['action_overdue', 'comment_reply'], due_date: '2026-07-20', status: 'open',
-      }],
-      notifications: [], mentions: [], unread_count: 0, truncated: false,
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/attention') return Promise.resolve({
+        items: [{
+          subject_type: 'action', subject_id: 'a1', title: '测试 reward',
+          project: { id: 'p1', name: '训练平台', slug: 'training' },
+          reasons: ['action_overdue', 'comment_reply'], due_date: '2026-07-20', status: 'open',
+        }],
+        notifications: [], mentions: [], unread_count: 0, truncated: false,
+      })
+      if (path === '/api/plugins/actions') return Promise.resolve([])
+      return Promise.resolve([])
     })
     render(HomeView, { global: { stubs: { RouterLink } } })
 
@@ -30,15 +37,29 @@ describe('personal workspace home', () => {
     expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
   })
 
-  it('opens the project update editor when the AI work brief assistant is available', async () => {
-    apiMock.mockResolvedValue({ items: [], unread_count: 0, truncated: false })
-    registerEditorAssistant('project-update-editor', { template: '<div />' })
+  it('offers a global work brief instead of linking to one project update editor', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/attention') return Promise.resolve({ items: [], unread_count: 0, truncated: false })
+      if (path === '/api/plugins/actions') return Promise.resolve([
+        { action_id: 'ai-work-assistant.user_work_brief' },
+      ])
+      return Promise.resolve([])
+    })
+    fetchMock.mockResolvedValue(new Response(
+      'event: delta\ndata: {"text":"跨项目工作摘要"}\n\nevent: done\ndata: {}\n\n',
+      { headers: { 'Content-Type': 'text/event-stream' } },
+    ))
 
     render(HomeView, { global: { stubs: { RouterLink } } })
 
-    expect(await screen.findByText('已启用')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '生成项目简报' })).toHaveAttribute('href', '/projects')
-    expect(screen.queryByText('尚未启用')).not.toBeInTheDocument()
+    await fireEvent.click(await screen.findByRole('button', { name: '生成工作简报' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/plugins/stream', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ action_id: 'ai-work-assistant.user_work_brief', input: {} }),
+    })))
+    expect(await screen.findByText('跨项目工作摘要')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '生成项目简报' })).not.toBeInTheDocument()
   })
 
   it('filters the project list without hiding project context', async () => {
