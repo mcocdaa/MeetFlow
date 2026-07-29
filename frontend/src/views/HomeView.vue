@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
 import AttentionCard, { type AttentionItem } from '../components/AttentionCard.vue'
+import { assistantsForSlot } from '../plugins/registry'
 
 type AttentionResponse = {
   items: AttentionItem[]
@@ -17,6 +18,7 @@ const error = ref('')
 
 const meetings = computed(() => response.value?.items.filter((item) => item.subject_type === 'meeting').slice(0, 5) ?? [])
 const priorities = computed(() => response.value?.items.filter((item) => item.subject_type !== 'meeting') ?? [])
+const workBriefEnabled = computed(() => assistantsForSlot('project-update-editor').length > 0)
 
 async function load() {
   loading.value = true
@@ -51,7 +53,18 @@ onMounted(load)
         <div class="section-heading"><div><p class="eyebrow">Next up</p><h2>近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
         <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }}</time></RouterLink>
         <p v-if="!meetings.length" class="muted">未来七天没有需要你参加的会议。</p>
-        <div class="ai-brief-card"><span>✦</span><div><strong>AI 工作简报</strong><p>启用摘要插件后，可从当前项目与会议生成简报。</p></div><button class="button button-small" disabled>尚未启用</button></div>
+        <div class="ai-brief-card">
+          <span>✦</span>
+          <div>
+            <strong>AI 工作简报</strong>
+            <p>{{ workBriefEnabled ? '从项目动态编辑区生成可编辑简报。' : '加载摘要插件后，可从项目动态编辑区生成简报。' }}</p>
+          </div>
+          <div v-if="workBriefEnabled" class="ai-brief-actions">
+            <span class="ai-brief-status">已启用</span>
+            <RouterLink class="button button-small" to="/projects">生成项目简报</RouterLink>
+          </div>
+          <button v-else class="button button-small" disabled>尚未启用</button>
+        </div>
       </aside>
     </div>
   </main>

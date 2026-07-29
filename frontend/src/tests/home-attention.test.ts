@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import HomeView from '../views/HomeView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import { session } from '../auth/session'
+import { registerEditorAssistant } from '../plugins/registry'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -27,6 +28,17 @@ describe('personal workspace home', () => {
     expect(await screen.findByText('测试 reward')).toBeInTheDocument()
     expect(screen.getByText('已逾期 · 有新回复')).toBeInTheDocument()
     expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
+  })
+
+  it('opens the project update editor when the AI work brief assistant is available', async () => {
+    apiMock.mockResolvedValue({ items: [], unread_count: 0, truncated: false })
+    registerEditorAssistant('project-update-editor', { template: '<div />' })
+
+    render(HomeView, { global: { stubs: { RouterLink } } })
+
+    expect(await screen.findByText('已启用')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '生成项目简报' })).toHaveAttribute('href', '/projects')
+    expect(screen.queryByText('尚未启用')).not.toBeInTheDocument()
   })
 
   it('filters the project list without hiding project context', async () => {
