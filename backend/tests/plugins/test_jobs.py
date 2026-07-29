@@ -8,7 +8,7 @@ from app.plugins.models import PluginJob, PluginJobStatus
 from app.plugins.worker import PluginJobWorker
 
 
-def test_user_work_brief_streams_without_creating_a_plugin_job(
+def test_user_work_brief_replaces_the_current_users_saved_brief_without_creating_a_plugin_job(
     ai_plugin_client, ai_plugin_meeting_id
 ):
     manager = ai_plugin_client.app.state.plugin_manager
@@ -27,9 +27,11 @@ def test_user_work_brief_streams_without_creating_a_plugin_job(
 
     captured: dict = {}
 
+    responses = iter(["第一次跨项目工作摘要", "第二次跨项目工作摘要"])
+
     async def stream(context, _payload, _config):
         captured.update(context)
-        yield "跨项目工作摘要"
+        yield next(responses)
 
     action.stream_handler = stream
     with database.session() as session:
@@ -45,14 +47,29 @@ def test_user_work_brief_streams_without_creating_a_plugin_job(
             session,
         )
 
-    response = ai_plugin_client.post(
+    first_response = ai_plugin_client.post(
         "/api/plugins/stream",
         json={"action_id": "ai-work-assistant.user_work_brief", "input": {}},
     )
 
-    assert response.status_code == 200
-    assert "event: delta" in response.text
-    assert "跨项目工作摘要" in response.text
+    assert first_response.status_code == 200
+    assert "event: delta" in first_response.text
+    assert "第一次跨项目工作摘要" in first_response.text
+    first_saved = ai_plugin_client.get("/api/work-brief")
+    assert first_saved.status_code == 200
+    assert first_saved.json()["content_markdown"] == "第一次跨项目工作摘要"
+    assert first_saved.json()["generated_at"] is not None
+
+    second_response = ai_plugin_client.post(
+        "/api/plugins/stream",
+        json={"action_id": "ai-work-assistant.user_work_brief", "input": {}},
+    )
+
+    assert second_response.status_code == 200
+    assert "第二次跨项目工作摘要" in second_response.text
+    second_saved = ai_plugin_client.get("/api/work-brief")
+    assert second_saved.status_code == 200
+    assert second_saved.json()["content_markdown"] == "第二次跨项目工作摘要"
     assert [project["name"] for project in captured["projects"]] == [
         "Plugin project"
     ]

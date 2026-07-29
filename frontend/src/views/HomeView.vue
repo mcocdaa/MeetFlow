@@ -14,29 +14,36 @@ type AttentionResponse = {
 }
 
 type PluginAction = { action_id: string }
+type WorkBriefResponse = { content_markdown: string; generated_at: string | null }
 
 const response = ref<AttentionResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
 const workBriefEnabled = ref(false)
-const workBriefMarkdown = ref('')
+const workBrief = ref<WorkBriefResponse | null>(null)
+const workBriefStreamMarkdown = ref('')
 const workBriefError = ref('')
 const workBriefRunning = ref(false)
 const workBriefController = ref<AbortController | null>(null)
 
 const meetings = computed(() => response.value?.items.filter((item) => item.subject_type === 'meeting').slice(0, 5) ?? [])
 const priorities = computed(() => response.value?.items.filter((item) => item.subject_type !== 'meeting') ?? [])
+const displayedWorkBriefMarkdown = computed(() => (
+  workBriefRunning.value ? workBriefStreamMarkdown.value : workBrief.value?.content_markdown ?? ''
+))
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [attention, actions] = await Promise.all([
+    const [attention, actions, brief] = await Promise.all([
       api<AttentionResponse>('/api/attention'),
       api<PluginAction[]>('/api/plugins/actions'),
+      api<WorkBriefResponse>('/api/work-brief'),
     ])
     response.value = attention
     workBriefEnabled.value = actions.some((action) => action.action_id === 'ai-work-assistant.user_work_brief')
+    workBrief.value = brief
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '工作区加载失败'
   } finally {
@@ -48,15 +55,18 @@ async function generateWorkBrief() {
   if (!workBriefEnabled.value || workBriefRunning.value) return
   const controller = new AbortController()
   workBriefController.value = controller
-  workBriefMarkdown.value = ''
+  workBriefStreamMarkdown.value = ''
   workBriefError.value = ''
   workBriefRunning.value = true
   try {
     await streamPluginAction(
       'ai-work-assistant.user_work_brief',
-      (text) => { workBriefMarkdown.value += text },
+      (text) => { workBriefStreamMarkdown.value += text },
       controller.signal,
     )
+    if (!controller.signal.aborted) {
+      workBrief.value = await api<WorkBriefResponse>('/api/work-brief')
+    }
   } catch (reason) {
     if (!controller.signal.aborted) {
       workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报生成失败，请稍后重试'
@@ -111,9 +121,9 @@ onBeforeUnmount(cancelWorkBrief)
           <button v-else class="button button-small" disabled>尚未启用</button>
         </div>
         <p v-if="workBriefError" class="notice notice-error ai-brief-output" role="alert">{{ workBriefError }}</p>
-        <section v-else-if="workBriefRunning || workBriefMarkdown" class="ai-brief-output" aria-live="polite">
-          <p v-if="workBriefRunning && !workBriefMarkdown" class="muted">正在汇总全部项目的当前工作…</p>
-          <MarkdownView v-else :source="workBriefMarkdown" />
+        <section v-else-if="workBriefRunning || displayedWorkBriefMarkdown" class="ai-brief-output" aria-live="polite">
+          <p v-if="workBriefRunning && !workBriefStreamMarkdown" class="muted">正在汇总全部项目的当前工作…</p>
+          <MarkdownView v-else :source="displayedWorkBriefMarkdown" />
         </section>
       </section>
     </div>

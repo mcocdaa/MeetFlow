@@ -38,11 +38,18 @@ describe('personal workspace home', () => {
   })
 
   it('offers a global work brief instead of linking to one project update editor', async () => {
+    const savedBriefs = [
+      { content_markdown: '上次保存的跨项目工作摘要', generated_at: '2026-07-29T02:00:00Z' },
+      { content_markdown: '跨项目工作摘要', generated_at: '2026-07-29T03:00:00Z' },
+    ]
     apiMock.mockImplementation((path: string) => {
       if (path === '/api/attention') return Promise.resolve({ items: [], unread_count: 0, truncated: false })
       if (path === '/api/plugins/actions') return Promise.resolve([
         { action_id: 'ai-work-assistant.user_work_brief' },
       ])
+      if (path === '/api/work-brief') return Promise.resolve(savedBriefs.shift() ?? {
+        content_markdown: '跨项目工作摘要', generated_at: '2026-07-29T03:00:00Z',
+      })
       return Promise.resolve([])
     })
     fetchMock.mockResolvedValue(new Response(
@@ -55,6 +62,7 @@ describe('personal workspace home', () => {
     const workBriefPanel = (await screen.findByText('AI 工作简报')).closest('.ai-work-brief-panel')
     expect(workBriefPanel).not.toBeNull()
     expect(workBriefPanel?.closest('aside')).toBeNull()
+    expect(await screen.findByText('上次保存的跨项目工作摘要')).toBeInTheDocument()
 
     await fireEvent.click(await screen.findByRole('button', { name: '生成工作简报' }))
 

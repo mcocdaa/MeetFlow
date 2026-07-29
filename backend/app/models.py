@@ -21,6 +21,7 @@ from app.outcomes.models import (
 )
 from app.plugins.models import PluginConfig, PluginJob, PluginState
 from app.projects.models import Project, ProjectMember, ProjectUpdate
+from app.workspace.models import UserWorkBrief
 
 __all__ = [
     "ActionItem",
@@ -48,4 +49,5 @@ __all__ = [
     "SeriesParticipant",
     "StandingAgendaItem",
     "User",
+    "UserWorkBrief",
 ]

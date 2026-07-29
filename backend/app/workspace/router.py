@@ -24,6 +24,7 @@ from app.meetings.models import (
 from app.meetings.service import as_utc, project_ref, user_ref
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.outcomes.service import OutcomeService
+from app.workspace.work_briefs import current_work_brief
 
 router = APIRouter(tags=["workspace"])
 
@@ -200,3 +201,11 @@ def attention(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     return AttentionService(session).for_user(user)
+
+
+@router.get("/api/work-brief")
+def work_brief(
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    return current_work_brief(session, user.id)

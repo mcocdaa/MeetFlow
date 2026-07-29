@@ -33,6 +33,7 @@ from app.plugins.context import PluginContextBuilder
 from app.plugins.models import PluginState
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
+from app.workspace.work_briefs import replace_work_brief
 
 admin_router = APIRouter(prefix="/api/admin/plugins", tags=["admin/plugins"])
 actions_router = APIRouter(prefix="/api/plugins", tags=["plugins"])
@@ -205,9 +206,15 @@ async def stream_action(
 
     async def events():
         try:
+            chunks: list[str] = []
             async for text in stream:
                 if text:
+                    chunks.append(text)
                     yield _stream_event("delta", {"text": text})
+            content_markdown = "".join(chunks)
+            if content_markdown.strip():
+                with request.app.state.database.session() as persistence_session:
+                    replace_work_brief(persistence_session, user.id, content_markdown)
             yield _stream_event("done", {})
         except httpx.HTTPError as exc:
             logger.error(
