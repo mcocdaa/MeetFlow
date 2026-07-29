@@ -27,6 +27,15 @@ function statusLabel(job: PluginJob) {
   return '未完成'
 }
 
+function statusTone(job: PluginJob) {
+  if (job.dismissed_at) return 'dismissed'
+  if (job.applied_at) return 'applied'
+  if (job.status === 'queued' || job.status === 'requesting') return 'processing'
+  if (job.status === 'succeeded') return 'ready'
+  if (job.status === 'canceled') return 'canceled'
+  return 'failed'
+}
+
 async function load() {
   try {
     const value = await api<{ items: PluginJob[] }>('/api/plugin-jobs?include_history=true')
@@ -65,7 +74,10 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
         <header class="section-heading">
           <div>
             <p class="eyebrow">{{ job.plugin_id }} · {{ job.action_id }}</p>
-            <h2>{{ statusLabel(job) }}</h2>
+            <div class="ai-task-title-row">
+              <h2>AI 任务</h2>
+              <span class="status-pill ai-task-status" :data-status="statusTone(job)">{{ statusLabel(job) }}</span>
+            </div>
           </div>
           <RouterLink class="text-link" :to="source(job)">
             回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}

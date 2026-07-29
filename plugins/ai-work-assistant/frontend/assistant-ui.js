@@ -138,7 +138,6 @@ function createAssistantComponent(pluginApi, definition) {
           disabled: running.value,
           onClick: run,
         }, [
-          h('span', { class: 'ai-work-assistant-menu-spark', 'aria-hidden': 'true' }, '✦'),
           h('span', running.value ? definition.busyLabel : definition.label),
         ]),
       ])

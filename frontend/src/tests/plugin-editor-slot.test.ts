@@ -92,7 +92,10 @@ it('retracts the AI menu into its busy Star and keeps construction feedback loca
   })
 
   expect(screen.getByText('会议纪要')).toBeVisible()
-  expect(screen.getByRole('button', { name: 'AI 工具' })).toBeVisible()
+  const initialTrigger = screen.getByRole('button', { name: 'AI 工具' })
+  expect(initialTrigger).toBeVisible()
+  expect(initialTrigger.querySelector('svg')).not.toBeNull()
+  expect(initialTrigger).not.toHaveTextContent('✦')
   expect(screen.queryByRole('button', { name: '插件建议' })).not.toBeInTheDocument()
 
   await fireEvent.click(screen.getByRole('button', { name: 'AI 工具' }))
