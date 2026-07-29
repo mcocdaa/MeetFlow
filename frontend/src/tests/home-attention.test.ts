@@ -35,6 +35,11 @@ describe('personal workspace home', () => {
     expect(await screen.findByText('测试 reward')).toBeInTheDocument()
     expect(screen.getByText('已逾期 · 有新回复')).toBeInTheDocument()
     expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
+
+    const priorityQueue = screen.getByRole('region', { name: '需要关注' })
+    const upcomingMeetings = screen.getByRole('complementary', { name: '近期会议' })
+    expect(priorityQueue).toHaveClass('workspace-section')
+    expect(upcomingMeetings).toHaveClass('workspace-section', 'upcoming-panel')
   })
 
   it('offers a global work brief instead of linking to one project update editor', async () => {

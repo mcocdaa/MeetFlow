@@ -33,6 +33,7 @@ it('passes the outcome field label into its editor chrome', async () => {
   const editor = screen.getByTestId('decision-composer')
   expect(editor).toContainElement(screen.getByLabelText('决策内容'))
   expect(within(editor).getByText('决策内容')).toBeVisible()
+  expect(screen.getByRole('button', { name: '关闭' }).querySelector('svg')).not.toBeNull()
   await fireEvent.click(within(editor).getByRole('button', { name: 'AI 工具' }))
   expect(within(editor).getByRole('button', { name: 'AI 建议决策' })).toBeVisible()
 })

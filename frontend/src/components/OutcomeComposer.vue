@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { X } from '@lucide/vue'
 
 import { api } from '../api/client'
 import type { AgendaItem, Meeting } from '../domain/meetings'
@@ -48,7 +49,7 @@ async function save() {
 
 <template>
   <form class="outcome-composer" @submit.prevent="save">
-    <header class="section-heading"><h3>添加{{ labels }}</h3><button type="button" class="icon-button" aria-label="关闭" @click="emit('close')">×</button></header>
+    <header class="section-heading"><h3>添加{{ labels }}</h3><button type="button" class="icon-button" aria-label="关闭" @click="emit('close')"><X :size="18" :stroke-width="2" aria-hidden="true" /></button></header>
     <label v-if="mode === 'decision'">标题<input v-model="title" required /></label>
     <PluginEditorSlot :editor-label="`${labels}内容`" v-model="content" :data-testid="assistantSlot" target-type="meeting" :target-id="meeting.id" :slot="assistantSlot" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id, participants: meeting.participants.map((participant) => participant.user) }" @notice="error = $event">
       <template #editor="{ disabled, registerEditor }"><MarkdownEditor v-model="content" :label="`${labels}内容`" :disabled="saving || disabled" :register-editor="registerEditor" /></template>

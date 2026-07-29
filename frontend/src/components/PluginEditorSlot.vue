@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
+import { Sparkles } from '@lucide/vue'
 
 import type { PluginBusyState, PluginEditorContext } from '../plugins/contracts'
 import { assistantsForSlot } from '../plugins/registry'
@@ -73,7 +74,7 @@ function writeAssistantResult(markdown: string) {
           :aria-expanded="menuOpen"
           :disabled="busy.active"
           @click="menuOpen = !menuOpen"
-        >✦</button>
+        ><Sparkles :size="15" :stroke-width="2" aria-hidden="true" /></button>
         <div
           v-if="menuOpen || busy.active"
           v-show="menuOpen"
@@ -125,7 +126,6 @@ function writeAssistantResult(markdown: string) {
 .editor-assistant-menu :deep(.ai-work-assistant-menu-action.is-primary) { color: var(--green-dark); background: #eef8f2; }
 .editor-assistant-menu :deep(.ai-work-assistant-menu-action:hover:not(:disabled)), .editor-assistant-menu :deep(.ai-work-assistant-menu-action:focus-visible) { border-color: #b8d7c4; outline: 0; box-shadow: 0 0 0 3px rgba(11, 106, 88, .1); }
 .editor-assistant-menu :deep(.ai-work-assistant-menu-action:disabled) { cursor: wait; opacity: .65; }
-.editor-assistant-menu :deep(.ai-work-assistant-menu-spark) { color: var(--green); font-size: .9rem; }
 .plugin-editor-busy { position: absolute; z-index: 2; inset: 34px 0 0; display: grid; align-items: end; overflow: hidden; background: rgba(246, 250, 247, .67); backdrop-filter: blur(2px); pointer-events: auto; }
 .plugin-editor-busy-stripes { position: absolute; inset: -60%; opacity: .56; background: repeating-linear-gradient(135deg, transparent 0 22px, rgba(11, 106, 88, .16) 22px 25px, transparent 25px 49px); animation: plugin-editor-construction-scan 2.4s linear infinite; }
 .plugin-editor-busy-activity { position: relative; display: flex; align-items: center; gap: .5rem; min-height: 38px; padding: .6rem .8rem; border-top: 1px solid rgba(11, 106, 88, .2); color: var(--green-dark); background: rgba(247, 252, 249, .56); font-size: .72rem; font-weight: 750; }

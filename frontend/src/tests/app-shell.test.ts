@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import App from '../App.vue'
@@ -31,11 +31,18 @@ beforeEach(() => {
 it('uses workspace navigation instead of the legacy meeting archive shell', () => {
   render(App)
 
-  expect(screen.getByRole('link', { name: '为你' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '项目' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '会议' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '行动项' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '决策' })).toBeInTheDocument()
+  const workspaceNavigation = screen.getByRole('navigation', { name: '工作区导航' })
+  for (const label of ['为你', '项目', '会议', '行动项', '决策', '收件箱', 'AI 任务']) {
+    const link = within(workspaceNavigation).getByRole('link', { name: label })
+    expect(link.querySelector('svg')).not.toBeNull()
+  }
+
+  const administratorNavigation = screen.getByRole('navigation', { name: '管理员导航' })
+  for (const label of ['用户', '插件', '设置']) {
+    const link = within(administratorNavigation).getByRole('link', { name: label })
+    expect(link.querySelector('svg')).not.toBeNull()
+  }
+
   expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
 })
 

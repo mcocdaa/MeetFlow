@@ -95,13 +95,13 @@ onBeforeUnmount(cancelWorkBrief)
     <p v-if="loading" class="empty-state">正在整理你的工作区…</p>
     <div v-else class="home-workspace">
       <div class="attention-layout">
-        <section class="workspace-section">
-          <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2>需要关注</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> 项</span></div>
+        <section class="workspace-section" aria-labelledby="priority-queue-title">
+          <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2 id="priority-queue-title">需要关注</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> 项</span></div>
           <div v-if="priorities.length" class="attention-list"><AttentionCard v-for="item in priorities" :key="`${item.subject_type}:${item.subject_id}`" :item="item" /></div>
           <div v-else class="empty-state compact"><strong>目前没有需要立即处理的事项</strong><p>新的指派、评审和回复会出现在这里。</p></div>
         </section>
-        <aside class="workspace-section upcoming-panel">
-          <div class="section-heading"><div><p class="eyebrow">Next up</p><h2>近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
+        <aside class="workspace-section upcoming-panel" aria-labelledby="upcoming-meetings-title">
+          <div class="section-heading"><div><p class="eyebrow">Next up</p><h2 id="upcoming-meetings-title">近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
           <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }}</time></RouterLink>
           <p v-if="!meetings.length" class="muted">未来七天没有需要你参加的会议。</p>
         </aside>
