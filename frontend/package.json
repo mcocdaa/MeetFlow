@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@lucide/vue": "^1.27.0",
     "@milkdown/crepe": "^7.21.3",
     "@milkdown/kit": "^7.21.3",
     "@milkdown/vue": "^7.21.3",
