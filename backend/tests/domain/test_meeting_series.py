@@ -576,3 +576,19 @@ def test_routes_create_and_serialize_series_and_occurrence(
     detail = authenticated_client.get(f"/api/meetings/{occurrence.json()['id']}")
     assert detail.status_code == 200
     assert detail.json()["version"] == 1
+
+    started = authenticated_client.post(
+        f"/api/meetings/{occurrence.json()['id']}/start",
+        json={"expected_version": 1},
+    )
+    assert started.status_code == 200
+    assert started.json()["started_at"].endswith("Z")
+
+    completed = authenticated_client.post(
+        f"/api/meetings/{occurrence.json()['id']}/finish",
+        json={"expected_version": started.json()["version"]},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["completed_at"].endswith("Z")
+    assert completed.json()["current_snapshot"]["snapshot_json"]["meeting"]["started_at"].endswith("Z")
+    assert completed.json()["current_snapshot"]["snapshot_json"]["meeting"]["completed_at"].endswith("Z")

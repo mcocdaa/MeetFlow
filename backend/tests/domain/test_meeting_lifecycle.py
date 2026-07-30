@@ -172,8 +172,9 @@ def test_finish_skips_unresolved_agenda_and_records_duration(
     admin_id, _, meeting_id = lifecycle_context
     started_at = datetime(2026, 8, 10, 9, tzinfo=timezone.utc)
     finished_at = datetime(2026, 8, 10, 9, 5, tzinfo=timezone.utc)
+    meeting_times = iter((started_at, finished_at))
     monkeypatch.setattr("app.agendas.service.utcnow", lambda: started_at)
-    monkeypatch.setattr("app.meetings.service.utcnow", lambda: finished_at)
+    monkeypatch.setattr("app.meetings.service.utcnow", lambda: next(meeting_times))
     with client.app.state.database.session() as session:
         actor = session.get(User, admin_id)
         service = MeetingService(session)
@@ -213,8 +214,11 @@ def test_finish_skips_unresolved_agenda_and_records_duration(
         snapshot_agenda = {
             item["id"]: item for item in completed.current_snapshot.snapshot_json["agenda_items"]
         }
+        snapshot_meeting = completed.current_snapshot.snapshot_json["meeting"]
         assert snapshot_agenda[active.id]["actual_duration_seconds"] == 300
         assert snapshot_agenda[waiting.id]["actual_duration_seconds"] == 0
+        assert snapshot_meeting["started_at"] == started_at.isoformat().replace("+00:00", "Z")
+        assert snapshot_meeting["completed_at"] == finished_at.isoformat().replace("+00:00", "Z")
 
 
 def test_snapshot_includes_derived_outcome_source_metadata(client, lifecycle_context):

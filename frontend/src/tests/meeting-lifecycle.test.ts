@@ -120,6 +120,22 @@ describe('meeting lifecycle workspace', () => {
     expect(screen.getByText('每周复盘一次')).toBeVisible()
   })
 
+  it('shows the frozen total actual duration in the completed summary', async () => {
+    const meeting = completedOutcomeFixture()
+    if (!meeting.current_snapshot) throw new Error('completed fixture requires a snapshot')
+    const snapshot = meeting.current_snapshot as { snapshot_json: { meeting: Record<string, unknown> } }
+    snapshot.snapshot_json.meeting = {
+      ...snapshot.snapshot_json.meeting,
+      started_at: '2026-07-24T02:00:00',
+      completed_at: '2026-07-24T03:05:09',
+    }
+    apiMock.mockResolvedValue(meeting)
+
+    render(MeetingWorkspaceView)
+
+    expect(await screen.findByTestId('completed-meeting-duration')).toHaveTextContent('实际会议时长：1 小时 5 分 9 秒')
+  })
+
   it('omits meeting-level outcomes when the completed snapshot has none', async () => {
     apiMock.mockResolvedValue(fixture('completed'))
     render(MeetingWorkspaceView)

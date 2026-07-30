@@ -56,10 +56,19 @@ function nullableNumber(value: unknown): number | null {
 
 function duration(seconds: number | null): string {
   if (seconds === null) return '—'
-  const minutes = Math.floor(seconds / 60)
-  const remainder = seconds % 60
+  const hours = Math.floor(seconds / 3600)
+  const remainingSeconds = seconds % 3600
+  const minutes = Math.floor(remainingSeconds / 60)
+  const remainder = remainingSeconds % 60
+  if (hours) return `${hours} 小时${minutes ? ` ${minutes} 分` : ''}${remainder ? ` ${remainder} 秒` : ''}`
   if (!minutes) return `${remainder} 秒`
   return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`
+}
+
+function utcMilliseconds(value: string | null): number | null {
+  if (!value) return null
+  const timestamp = new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`).getTime()
+  return Number.isFinite(timestamp) ? timestamp : null
 }
 
 function decision(value: SnapshotRecord): SnapshotDecision {
@@ -88,6 +97,14 @@ function group(source: SnapshotRecord, id: string, testId: string, title: string
 
 const snapshot = computed(() => record(props.meeting.current_snapshot?.snapshot_json ?? props.meeting.current_snapshot?.snapshot ?? {}))
 const snapshotMeeting = computed(() => record(snapshot.value.meeting))
+const actualMeetingDurationSeconds = computed(() => {
+  const startedAt = nullableText(snapshotMeeting.value.started_at) ?? props.meeting.started_at ?? null
+  const completedAt = nullableText(snapshotMeeting.value.completed_at) ?? props.meeting.completed_at ?? null
+  const startMilliseconds = utcMilliseconds(startedAt)
+  const completedMilliseconds = utcMilliseconds(completedAt)
+  if (startMilliseconds === null || completedMilliseconds === null) return null
+  return Math.max(0, Math.floor((completedMilliseconds - startMilliseconds) / 1000))
+})
 const snapshotAgenda = computed<SnapshotAgenda[]>(() => records(snapshot.value.agenda_items).map((item) => {
   const id = text(item.id)
   return {
@@ -131,7 +148,7 @@ async function reopen() {
 
 <template>
   <div class="completed-chain">
-    <section class="workspace-section completed-summary"><header class="section-heading"><div><p class="eyebrow">Trusted record</p><h2>会议完成链条</h2></div><div class="page-header-actions"><button class="button button-quiet" @click="amendmentOpen = !amendmentOpen">添加更正</button><button class="button button-danger" :disabled="saving" @click="reopen">重新打开会议</button></div></header><p class="snapshot-meta">快照 #{{ meeting.current_snapshot?.completion_number ?? '—' }} · 原始记录保持只读</p><MarkdownView :source="String(snapshotMeeting.summary_markdown ?? meeting.summary_markdown)" empty-text="本次会议未填写摘要" /></section>
+    <section class="workspace-section completed-summary"><header class="section-heading"><div><p class="eyebrow">Trusted record</p><h2>会议完成链条</h2></div><div class="page-header-actions"><button class="button button-quiet" @click="amendmentOpen = !amendmentOpen">添加更正</button><button class="button button-danger" :disabled="saving" @click="reopen">重新打开会议</button></div></header><p class="snapshot-meta">快照 #{{ meeting.current_snapshot?.completion_number ?? '—' }} · 原始记录保持只读</p><p class="completed-meeting-duration" data-testid="completed-meeting-duration">实际会议时长：{{ duration(actualMeetingDurationSeconds) }}</p><MarkdownView :source="String(snapshotMeeting.summary_markdown ?? meeting.summary_markdown)" empty-text="本次会议未填写摘要" /></section>
 
     <form v-if="amendmentOpen" class="workspace-section amendment-form" @submit.prevent="addAmendment"><h2>添加更正</h2><p>更正会作为独立历史记录追加，不会修改完成快照。</p><label>更正原因<input v-model="reason" required /></label><label>更正内容<MarkdownEditor v-model="content" label="更正内容" /></label><div class="form-actions"><button type="button" class="button button-quiet" @click="amendmentOpen = false">取消</button><button class="button button-primary" :disabled="saving || !reason.trim() || !content.trim()">保存更正</button></div></form>
     <p v-if="error" class="notice notice-error">{{ error }}</p>

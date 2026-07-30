@@ -192,6 +192,7 @@ class SnapshotMeeting(StrictSnapshotModel):
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
+    completed_at: datetime | None
     participants: list[SnapshotParticipant]
 
 

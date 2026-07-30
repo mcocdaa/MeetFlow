@@ -808,7 +808,14 @@ class MeetingService:
     @staticmethod
     def _snapshot_document(meeting: Meeting) -> dict[str, Any]:
         def columns(item, names):
-            return {name: getattr(item, name) for name in names}
+            return {
+                name: (
+                    as_utc(value)
+                    if isinstance(value := getattr(item, name), datetime)
+                    else value
+                )
+                for name in names
+            }
 
         def decision_document(decision):
             result = columns(
@@ -949,6 +956,7 @@ class MeetingService:
                 "created_at",
                 "updated_at",
                 "started_at",
+                "completed_at",
             ),
         )
         meeting_data["status_before_completion"] = meeting.status
