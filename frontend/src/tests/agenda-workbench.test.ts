@@ -97,6 +97,7 @@ describe('agenda workbench', () => {
   })
 
   it('keeps the active topic and selectable queue in one shared workbench surface', async () => {
+    apiMock.mockResolvedValueOnce({ ...meetingFixture().agenda_items[1], status: 'in_progress', version: 2 })
     render(AgendaWorkbench, { props: { meeting: meetingFixture() } })
     const workbench = screen.getByTestId('meeting-workbench')
     const detail = screen.getByTestId('agenda-detail')
@@ -111,6 +112,9 @@ describe('agenda workbench', () => {
     expect(screen.getByLabelText('议题标题')).toHaveValue('进展同步')
 
     await fireEvent.click(screen.getByTestId('agenda-row-a2').querySelector('button')!)
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a2/start', {
+      method: 'POST', body: JSON.stringify({ expected_version: 1 }),
+    }))
     expect(screen.getByLabelText('议题标题')).toHaveValue('发布方案')
   })
 
@@ -149,6 +153,13 @@ describe('agenda workbench', () => {
     render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0] } })
     expect(screen.queryByText(/版本\s*2/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /跳过/ })).not.toBeInTheDocument()
+  })
+
+  it('does not render a separate start-topic action', () => {
+    const planned = meetingFixture().agenda_items[1]
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item: planned } })
+
+    expect(screen.queryByRole('button', { name: '开始此议题' })).not.toBeInTheDocument()
   })
 
   it('exposes a clean current draft flush that does not request or reload', async () => {
@@ -208,22 +219,24 @@ describe('agenda workbench', () => {
     }))
   })
 
-  it('uses the accepted version when an agenda flow follows a manual save', async () => {
-    const item = meetingFixture().agenda_items[1]
+  it('uses the accepted version when agenda completion follows a manual save', async () => {
+    const item = meetingFixture().agenda_items[0]
     const changed = vi.fn()
+    const advanced = vi.fn()
     apiMock
-      .mockResolvedValueOnce({ ...item, title: '发布方案已确认', version: 2 })
-      .mockResolvedValueOnce({})
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item }, attrs: { onChanged: changed } })
+      .mockResolvedValueOnce({ ...item, title: '进展已确认', version: 3 })
+      .mockResolvedValueOnce({ agenda_item: { ...item, title: '进展已确认', version: 4 }, next_agenda_item_id: 'a2' })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item }, attrs: { onChanged: changed, onAdvance: advanced } })
 
-    await fireEvent.update(screen.getByLabelText('议题标题'), '发布方案已确认')
+    await fireEvent.update(screen.getByLabelText('议题标题'), '进展已确认')
     await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
     await waitFor(() => expect(changed).toHaveBeenCalledTimes(1))
-    await fireEvent.click(screen.getByRole('button', { name: '开始此议题' }))
+    await fireEvent.click(screen.getByRole('button', { name: '完成议题并进入下一项' }))
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a2/start', {
-      method: 'POST', body: JSON.stringify({ expected_version: 2 }),
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1/complete-and-advance', {
+      method: 'POST', body: JSON.stringify({ expected_version: 3 }),
     }))
+    expect(advanced).toHaveBeenCalledWith('a2')
   })
 
   it('sends the full ordered id list once after drop', async () => {

@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+import { api } from '../api/client'
 import type { AgendaItem, Meeting } from '../domain/meetings'
 import AgendaDetail from './AgendaDetail.vue'
 import AgendaQueue from './AgendaQueue.vue'
 
 const props = defineProps<{ meeting: Meeting; initialSelectedId?: string }>()
-const emit = defineEmits<{ reload: []; selectNext: [itemId: string] }>()
+const emit = defineEmits<{ reload: [] }>()
 const selectedId = ref(props.meeting.agenda_items.find((item) => item.status === 'in_progress')?.id ?? props.meeting.agenda_items[0]?.id ?? '')
 const detail = ref<{ flushIfDirty: () => Promise<boolean> } | null>(null)
+const openingId = ref('')
+const openError = ref('')
 
 watch(() => props.initialSelectedId, (value) => { if (value) selectedId.value = value })
 
@@ -18,13 +21,30 @@ watch(() => props.meeting.agenda_items, (items) => {
 
 const selected = computed<AgendaItem | null>(() => props.meeting.agenda_items.find((item) => item.id === selectedId.value) ?? null)
 
-function advance() {
-  const index = props.meeting.agenda_items.findIndex((item) => item.id === selectedId.value)
-  const next = props.meeting.agenda_items.slice(index + 1).find((item) => item.status === 'planned')
-  if (next) {
-    selectedId.value = next.id
-    emit('selectNext', next.id)
+async function openAgenda(itemId: string) {
+  const item = props.meeting.agenda_items.find((row) => row.id === itemId)
+  if (!item || openingId.value) return
+  openError.value = ''
+  if (props.meeting.status !== 'in_progress' || item.status !== 'planned') {
+    selectedId.value = itemId
+    return
   }
+  openingId.value = itemId
+  try {
+    await api(`/api/agenda-items/${item.id}/start`, {
+      method: 'POST', body: JSON.stringify({ expected_version: item.version }),
+    })
+    selectedId.value = itemId
+    emit('reload')
+  } catch (caught) {
+    openError.value = caught instanceof Error ? caught.message : '议题开始失败'
+  } finally {
+    openingId.value = ''
+  }
+}
+
+function advance(nextId: string | null) {
+  if (nextId) selectedId.value = nextId
   emit('reload')
 }
 
@@ -43,6 +63,6 @@ defineExpose({ flushCurrentDraft })
         <div><p class="eyebrow">Current topic</p><h2>还没有议题</h2><p>从右侧队列添加本次会议的第一个议题。</p></div>
       </div>
     </Transition>
-    <AgendaQueue :meeting="meeting" :selected-id="selectedId" @select="selectedId = $event" @changed="emit('reload')" />
+    <AgendaQueue :meeting="meeting" :selected-id="selectedId" :opening-id="openingId" :open-error="openError" @select="openAgenda" @changed="emit('reload')" />
   </section>
 </template>

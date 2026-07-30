@@ -4,7 +4,7 @@ import { ref, watch } from 'vue'
 import { api, ApiError } from '../api/client'
 import type { AgendaItem, AgendaType, Meeting } from '../domain/meetings'
 
-const props = defineProps<{ meeting: Meeting; selectedId?: string }>()
+const props = defineProps<{ meeting: Meeting; selectedId?: string; openingId?: string; openError?: string }>()
 const emit = defineEmits<{ select: [id: string]; changed: [] }>()
 const ordered = ref<AgendaItem[]>([...props.meeting.agenda_items].sort((a, b) => a.position - b.position))
 const draggingId = ref('')
@@ -126,10 +126,10 @@ async function remove(item: AgendaItem) {
       <label>预计时长（分钟）<input v-model.number="estimatedMinutes" type="number" min="1" max="480" required /></label>
       <button class="button button-small button-primary" :disabled="saving">插入队尾</button>
     </form>
-    <p v-if="error" class="notice notice-error">{{ error }}</p>
+    <p v-if="error || openError" class="notice notice-error">{{ error || openError }}</p>
     <div class="agenda-queue-list">
       <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" draggable="true" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
-        <button class="agenda-select" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel(item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
+        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel(item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
         <div class="agenda-menu"><button class="agenda-menu-trigger" :aria-label="`议题“${item.title}”的更多操作`" :aria-expanded="menuId === item.id" @click="menuId = menuId === item.id ? '' : item.id">•••</button><div v-if="menuId === item.id"><button @click="emit('select', item.id); menuId = ''">编辑详情</button><button @click="command(item, 'cancel')">取消议题</button><button class="danger-link" @click="remove(item)">删除议题</button></div></div>
         <div v-if="guardedId === item.id" class="agenda-guard"><button class="button button-small button-danger" @click="command(item, 'cancel')">改为取消</button><span>产出迁移将在会议工作台中处理</span></div>
       </article>

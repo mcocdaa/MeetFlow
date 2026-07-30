@@ -8,8 +8,9 @@ import OutcomeComposer from './OutcomeComposer.vue'
 import VersionConflictDialog from './VersionConflictDialog.vue'
 
 const props = defineProps<{ meeting: Meeting; item: AgendaItem }>()
-const emit = defineEmits<{ changed: []; advance: [] }>()
+const emit = defineEmits<{ changed: []; advance: [nextId: string | null] }>()
 type MarkdownEditorHandle = { flush: () => string }
+type AgendaAdvanceResult = { next_agenda_item_id: string | null }
 function draftFor(item: AgendaItem): AgendaDraft {
   return { title: item.title, agenda_type: item.agenda_type, notes_markdown: item.notes_markdown, estimated_minutes: item.estimated_minutes }
 }
@@ -77,13 +78,14 @@ async function save(expectedVersion = currentVersion.value) {
 
 defineExpose({ flushIfDirty })
 
-async function flow(action: 'start' | 'complete') {
+async function complete() {
   saving.value = true
   error.value = ''
   try {
-    await api(`/api/agenda-items/${props.item.id}/${action}`, { method: 'POST', body: JSON.stringify({ expected_version: currentVersion.value }) })
-    if (action === 'complete') emit('advance')
-    else emit('changed')
+    const result = await api<AgendaAdvanceResult>(`/api/agenda-items/${props.item.id}/complete-and-advance`, {
+      method: 'POST', body: JSON.stringify({ expected_version: currentVersion.value }),
+    })
+    emit('advance', result.next_agenda_item_id)
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : '议题状态更新失败'
   } finally {
@@ -105,7 +107,7 @@ async function flow(action: 'start' | 'complete') {
       <div class="outcome-list"><article v-for="decision in item.decisions" :key="decision.id"><span>{{ decision.is_derived ? '来自议题记录' : '决策' }}</span><strong>{{ decision.title }}</strong></article><article v-for="action in item.actions" :key="action.id"><span>{{ action.is_derived ? '来自议题记录' : '行动' }}</span><strong>{{ action.content }}</strong></article><article v-for="question in item.open_questions" :key="question.id"><span>{{ question.is_derived ? '来自议题记录' : '问题' }}</span><strong>{{ question.question_markdown }}</strong></article><p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">讨论结果会在这里形成可追踪的链条。</p></div>
     </section>
 
-    <footer class="agenda-flow-actions" data-testid="flow-actions"><button v-if="item.status === 'planned'" class="button button-quiet" :disabled="saving" @click="flow('start')">开始此议题</button><button v-if="item.status === 'in_progress'" class="button button-primary" :disabled="saving" @click="flow('complete')">完成议题并进入下一项</button></footer>
+    <footer v-if="item.status === 'in_progress'" class="agenda-flow-actions" data-testid="flow-actions"><button class="button button-primary" :disabled="saving" @click="complete">完成议题并进入下一项</button></footer>
     <VersionConflictDialog v-if="conflict" :local-markdown="draft.notes_markdown" :server-markdown="conflict.server" :actual-version="conflict.version" @close="conflict = null" @reload="emit('changed'); conflict = null" @overwrite="save" />
   </div>
 </template>
