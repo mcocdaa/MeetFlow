@@ -15,6 +15,11 @@ const openError = ref('')
 
 watch(() => props.initialSelectedId, (value) => { if (value) selectedId.value = value })
 
+watch(() => props.meeting.status, (status, previousStatus) => {
+  if (status !== 'in_progress' || previousStatus === 'in_progress') return
+  selectedId.value = props.meeting.agenda_items.find((item) => item.status === 'in_progress')?.id ?? props.meeting.agenda_items[0]?.id ?? ''
+})
+
 watch(() => props.meeting.agenda_items, (items) => {
   if (!items.some((item) => item.id === selectedId.value)) selectedId.value = items[0]?.id ?? ''
 })

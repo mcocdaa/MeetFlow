@@ -164,6 +164,19 @@ describe('agenda workbench', () => {
     expect(screen.queryByRole('button', { name: '开始此议题' })).not.toBeInTheDocument()
   })
 
+  it('selects the first auto-started topic when the meeting becomes live', async () => {
+    const ready = { ...meetingFixture(), status: 'ready' as const, agenda_items: meetingFixture().agenda_items.map((item) => ({ ...item, status: 'planned' as const })) }
+    const live = { ...ready, status: 'in_progress' as const, agenda_items: [{ ...ready.agenda_items[0], status: 'in_progress' as const }, ...ready.agenda_items.slice(1)] }
+    const { rerender } = render(AgendaWorkbench, { props: { meeting: ready } })
+
+    await fireEvent.click(screen.getByTestId('agenda-row-a2').querySelector('button')!)
+    expect(screen.getByLabelText('议题标题')).toHaveValue('发布方案')
+
+    await rerender({ meeting: live })
+    await waitFor(() => expect(screen.getByLabelText('议题标题')).toHaveValue('进展同步'))
+    expect(screen.getByTestId('agenda-row-a1')).toHaveClass('selected', 'agenda-status-in_progress')
+  })
+
   it('preserves a completed topic as a non-current queue state', () => {
     const meeting = meetingFixture()
     const completed = { ...meeting.agenda_items[0], status: 'completed' } as AgendaItem
