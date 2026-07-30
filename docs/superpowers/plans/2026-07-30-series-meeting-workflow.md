@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **实施状态（2026-07-30）：已完成。** 任务 1–9 已通过 `eafa095` 至 `194ac98` 的实现提交落入 `main`；复选框保留为原始执行模板。最终隔离浏览器验收及后续回归修复另见本次收尾提交。
+
 **Goal:** Deliver executable, time-zone-aware meeting series plus a direct meeting workflow, agenda-derived outcomes, persistent minutes, and an improved existing two-column meeting workbench.
 
 **Architecture:** Add structured recurrence fields to `MeetingSeries` and materialized fixed-period fields to `Meeting`; a bounded in-process scheduler creates idempotent draft occurrences while request-time reconciliation covers service downtime. Keep manual and tag-derived outcomes distinguishable by nullable source columns on each outcome table, reconcile derived rows in the agenda save transaction, and preserve the existing `AgendaWorkbench` split layout while changing its lifecycle affordances.

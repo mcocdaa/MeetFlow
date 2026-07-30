@@ -24,13 +24,27 @@ function outcomeAssistantProbe(testId: string, label: string) {
   })
 }
 
-const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
+const { apiMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), editorBuffer: { value: '' } }))
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
   return { ...actual, api: apiMock }
 })
 vi.mock('../components/MarkdownEditor.vue', () => ({
-  default: { props: ['modelValue', 'label'], emits: ['update:modelValue'], template: '<textarea :aria-label="label" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' },
+  default: defineComponent({
+    props: ['modelValue', 'label'],
+    emits: ['update:modelValue'],
+    setup(props, { emit, expose }) {
+      expose({
+        flush: () => {
+          const markdown = editorBuffer.value || props.modelValue
+          if (editorBuffer.value) emit('update:modelValue', editorBuffer.value)
+          return markdown
+        },
+      })
+      return {}
+    },
+    template: '<textarea :aria-label="label" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+  }),
 }))
 
 const users = {
@@ -79,6 +93,7 @@ describe('agenda workbench', () => {
   beforeEach(() => {
     apiMock.mockReset()
     apiMock.mockResolvedValue({})
+    editorBuffer.value = ''
   })
 
   it('keeps the active topic and selectable queue in one shared workbench surface', async () => {
@@ -176,6 +191,21 @@ describe('agenda workbench', () => {
     await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
     await waitFor(() => expect(changed).toHaveBeenCalledTimes(1))
     expect(apiMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves a just-entered agenda record without waiting for the rich-text debounce', async () => {
+    const item = meetingFixture().agenda_items[0]
+    const notes = '@决策: 采用灰度发布'
+    editorBuffer.value = notes
+    apiMock.mockResolvedValueOnce({ ...item, notes_markdown: notes, version: 3 })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1', {
+      method: 'PUT',
+      body: JSON.stringify({ expected_version: 2, title: '进展同步', agenda_type: 'information', notes_markdown: notes, estimated_minutes: 20 }),
+    }))
   })
 
   it('uses the accepted version when an agenda flow follows a manual save', async () => {

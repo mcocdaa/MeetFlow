@@ -9,11 +9,13 @@ import VersionConflictDialog from './VersionConflictDialog.vue'
 
 const props = defineProps<{ meeting: Meeting; item: AgendaItem }>()
 const emit = defineEmits<{ changed: []; advance: [] }>()
+type MarkdownEditorHandle = { flush: () => string }
 function draftFor(item: AgendaItem): AgendaDraft {
   return { title: item.title, agenda_type: item.agenda_type, notes_markdown: item.notes_markdown, estimated_minutes: item.estimated_minutes }
 }
 
 const draft = reactive<AgendaDraft>(draftFor(props.item))
+const notesEditor = ref<MarkdownEditorHandle | null>(null)
 const accepted = ref<AgendaDraft>(draftFor(props.item))
 const currentVersion = ref(props.item.version)
 const dirty = computed(() => draft.title !== accepted.value.title
@@ -37,6 +39,9 @@ watch(() => props.item, (item) => {
 }, { deep: true })
 
 async function persistIfDirty(expectedVersion = currentVersion.value): Promise<boolean> {
+  const markdown = typeof notesEditor.value?.flush === 'function' ? notesEditor.value.flush() : undefined
+  if (markdown !== undefined) draft.notes_markdown = markdown
+
   if (!dirty.value) return false
   saving.value = true
   error.value = ''
@@ -91,7 +96,7 @@ async function flow(action: 'start' | 'complete') {
   <div class="agenda-detail" data-testid="agenda-detail">
     <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" /></div><span class="status-pill" :data-status="item.status">{{ statusLabel(item.status) }}</span></header>
     <div class="agenda-meta-fields"><label>类型<select v-model="draft.agenda_type"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label><label>预计时长<input v-model.number="draft.estimated_minutes" type="number" min="1" max="480" /></label></div>
-    <label class="agenda-notes">议题记录<MarkdownEditor v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" /></label>
+    <label class="agenda-notes">议题记录<MarkdownEditor ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" /></label>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
     <div class="agenda-save-row"><span class="muted">保存后会同步识别记录中的 @决策:、@行动:、@开放问题:。</span><button class="button button-quiet" :disabled="saving || !draft.title.trim()" @click="save()">保存议题</button></div>
 

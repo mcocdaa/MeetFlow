@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Crepe } from '@milkdown/crepe'
-import { replaceAll } from '@milkdown/kit/utils'
+import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import '@milkdown/crepe/theme/common/style.css'
@@ -27,6 +27,17 @@ function applyMarkdown(markdown: string) {
   editor.editor.action(replaceAll(markdown))
   emit('update:modelValue', markdown)
 }
+
+function flush() {
+  if (!ready || !editor) return latestMarkdown
+
+  const markdown = editor.editor.action(getMarkdown())
+  latestMarkdown = markdown
+  emit('update:modelValue', markdown)
+  return markdown
+}
+
+defineExpose({ flush })
 
 onMounted(async () => {
   await nextTick()

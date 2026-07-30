@@ -2,15 +2,22 @@ import { defineComponent, onBeforeUnmount, onMounted } from 'vue'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
+const { apiMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), editorBuffer: { value: '' } }))
 vi.mock('../api/client', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'm1' } }) }))
 vi.mock('../components/MarkdownEditor.vue', () => ({
   default: defineComponent({
     props: ['modelValue', 'label', 'disabled', 'registerEditor'],
     emits: ['update:modelValue'],
-    setup(props, { emit }) {
+    setup(props, { emit, expose }) {
       const writer = (markdown: string) => emit('update:modelValue', markdown)
+      expose({
+        flush: () => {
+          const markdown = editorBuffer.value || props.modelValue
+          if (editorBuffer.value) emit('update:modelValue', editorBuffer.value)
+          return markdown
+        },
+      })
       onMounted(() => props.registerEditor?.(writer))
       onBeforeUnmount(() => props.registerEditor?.(null))
       return {}
@@ -45,7 +52,7 @@ function meetingFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('meeting workspace', () => {
-  beforeEach(() => { apiMock.mockReset(); apiMock.mockResolvedValue(meeting) })
+  beforeEach(() => { apiMock.mockReset(); apiMock.mockResolvedValue(meeting); editorBuffer.value = '' })
 
   it('keeps preparation fields on demand instead of above the active agenda', async () => {
     render(MeetingWorkspaceView)
@@ -77,6 +84,31 @@ describe('meeting workspace', () => {
       method: 'PUT', body: expect.stringContaining('"summary_markdown":"# AI 生成纪要"'),
     })))
     expect(screen.getByRole('status')).toHaveTextContent('纪要已保存')
+  })
+
+  it('saves just-entered minutes without waiting for the rich-text debounce', async () => {
+    const summary = '确认灰度发布与回滚边界。'
+    editorBuffer.value = summary
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.click(screen.getByRole('button', { name: '保存会议纪要' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({
+      method: 'PUT', body: expect.stringContaining(`"summary_markdown":"${summary}"`),
+    })))
+    expect(screen.getByRole('status')).toHaveTextContent('纪要已保存')
+  })
+
+  it('treats a timezone-less meeting start timestamp as UTC for the live clock', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 6, 30, 6, 40, 0))
+    apiMock.mockResolvedValue(meetingFixture({ status: 'in_progress', started_at: '2026-07-30T06:38:44.670756' }))
+
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    expect(screen.getByText('进行 1:15')).toBeVisible()
+    now.mockRestore()
   })
 
   it('saves dirty agenda and meeting drafts before starting with refreshed meeting version', async () => {

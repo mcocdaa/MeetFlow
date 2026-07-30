@@ -23,6 +23,7 @@ type MeetingDraft = {
 }
 
 type LifecycleAction = 'start' | 'finish'
+type MarkdownEditorHandle = { flush: () => string }
 
 const route = useRoute()
 const meeting = ref<Meeting | null>(null)
@@ -36,6 +37,8 @@ const materialsOpen = ref(false)
 const materialItems = ref<Attachment[]>([])
 const now = ref(Date.now())
 const minutesSaved = ref(false)
+const summaryEditor = ref<MarkdownEditorHandle | null>(null)
+const purposeEditor = ref<MarkdownEditorHandle | null>(null)
 const draft = ref<MeetingDraft>({ title: '', purpose_markdown: '', raw_notes_markdown: '', summary_markdown: '', scheduled_start: '', scheduled_end: '' })
 const acceptedDraft = ref<MeetingDraft>({ ...draft.value })
 const workbench = ref<{ flushCurrentDraft: () => Promise<boolean> } | null>(null)
@@ -49,7 +52,7 @@ const dirty = computed(() => draft.value.title !== acceptedDraft.value.title
 const busy = computed(() => saving.value || lifecycleAction.value !== null)
 const liveElapsed = computed(() => {
   if (!meeting.value?.started_at) return ''
-  const elapsedSeconds = Math.max(0, Math.floor((now.value - new Date(meeting.value.started_at).getTime()) / 1000))
+  const elapsedSeconds = Math.max(0, Math.floor((now.value - parseUtcTimestamp(meeting.value.started_at).getTime()) / 1000))
   const hours = Math.floor(elapsedSeconds / 3600)
   const minutes = Math.floor((elapsedSeconds % 3600) / 60)
   const seconds = elapsedSeconds % 60
@@ -60,6 +63,10 @@ function toLocalInput(value: string) {
   const date = new Date(value)
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
   return local.toISOString().slice(0, 16)
+}
+
+function parseUtcTimestamp(value: string) {
+  return new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`)
 }
 
 function draftFor(value: Meeting): MeetingDraft {
@@ -84,6 +91,11 @@ function acceptMeeting(value: Meeting, resetDraft: boolean) {
 }
 
 async function persistMeetingDraft(): Promise<boolean> {
+  const summary = typeof summaryEditor.value?.flush === 'function' ? summaryEditor.value.flush() : undefined
+  if (summary !== undefined) draft.value.summary_markdown = summary
+  const purpose = typeof purposeEditor.value?.flush === 'function' ? purposeEditor.value.flush() : undefined
+  if (purpose !== undefined) draft.value.purpose_markdown = purpose
+
   if (!meeting.value || !dirty.value) return false
   const value = await api<Meeting>(`/api/meetings/${meeting.value.id}`, {
     method: 'PUT',
@@ -204,12 +216,12 @@ onBeforeUnmount(() => {
             @notice="error = $event"
           >
             <template #editor="{ disabled, registerEditor }">
-              <MarkdownEditor v-model="draft.summary_markdown" label="会议纪要" placeholder="记录会议结论、行动项和后续安排…" :disabled="busy || disabled" :register-editor="registerEditor" />
+              <MarkdownEditor ref="summaryEditor" v-model="draft.summary_markdown" label="会议纪要" placeholder="记录会议结论、行动项和后续安排…" :disabled="busy || disabled" :register-editor="registerEditor" />
             </template>
           </PluginEditorSlot>
         </section>
         <div class="meeting-tools workspace-section"><div><p class="eyebrow">Meeting tools</p><h2>材料与协作</h2><p class="muted">材料、评论都可以在会议进行中持续添加，不会离开当前议题。</p></div><div class="row-actions"><button class="button button-quiet" @click="materialsOpen = true">材料 ({{ materialItems.length }})</button><button class="button button-primary" @click="commentsOpen = true">评论</button></div></div>
-        <ContextDrawer :open="preparationOpen" title="准备信息" @close="preparationOpen = false"><section class="meeting-preparation"><header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>会议准备</h2></div><button class="button button-primary" :disabled="busy" @click="saveMeeting">保存会议信息</button></header><div class="meeting-prep-grid"><label>会议标题<input v-model="draft.title" /></label><label>开始时间<input v-model="draft.scheduled_start" type="datetime-local" /></label><label>结束时间<input v-model="draft.scheduled_end" type="datetime-local" /></label></div><label>会议目的<MarkdownEditor v-model="draft.purpose_markdown" label="会议目的" :disabled="busy" /></label><div class="participant-chips"><span v-for="participant in meeting.participants" :key="participant.user.id"><b>{{ participant.user.display_name }}</b> · {{ participant.participation_role }}</span><span v-if="!meeting.participants.length">尚未添加参与者</span></div></section></ContextDrawer>
+        <ContextDrawer :open="preparationOpen" title="准备信息" @close="preparationOpen = false"><section class="meeting-preparation"><header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>会议准备</h2></div><button class="button button-primary" :disabled="busy" @click="saveMeeting">保存会议信息</button></header><div class="meeting-prep-grid"><label>会议标题<input v-model="draft.title" /></label><label>开始时间<input v-model="draft.scheduled_start" type="datetime-local" /></label><label>结束时间<input v-model="draft.scheduled_end" type="datetime-local" /></label></div><label>会议目的<MarkdownEditor ref="purposeEditor" v-model="draft.purpose_markdown" label="会议目的" :disabled="busy" /></label><div class="participant-chips"><span v-for="participant in meeting.participants" :key="participant.user.id"><b>{{ participant.user.display_name }}</b> · {{ participant.participation_role }}</span><span v-if="!meeting.participants.length">尚未添加参与者</span></div></section></ContextDrawer>
         <ContextDrawer :open="materialsOpen" title="会议材料" @close="materialsOpen = false"><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="materialItems" @uploaded="addMaterial" @deleted="removeMaterial" /></ContextDrawer>
         <ContextDrawer :open="commentsOpen" title="评论" @close="commentsOpen = false"><MeetingCommentsPanel :meeting="meeting" /></ContextDrawer>
       </template>
