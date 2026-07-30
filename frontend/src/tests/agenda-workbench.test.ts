@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgendaDetail from '../components/AgendaDetail.vue'
 import AgendaQueue from '../components/AgendaQueue.vue'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
+import type { AgendaItem } from '../domain/meetings'
 import { registerEditorAssistant } from '../plugins/registry'
 
 const ActionContextProbe = defineComponent({
@@ -110,6 +111,7 @@ describe('agenda workbench', () => {
     expect(detail).not.toHaveClass('workspace-section')
     expect(queue).not.toHaveClass('workspace-section')
     expect(screen.getByLabelText('议题标题')).toHaveValue('进展同步')
+    expect(screen.getByTestId('agenda-row-a1')).toHaveClass('selected', 'agenda-status-in_progress')
 
     await fireEvent.click(screen.getByTestId('agenda-row-a2').querySelector('button')!)
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a2/start', {
@@ -160,6 +162,15 @@ describe('agenda workbench', () => {
     render(AgendaDetail, { props: { meeting: meetingFixture(), item: planned } })
 
     expect(screen.queryByRole('button', { name: '开始此议题' })).not.toBeInTheDocument()
+  })
+
+  it('preserves a completed topic as a non-current queue state', () => {
+    const meeting = meetingFixture()
+    const completed = { ...meeting.agenda_items[0], status: 'completed' } as AgendaItem
+    render(AgendaQueue, { props: { meeting: { ...meeting, agenda_items: [completed, ...meeting.agenda_items.slice(1)] }, selectedId: meeting.agenda_items[1].id } })
+
+    expect(screen.getByTestId('agenda-row-a1')).toHaveClass('agenda-status-completed')
+    expect(screen.getByTestId('agenda-row-a1')).not.toHaveClass('selected')
   })
 
   it('exposes a clean current draft flush that does not request or reload', async () => {
