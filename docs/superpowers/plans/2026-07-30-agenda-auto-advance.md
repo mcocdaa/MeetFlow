@@ -34,7 +34,7 @@
 - Modify: `backend/app/meetings/service.py:660-680, 708-750`
 - Test: `backend/tests/domain/test_meeting_lifecycle.py:169-221`
 
-- [ ] **Step 1: 写出首项自动开启和空队列的失败领域测试**
+- [x] **Step 1: 写出首项自动开启和空队列的失败领域测试**
 
 ```python
 def test_start_automatically_opens_first_planned_agenda(client, lifecycle_context, monkeypatch):
@@ -64,12 +64,12 @@ def test_start_without_agenda_remains_valid(client, lifecycle_context):
         assert started.agenda_items == []
 ```
 
-- [ ] **Step 2: 运行失败测试，确认当前行为尚未开始首项**
+- [x] **Step 2: 运行失败测试，确认当前行为尚未开始首项**
 
 Run: `python -m pytest -q backend/tests/domain/test_meeting_lifecycle.py -k 'automatically_opens_first or without_agenda'`  
 Expected: 首项测试失败，首项仍为 `planned`；空队列测试通过或成为回归基线。
 
-- [ ] **Step 3: 创建可复用、无提交的议题字段转换辅助函数**
+- [x] **Step 3: 创建可复用、无提交的议题字段转换辅助函数**
 
 Create `backend/app/agendas/lifecycle.py`。它只修改传入项的字段，不提交、不记录活动、不增加会议版本：
 
@@ -112,7 +112,7 @@ def complete_item(item: AgendaItem, *, actor_id: str, at: datetime) -> None:
 
 Use callers’ existing UTC-aware `now` value. Keep the existing skip/cancel duration helper unchanged in this task.
 
-- [ ] **Step 4: 在 `MeetingService.start()` 中启动排序第一项并记录活动**
+- [x] **Step 4: 在 `MeetingService.start()` 中启动排序第一项并记录活动**
 
 After the meeting becomes `in_progress` and before `_commit_meeting_command`, find the first planned row by `(position, id)`, call `start_planned_item`, and record an `agenda.started` activity in the same session. Keep exactly one `_commit_meeting_command` call, so meeting and agenda changes commit together.
 
@@ -132,14 +132,14 @@ if first_planned is not None:
 
 Import `start_planned_item` at the top of `backend/app/meetings/service.py`; never call `AgendaService.start()` from this method because that method commits independently.
 
-- [ ] **Step 5: 调整结束会议回归测试并验证任务**
+- [x] **Step 5: 调整结束会议回归测试并验证任务**
 
 In `test_finish_skips_unresolved_agenda_and_records_duration`, remove the explicit `AgendaService(session).start(active.id, ...)` call after `service.start(...)`; preserve the fixed five-minute duration assertion because the automatically started first item must still produce `300` seconds.
 
 Run: `python -m pytest -q backend/tests/domain/test_meeting_lifecycle.py`  
 Expected: PASS.
 
-- [ ] **Step 6: 提交后端开始行为**
+- [x] **Step 6: 提交后端开始行为**
 
 ```bash
 git add backend/app/agendas/lifecycle.py backend/app/meetings/service.py backend/tests/domain/test_meeting_lifecycle.py
@@ -153,7 +153,7 @@ git commit -m "feat: start first agenda with meeting"
 - Modify: `backend/app/agendas/router.py:79-106`
 - Test: `backend/tests/domain/test_agendas.py:108-156`
 
-- [ ] **Step 1: 写出完成并推进的失败测试**
+- [x] **Step 1: 写出完成并推进的失败测试**
 
 Add the following tests near the existing agenda transition test:
 
@@ -214,12 +214,12 @@ def test_complete_and_advance_rejects_a_stale_item_without_starting_next(client,
         assert session.get(AgendaItem, later.id).status == AgendaStatus.planned
 ```
 
-- [ ] **Step 2: 运行失败测试，确认命令尚不存在**
+- [x] **Step 2: 运行失败测试，确认命令尚不存在**
 
 Run: `python -m pytest -q backend/tests/domain/test_agendas.py -k 'complete_and_advance'`  
 Expected: FAIL with `AttributeError: 'AgendaService' object has no attribute 'complete_and_advance'`.
 
-- [ ] **Step 3: 实现单次提交的服务命令**
+- [x] **Step 3: 实现单次提交的服务命令**
 
 Import `complete_item` and `start_planned_item` from `app.agendas.lifecycle`. Add this method to `AgendaService`; it validates like the existing `complete`, finishes the requested item, finds only later `planned` rows, starts the first one, records both activity entries, increments the parent meeting once, and commits once.
 
@@ -253,7 +253,7 @@ def complete_and_advance(self, item_id: str, payload: AgendaCommand, actor: User
 
 Keep `complete()` and `/complete` unchanged for compatibility. Make `start()` call `start_planned_item`, so explicit starts and automatic starts use identical timestamp and item-version updates.
 
-- [ ] **Step 4: 暴露完整且稳定的 HTTP 响应**
+- [x] **Step 4: 暴露完整且稳定的 HTTP 响应**
 
 Add an explicit route before generic `_command` registrations in `backend/app/agendas/router.py`:
 
@@ -275,7 +275,7 @@ def complete_and_advance_agenda_item(
 
 The response keeps the completed record consistent with existing commands and gives browser and future CLI callers an explicit nullable next ID.
 
-- [ ] **Step 5: 运行领域测试并提交推进命令**
+- [x] **Step 5: 运行领域测试并提交推进命令**
 
 Run: `python -m pytest -q backend/tests/domain/test_agendas.py backend/tests/domain/test_meeting_lifecycle.py`  
 Expected: PASS.
@@ -294,7 +294,7 @@ git commit -m "feat: advance agenda on completion"
 - Modify: `frontend/src/tests/agenda-workbench.test.ts:99-245`
 - Modify: `frontend/src/tests/meeting-lifecycle.test.ts:57-81`
 
-- [ ] **Step 1: 写出前端失败测试**
+- [x] **Step 1: 写出前端失败测试**
 
 Replace the manual-start test with these focused tests:
 
@@ -331,12 +331,12 @@ it('completes through the atomic advance command and reports its next topic', as
 
 Update the post-start `MeetingWorkspaceView` fixture to include its first agenda item as `in_progress`, then assert that after clicking “开始会议” the workspace has no “开始此议题” control.
 
-- [ ] **Step 2: 运行失败测试，确认旧按钮和路由仍在使用**
+- [x] **Step 2: 运行失败测试，确认旧按钮和路由仍在使用**
 
 Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts`  
 Expected: FAIL because the old detail button is rendered and `/complete-and-advance` is not requested.
 
-- [ ] **Step 3: 让工作台处理“打开并开始”**
+- [x] **Step 3: 让工作台处理“打开并开始”**
 
 In `AgendaWorkbench.vue`, import `api`, add `openingId` and `openError`, and replace inline `@select="selectedId = $event"` with `@select="openAgenda"`. Only a `planned` item selected while the meeting is live sends `/start`; every other status only changes selection. Do not select a planned item before its start request succeeds.
 
@@ -371,7 +371,7 @@ function advance(nextId: string | null) {
 
 Pass `:opening-id="openingId"` and `:open-error="openError"` to `AgendaQueue`. In `AgendaQueue.vue`, declare the optional props, disable `.agenda-select` while a different ID is opening, and render `openError` through its existing error notice. A rejected request therefore leaves the current detail selected and visible.
 
-- [ ] **Step 4: 删除详情页开始按钮并改用推进响应**
+- [x] **Step 4: 删除详情页开始按钮并改用推进响应**
 
 In `AgendaDetail.vue`, change the emitted `advance` payload to `string | null`, remove `'start'` from `flow`, and request the new endpoint only from the existing completion button:
 
@@ -402,7 +402,7 @@ Keep save and conflict handling unchanged. Replace the footer with one condition
 </footer>
 ```
 
-- [ ] **Step 5: 运行组件测试并提交工作台交互**
+- [x] **Step 5: 运行组件测试并提交工作台交互**
 
 Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts meeting-workspace.test.ts`  
 Expected: PASS.
@@ -418,7 +418,7 @@ git commit -m "feat: start and advance agendas from queue"
 - Modify: `frontend/src/styles.css:370-390`
 - Test: `frontend/src/tests/agenda-workbench.test.ts:99-115`
 
-- [ ] **Step 1: 写出队列状态类的失败断言**
+- [x] **Step 1: 写出队列状态类的失败断言**
 
 Extend the shared-workbench test after rendering its fixture:
 
@@ -429,12 +429,12 @@ expect(screen.getByTestId('agenda-row-a2')).toHaveClass('agenda-status-planned')
 
 Add a completed fixture variant, select it, and assert it has `agenda-status-completed` but not `agenda-status-in_progress`. This checks the markup boundary consumed by the CSS animation.
 
-- [ ] **Step 2: 运行组件测试，确认状态边界存在**
+- [x] **Step 2: 运行组件测试，确认状态边界存在**
 
 Run: `npm --prefix frontend test -- agenda-workbench.test.ts`  
 Expected: PASS for the queue state-class assertions. The visual rule itself is verified in Steps 4 and 5 by build and browser evidence.
 
-- [ ] **Step 3: 添加仅作用于当前进行中行的渐变流动**
+- [x] **Step 3: 添加仅作用于当前进行中行的渐变流动**
 
 Append the following rules beside existing agenda status rules in `frontend/src/styles.css`. The selector requires both `selected` and `agenda-status-in_progress`; no completed selector has an animation assignment.
 
@@ -457,14 +457,14 @@ Append the following rules beside existing agenda status rules in `frontend/src/
 
 Merge the last selector into the existing reduced-motion rule rather than creating a competing reset. Keep completed, planned, skipped and canceled rows static.
 
-- [ ] **Step 4: 构建前端并在隔离浏览器验证完整体验**
+- [x] **Step 4: 构建前端并在隔离浏览器验证完整体验**
 
 Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts && npm --prefix frontend run build`  
 Expected: tests and production build PASS; the existing Vite chunk-size warning may remain.
 
 Use the `testing-isolated-web-ui` skill with a temporary image, container, port and data directory. In the browser: create a meeting with at least three topics; start it; verify the first row is selected and computed `animationName` is `agenda-current-wash`; click the third planned row and verify it starts without completing the first; complete the third row and verify the next planned row opens; select a completed row and verify computed `animationName` is `none`. Remove only the exact temporary container, image and temporary directory afterwards.
 
-- [ ] **Step 5: 提交视觉状态**
+- [x] **Step 5: 提交视觉状态**
 
 ```bash
 git add frontend/src/styles.css frontend/src/tests/agenda-workbench.test.ts
@@ -476,7 +476,7 @@ git commit -m "style: animate current agenda state"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-30-agenda-auto-advance.md`
 
-- [ ] **Step 1: 运行仓库规定的完整验证**
+- [x] **Step 1: 运行仓库规定的完整验证**
 
 ```bash
 python -m pytest -q
@@ -488,13 +488,22 @@ git diff --check
 
 Expected: every test command exits `0`; production build succeeds (existing Vite chunk-size warning is non-failing); `git diff --check` has no output.
 
-- [ ] **Step 2: 记录实际验证结果并勾选计划步骤**
+- [x] **Step 2: 记录实际验证结果并勾选计划步骤**
 
 Replace every completed `- [ ]` in this plan with `- [x]`. Then append an `## 实施验证记录` heading followed by one bullet for each command in Step 1 and one browser bullet. Each bullet must quote the literal observed pass count or successful completion and, for the browser, name the observed start, manual-open, auto-advance and static-completed results. Do not write a result until the corresponding command or browser run has completed.
 
-- [ ] **Step 3: 提交计划记录**
+- [x] **Step 3: 提交计划记录**
 
 ```bash
 git add docs/superpowers/plans/2026-07-30-agenda-auto-advance.md
 git commit -m "docs: complete agenda auto advance plan"
 ```
+
+## 实施验证记录
+
+- `python -m pytest -q`：`142 passed in 142.29s (0:02:22)`。
+- `npm --prefix frontend test`：`22 passed (22)` 个测试文件、`92 passed (92)` 个测试。
+- `npm --prefix frontend run build`：生产构建成功，`✓ built in 14.86s`；仅保留既有的 chunk-size 非阻断警告。
+- `python -m pytest -q backend/tests/test_release_workflow.py`：`1 passed in 0.02s`。
+- `git diff --check`：成功，无输出。
+- 隔离浏览器：以临时镜像 `meetflow-agenda-auto-advance:5f6a40f`、独立数据目录和 `127.0.0.1:45336` 运行；登录前插件模块请求为 401、登录后重试为 200 且插件控件可见。创建四项议题后，开始会议自动选中议题一并显示 `agenda-current-wash`；打开议题三不会结束议题一；完成议题三后自动打开议题四；选择已完成的议题三时计算动画为 `none`；刷新后议题一、议题四仍为进行中，议题三仍为已完成。临时容器、镜像、数据和截图均已清理，原有 `meetflow-series-smoke` 容器保持不变。
