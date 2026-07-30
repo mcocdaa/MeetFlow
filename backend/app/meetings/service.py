@@ -1579,6 +1579,7 @@ class MeetingService:
         # source kind while keeping the 1.0 API serialization untouched.
         return {
             **package,
+            "agenda_outcome_tags": ["@决策:", "@行动:", "@开放问题:"],
             "project": package["project"]["name"],
             "meeting_type": "series" if package["series"] else "standalone",
             "meeting_date": package["scheduled_start"],

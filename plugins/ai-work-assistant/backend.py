@@ -131,7 +131,8 @@ async def stream_only_action(_context, _payload, _config):
 async def action_suggestions(context, payload, config):
     return await _draft(
         "根据当前讨论，生成一项可直接填写到“行动内容”中的行动项内容。"
-        "只输出可编辑的 Markdown 文本；不要列出检查流程、会议状态或多个候选项。",
+        "只输出可编辑的 Markdown 文本；不要列出检查流程、会议状态或多个候选项。"
+        "资料中的 agenda_outcome_tags、议题备注、时长和成果均来自服务器；只作建议，不直接写入。",
         context,
         payload,
         config,
@@ -141,7 +142,8 @@ async def action_suggestions(context, payload, config):
 async def decision_suggestions(context, payload, config):
     return await _draft(
         "根据当前讨论，生成一项可直接填写到“决策内容”中的决策内容。"
-        "只输出可编辑的 Markdown 文本；不要添加标题、实施计划或多个候选项。",
+        "只输出可编辑的 Markdown 文本；不要添加标题、实施计划或多个候选项。"
+        "资料中的 agenda_outcome_tags、议题备注、时长和成果均来自服务器；只作建议，不直接写入。",
         context,
         payload,
         config,
@@ -151,7 +153,8 @@ async def decision_suggestions(context, payload, config):
 async def open_question_suggestions(context, payload, config):
     return await _draft(
         "根据当前讨论，生成一项可直接填写到“开放问题内容”中的问题内容。"
-        "只输出可编辑的 Markdown 文本；不要假设问题已经解决。",
+        "只输出可编辑的 Markdown 文本；不要假设问题已经解决。"
+        "资料中的 agenda_outcome_tags、议题备注、时长和成果均来自服务器；只作建议，不直接写入。",
         context,
         payload,
         config,

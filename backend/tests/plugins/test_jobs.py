@@ -1,7 +1,10 @@
 import pytest
 from sqlalchemy import func, select
 
+from app.agendas.schemas import AgendaWrite
+from app.agendas.service import AgendaService
 from app.meetings.models import utcnow
+from app.meetings.models import Meeting
 from app.auth.models import User
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
@@ -98,6 +101,37 @@ def test_meeting_context_exposes_attachment_metadata_but_never_content(
     assert context["attachments"][0]["original_name"] == "architecture.png"
     assert "content" not in context["attachments"][0]
     assert "stored_name" not in context["attachments"][0]
+
+
+def test_meeting_plugin_context_contains_tag_rules_and_agenda_timing(
+    ai_plugin_client, ai_plugin_meeting_id
+):
+    database = ai_plugin_client.app.state.database
+    actor_id = ai_plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        actor = session.get(User, actor_id)
+        meeting = session.get(Meeting, ai_plugin_meeting_id)
+        agenda = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(
+                title="Tagged agenda",
+                agenda_type="decision",
+                notes_markdown="@决策: 采用方案 A",
+            ),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        agenda.actual_duration_seconds = 300
+        session.commit()
+
+        from app.plugins.context import PluginContextBuilder
+
+        context = PluginContextBuilder(session).meeting(meeting.id, actor)
+
+    agenda_context = next(item for item in context["agenda_items"] if item["id"] == agenda.id)
+    assert context["agenda_outcome_tags"] == ["@决策:", "@行动:", "@开放问题:"]
+    assert agenda_context["actual_duration_seconds"] == 300
+    assert agenda_context["decisions"][0]["is_derived"] is True
 
 
 def test_same_active_action_returns_existing_job(
