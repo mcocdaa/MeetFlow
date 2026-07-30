@@ -105,6 +105,99 @@ def test_agenda_write_defaults_to_a_five_minute_estimate():
     assert AgendaWrite(title="Default estimate", agenda_type="discussion").estimated_minutes == 5
 
 
+def test_complete_and_advance_starts_next_planned_without_finishing_other_started(
+    client, agenda_context, monkeypatch
+):
+    admin, _, meeting_id = agenda_context
+    first_at = datetime(2026, 8, 10, 9, tzinfo=timezone.utc)
+    completed_at = datetime(2026, 8, 10, 9, 5, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.agendas.service.utcnow", lambda: completed_at)
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        session.refresh(meeting)
+        already_open = add_item(agendas, meeting, admin, "Earlier open")
+        session.refresh(meeting)
+        next_item = add_item(agendas, meeting, admin, "Next")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+        current.started_at = first_at
+        already_open.status = "in_progress"
+        already_open.started_at = first_at
+        session.commit()
+
+        completed, next_id = agendas.complete_and_advance(
+            current.id,
+            AgendaCommand(expected_version=current.version),
+            admin,
+        )
+
+        assert completed.status.value == "completed"
+        assert completed.actual_duration_seconds == 300
+        assert next_id == next_item.id
+        assert session.get(AgendaItem, next_item.id).status.value == "in_progress"
+        assert session.get(AgendaItem, already_open.id).status.value == "in_progress"
+
+
+def test_complete_and_advance_returns_none_when_no_later_planned_item(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(agendas, meeting, admin, "Only")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        completed, next_id = agendas.complete_and_advance(
+            item.id,
+            AgendaCommand(expected_version=item.version),
+            admin,
+        )
+
+        assert completed.status.value == "completed"
+        assert next_id is None
+
+
+def test_complete_and_advance_rejects_a_stale_item_without_starting_next(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        session.refresh(meeting)
+        later = add_item(agendas, meeting, admin, "Later")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                current.id,
+                AgendaCommand(expected_version=current.version + 1),
+                admin,
+            )
+
+        assert error.value.code == "version_conflict"
+        assert session.get(AgendaItem, current.id).status.value == "in_progress"
+        assert session.get(AgendaItem, later.id).status.value == "planned"
+
+
 def test_public_agenda_edit_reorder_transitions_and_parent_lock(client, agenda_context):
     admin, _, meeting_id = agenda_context
     with client.app.state.database.session() as session:

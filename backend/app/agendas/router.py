@@ -90,6 +90,21 @@ def _command(name: str):
     return run
 
 
+@router.post("/api/agenda-items/{item_id}/complete-and-advance")
+def complete_and_advance_agenda_item(
+    item_id: str,
+    payload: AgendaCommand,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    service = AgendaService(session)
+    completed, next_agenda_item_id = service.complete_and_advance(item_id, payload, user)
+    return {
+        "agenda_item": service.detail(completed.id),
+        "next_agenda_item_id": next_agenda_item_id,
+    }
+
+
 router.add_api_route(
     "/api/agenda-items/{item_id}/start", _command("start"), methods=["POST"]
 )

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.agendas.lifecycle import complete_item, start_planned_item
 from app.agendas.models import AgendaItem
 from app.agendas.outcome_tags import TaggedOutcome, parse_outcome_tags
 from app.agendas.schemas import (
@@ -479,6 +480,48 @@ class AgendaService:
     def complete(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
         return self._transition(item_id, payload, actor, AgendaStatus.completed)
 
+    def complete_and_advance(
+        self, item_id: str, payload: AgendaCommand, actor: User
+    ) -> tuple[AgendaItem, str | None]:
+        self._require_active(actor)
+        item = self.get(item_id)
+        meeting = item.meeting
+        self._require_mutable(meeting)
+        meeting_id = meeting.id
+        expected_meeting_version = meeting.version
+        require_version(payload.expected_version, item.version)
+        if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
+            raise AppError(409, "invalid_agenda_transition", "议题状态不可再次结束")
+        now = utcnow()
+        complete_item(item, actor_id=actor.id, at=now)
+        next_item = next(
+            (
+                row
+                for row in self.list(meeting_id)
+                if row.position > item.position and row.status == AgendaStatus.planned
+            ),
+            None,
+        )
+        if next_item is not None:
+            start_planned_item(next_item, actor_id=actor.id, at=now)
+        meeting.updated_by = actor.id
+        meeting.version += 1
+        self._record(item, actor, "agenda.completed")
+        if next_item is not None:
+            self._record(next_item, actor, "agenda.started")
+        try:
+            self.session.commit()
+        except StaleDataError as exc:
+            self._raise_item_or_meeting_stale(
+                item_id=item_id,
+                expected_item_version=payload.expected_version,
+                meeting_id=meeting_id,
+                expected_meeting_version=expected_meeting_version,
+                exc=exc,
+            )
+        self.session.refresh(item)
+        return item, next_item.id if next_item is not None else None
+
     def start(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
         self._require_active(actor)
         item = self.get(item_id)
@@ -489,10 +532,7 @@ class AgendaService:
         require_version(payload.expected_version, item.version)
         if item.status != AgendaStatus.planned:
             raise AppError(409, "invalid_agenda_transition", "只有待处理议题可以开始")
-        item.status = AgendaStatus.in_progress
-        item.started_at = utcnow()
-        item.updated_by = actor.id
-        item.version += 1
+        start_planned_item(item, actor_id=actor.id, at=utcnow())
         meeting.updated_by = actor.id
         meeting.version += 1
         self._record(item, actor, "agenda.started")
