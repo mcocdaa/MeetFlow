@@ -108,9 +108,32 @@ describe('agenda workbench', () => {
     expect(workbench).toContainElement(detail)
     expect(workbench).toContainElement(queue)
     expect(detail).toHaveClass('agenda-empty-compact')
+    expect(within(detail).getByText('Current topic')).toBeVisible()
     expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(queue).getByRole('button', { name: '+ 议题' })).toBeVisible()
     expect(within(detail).queryByRole('button', { name: '添加议题' })).not.toBeInTheDocument()
+  })
+
+  it('uses a five minute estimate for a newly queued topic', async () => {
+    const added = { ...meetingFixture().agenda_items[0], id: 'a3', title: '新的议题', estimated_minutes: 5 }
+    apiMock.mockResolvedValueOnce(added)
+    render(AgendaQueue, { props: { meeting: meetingFixture() } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '+ 议题' }))
+    expect(screen.getByLabelText('预计时长（分钟）')).toHaveValue(5)
+    await fireEvent.update(screen.getByLabelText('议题标题'), '新的议题')
+    await fireEvent.click(screen.getByRole('button', { name: '插入队尾' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/agenda-items?expected_meeting_version=4', {
+      method: 'POST',
+      body: JSON.stringify({ title: '新的议题', agenda_type: 'discussion', notes_markdown: '', position: 2, estimated_minutes: 5 }),
+    }))
+  })
+
+  it('does not expose agenda record versions or a separate skip action', () => {
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0] } })
+    expect(screen.queryByText(/版本\s*2/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /跳过/ })).not.toBeInTheDocument()
   })
 
   it('exposes a clean current draft flush that does not request or reload', async () => {

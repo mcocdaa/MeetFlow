@@ -125,26 +125,6 @@ def _lifecycle_result(
     return service.serialize_meeting(meeting)
 
 
-@router.post("/api/meetings/{meeting_id}/ready")
-def mark_ready(
-    meeting_id: str,
-    payload: LifecycleCommand,
-    user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> dict[str, Any]:
-    return _lifecycle_result("mark_ready", meeting_id, payload, user, session)
-
-
-@router.post("/api/meetings/{meeting_id}/draft")
-def mark_draft(
-    meeting_id: str,
-    payload: LifecycleCommand,
-    user: User = Depends(current_user),
-    session: Session = Depends(get_session),
-) -> dict[str, Any]:
-    return _lifecycle_result("mark_draft", meeting_id, payload, user, session)
-
-
 @router.post("/api/meetings/{meeting_id}/start")
 def start_meeting(
     meeting_id: str,

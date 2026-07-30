@@ -25,6 +25,10 @@ const saving = ref(false)
 const error = ref('')
 const conflict = ref<{ version: number; server: string } | null>(null)
 
+function statusLabel(status: AgendaItem['status']) {
+  return { planned: '待开始', in_progress: '进行中', completed: '已完成', skipped: '已跳过', canceled: '已取消' }[status]
+}
+
 watch(() => props.item, (item) => {
   const next = draftFor(item)
   Object.assign(draft, next)
@@ -68,12 +72,12 @@ async function save(expectedVersion = currentVersion.value) {
 
 defineExpose({ flushIfDirty })
 
-async function flow(action: 'start' | 'skip' | 'complete') {
+async function flow(action: 'start' | 'complete') {
   saving.value = true
   error.value = ''
   try {
     await api(`/api/agenda-items/${props.item.id}/${action}`, { method: 'POST', body: JSON.stringify({ expected_version: currentVersion.value }) })
-    if (action === 'complete' || action === 'skip') emit('advance')
+    if (action === 'complete') emit('advance')
     else emit('changed')
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : '议题状态更新失败'
@@ -85,18 +89,18 @@ async function flow(action: 'start' | 'skip' | 'complete') {
 
 <template>
   <div class="agenda-detail" data-testid="agenda-detail">
-    <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" /></div><span class="status-pill" :data-status="item.status">{{ item.status }}</span></header>
+    <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" /></div><span class="status-pill" :data-status="item.status">{{ statusLabel(item.status) }}</span></header>
     <div class="agenda-meta-fields"><label>类型<select v-model="draft.agenda_type"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label><label>预计时长<input v-model.number="draft.estimated_minutes" type="number" min="1" max="480" /></label></div>
     <label class="agenda-notes">议题记录<MarkdownEditor v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" /></label>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
-    <div class="agenda-save-row"><span class="muted">版本 {{ currentVersion }}</span><button class="button button-quiet" :disabled="saving || !draft.title.trim()" @click="save()">保存议题</button></div>
+    <div class="agenda-save-row"><span class="muted">保存后会同步识别记录中的 @决策:、@行动:、@开放问题:。</span><button class="button button-quiet" :disabled="saving || !draft.title.trim()" @click="save()">保存议题</button></div>
 
     <section class="agenda-outcomes"><header class="section-heading"><div><p class="eyebrow">Outcomes</p><h2>本议题产出</h2></div><div class="outcome-action-group" data-testid="outcome-actions"><button class="button button-small button-quiet" @click="composer = 'decision'">+ 决策</button><button class="button button-small button-quiet" @click="composer = 'action'">+ 行动</button><button class="button button-small button-quiet" @click="composer = 'question'">+ 开放问题</button></div></header>
       <OutcomeComposer v-if="composer" :mode="composer" :meeting="meeting" :item="item" @close="composer = null" @saved="emit('changed')" />
-      <div class="outcome-list"><article v-for="decision in item.decisions" :key="decision.id"><span>决策</span><strong>{{ decision.title }}</strong></article><article v-for="action in item.actions" :key="action.id"><span>行动</span><strong>{{ action.content }}</strong></article><article v-for="question in item.open_questions" :key="question.id"><span>问题</span><strong>{{ question.question_markdown }}</strong></article><p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">讨论结果会在这里形成可追踪的链条。</p></div>
+      <div class="outcome-list"><article v-for="decision in item.decisions" :key="decision.id"><span>{{ decision.is_derived ? '来自议题记录' : '决策' }}</span><strong>{{ decision.title }}</strong></article><article v-for="action in item.actions" :key="action.id"><span>{{ action.is_derived ? '来自议题记录' : '行动' }}</span><strong>{{ action.content }}</strong></article><article v-for="question in item.open_questions" :key="question.id"><span>{{ question.is_derived ? '来自议题记录' : '问题' }}</span><strong>{{ question.question_markdown }}</strong></article><p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">讨论结果会在这里形成可追踪的链条。</p></div>
     </section>
 
-    <footer class="agenda-flow-actions" data-testid="flow-actions"><button v-if="item.status === 'planned'" class="button button-quiet" :disabled="saving" @click="flow('start')">开始此议题</button><button v-if="item.status === 'planned' || item.status === 'in_progress'" class="button button-quiet" :disabled="saving" @click="flow('skip')">跳过并进入下一项</button><button v-if="item.status === 'in_progress'" class="button button-primary" :disabled="saving" @click="flow('complete')">完成议题并进入下一项</button></footer>
+    <footer class="agenda-flow-actions" data-testid="flow-actions"><button v-if="item.status === 'planned'" class="button button-quiet" :disabled="saving" @click="flow('start')">开始此议题</button><button v-if="item.status === 'in_progress'" class="button button-primary" :disabled="saving" @click="flow('complete')">完成议题并进入下一项</button></footer>
     <VersionConflictDialog v-if="conflict" :local-markdown="draft.notes_markdown" :server-markdown="conflict.server" :actual-version="conflict.version" @close="conflict = null" @reload="emit('changed'); conflict = null" @overwrite="save" />
   </div>
 </template>

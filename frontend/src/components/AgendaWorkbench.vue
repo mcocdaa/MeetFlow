@@ -37,10 +37,12 @@ defineExpose({ flushCurrentDraft })
 
 <template>
   <section class="workspace-section agenda-workbench" data-testid="meeting-workbench">
-    <AgendaDetail v-if="selected" ref="detail" :meeting="meeting" :item="selected" @changed="emit('reload')" @advance="advance" />
-    <div v-else class="agenda-empty-compact" data-testid="agenda-detail">
-      <div><p class="eyebrow">Agenda</p><h2>还没有议题</h2><p>从右侧队列添加本次会议的第一个议题。</p></div>
-    </div>
+    <Transition name="agenda-detail" mode="out-in">
+      <AgendaDetail v-if="selected" :key="selected.id" ref="detail" :meeting="meeting" :item="selected" @changed="emit('reload')" @advance="advance" />
+      <div v-else class="agenda-empty-compact" data-testid="agenda-detail">
+        <div><p class="eyebrow">Current topic</p><h2>还没有议题</h2><p>从右侧队列添加本次会议的第一个议题。</p></div>
+      </div>
+    </Transition>
     <AgendaQueue :meeting="meeting" :selected-id="selectedId" @select="selectedId = $event" @changed="emit('reload')" />
   </section>
 </template>

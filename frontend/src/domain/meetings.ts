@@ -110,6 +110,8 @@ export type Meeting = Versioned & {
   recorder: UserRef | null
   summary_markdown: string
   raw_notes_markdown: string
+  started_at?: string | null
+  completed_at?: string | null
   participants: MeetingParticipant[]
   agenda_items: AgendaItem[]
   meeting_decisions?: Decision[]

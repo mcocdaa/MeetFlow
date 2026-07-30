@@ -101,6 +101,10 @@ def test_create_appends_and_inserts_with_contiguous_positions(client, agenda_con
         assert middle.version == 1
 
 
+def test_agenda_write_defaults_to_a_five_minute_estimate():
+    assert AgendaWrite(title="Default estimate", agenda_type="discussion").estimated_minutes == 5
+
+
 def test_public_agenda_edit_reorder_transitions_and_parent_lock(client, agenda_context):
     admin, _, meeting_id = agenda_context
     with client.app.state.database.session() as session:

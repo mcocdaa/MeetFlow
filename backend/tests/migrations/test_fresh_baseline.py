@@ -3,9 +3,11 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
-from app.database import Database
+from app.database import Database, migration_config_path
 from app import schema_guard
 from app.schema_guard import LegacyDatabaseError, reject_legacy_schema
 
@@ -155,7 +157,9 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     }
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006"
+            ScriptDirectory.from_config(
+                Config(migration_config_path())
+            ).get_current_head()
         )
 
 

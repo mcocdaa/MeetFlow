@@ -57,7 +57,7 @@ describe('meeting workspace', () => {
     expect(screen.getByRole('heading', { name: '会议准备' })).toBeInTheDocument()
   })
 
-  it('keeps a generated meeting summary local until the meeting is saved', async () => {
+  it('keeps a generated meeting summary local until the minutes are explicitly saved', async () => {
     registerEditorAssistant('meeting-summary-editor', SummaryAssistant)
     render(MeetingWorkspaceView)
     await screen.findByText('Current topic')
@@ -72,11 +72,11 @@ describe('meeting workspace', () => {
     expect(screen.getByLabelText('会议纪要')).toHaveValue('# AI 生成纪要')
     expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' }))
 
-    await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
-    await fireEvent.click(screen.getByRole('button', { name: '保存会议信息' }))
+    await fireEvent.click(screen.getByRole('button', { name: '保存会议纪要' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({
       method: 'PUT', body: expect.stringContaining('"summary_markdown":"# AI 生成纪要"'),
     })))
+    expect(screen.getByRole('status')).toHaveTextContent('纪要已保存')
   })
 
   it('saves dirty agenda and meeting drafts before starting with refreshed meeting version', async () => {
