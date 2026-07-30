@@ -19,6 +19,8 @@ from app.meetings.models import Meeting
 from app.meetings.schemas import LifecycleCommand, MeetingWrite
 from app.meetings.service import MeetingService
 from app.outcomes.models import ActionItem, Decision, OpenQuestion
+from app.outcomes.schemas import ActionEdit, ActionWrite, DecisionEdit, QuestionEdit
+from app.outcomes.service import OutcomeService
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -148,6 +150,145 @@ def test_public_agenda_edit_reorder_transitions_and_parent_lock(client, agenda_c
                 admin,
             )
         assert locked.value.code == "meeting_immutable"
+
+
+def test_saving_agenda_reconciles_tagged_outcomes_and_preserves_manual_rows(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agenda_service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = add_item(agenda_service, meeting, admin, "Delivery decision")
+        manual = OutcomeService(session).create_action(
+            meeting.project_id,
+            ActionWrite(
+                project_id=meeting.project_id,
+                meeting_id=meeting.id,
+                agenda_item_id=agenda.id,
+                content="Manual follow-up",
+            ),
+            admin,
+        )
+
+        saved = agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=agenda.version,
+                notes_markdown="@决策: 采用方案 A\n@行动: 发布\n@开放问题: 谁负责？",
+            ),
+            admin,
+        )
+
+        decisions = session.scalars(
+            select(Decision).where(Decision.source_agenda_item_id == agenda.id)
+        ).all()
+        actions = session.scalars(
+            select(ActionItem).where(ActionItem.source_agenda_item_id == agenda.id)
+        ).all()
+        questions = session.scalars(
+            select(OpenQuestion).where(OpenQuestion.source_agenda_item_id == agenda.id)
+        ).all()
+        assert [(row.source_tag_key, row.decision_markdown) for row in decisions] == [
+            ("decision:0", "采用方案 A")
+        ]
+        assert [(row.source_tag_key, row.content) for row in actions] == [
+            ("action:0", "发布")
+        ]
+        assert [(row.source_tag_key, row.question_markdown) for row in questions] == [
+            ("question:0", "谁负责？")
+        ]
+        assert manual.id not in {row.id for row in actions}
+        assert manual.id in {row.id for row in saved.actions}
+
+        with pytest.raises(AppError) as readonly:
+            OutcomeService(session).update_action(
+                actions[0].id,
+                ActionEdit(expected_version=actions[0].version, content="Rewrite"),
+                admin,
+            )
+        assert readonly.value.code == "derived_outcome_read_only"
+        with pytest.raises(AppError, match="derived_outcome_read_only"):
+            OutcomeService(session).update_decision(
+                decisions[0].id,
+                DecisionEdit(expected_version=decisions[0].version, title="Rewrite"),
+                admin,
+            )
+        with pytest.raises(AppError, match="derived_outcome_read_only"):
+            OutcomeService(session).update_question(
+                questions[0].id,
+                QuestionEdit(
+                    expected_version=questions[0].version,
+                    question_markdown="Rewrite",
+                ),
+                admin,
+            )
+
+
+def test_removing_a_tag_deletes_only_its_derived_outcome(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agenda_service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = add_item(agenda_service, meeting, admin, "Follow-up")
+        manual = OutcomeService(session).create_action(
+            meeting.project_id,
+            ActionWrite(
+                project_id=meeting.project_id,
+                meeting_id=meeting.id,
+                agenda_item_id=agenda.id,
+                content="Keep manual action",
+            ),
+            admin,
+        )
+        first = agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=agenda.version,
+                notes_markdown="@行动: Derived action\n@决策: Derived decision",
+            ),
+            admin,
+        )
+        derived_action = session.scalar(
+            select(ActionItem).where(
+                ActionItem.source_agenda_item_id == agenda.id,
+                ActionItem.source_tag_key == "action:0",
+            )
+        )
+
+        agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=first.version,
+                notes_markdown="@决策: Updated decision",
+            ),
+            admin,
+        )
+
+        assert session.get(ActionItem, derived_action.id) is None
+        assert session.get(ActionItem, manual.id) is not None
+        decision = session.scalar(
+            select(Decision).where(Decision.source_agenda_item_id == agenda.id)
+        )
+        assert decision.decision_markdown == "Updated decision"
+
+
+def test_empty_agenda_outcome_tag_is_rejected_without_saving(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agenda_service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = add_item(agenda_service, meeting, admin, "Invalid tag")
+
+        with pytest.raises(AppError) as error:
+            agenda_service.update(
+                agenda.id,
+                AgendaEdit(expected_version=agenda.version, notes_markdown="@行动:   "),
+                admin,
+            )
+
+        assert error.value.code == "invalid_agenda_outcome_tag"
+        assert session.get(AgendaItem, agenda.id).notes_markdown == ""
 
 
 def test_move_preserves_item_and_outcomes_and_repairs_both_queues(

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
+from app.agendas.outcome_tags import TaggedOutcome, parse_outcome_tags
 from app.agendas.schemas import (
     AgendaCommand,
     AgendaEdit,
@@ -22,6 +23,7 @@ from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import Meeting
 from app.meetings.service import user_ref
+from app.outcomes.models import ActionItem, Decision, OpenQuestion
 
 
 def utcnow() -> datetime:
@@ -97,6 +99,106 @@ class AgendaService:
         if item is None:
             raise AppError(404, "agenda_item_not_found", "议题不存在")
         return item
+
+    def _reconcile_derived_outcomes(
+        self, item: AgendaItem, tags: list[TaggedOutcome], actor: User
+    ) -> None:
+        meeting = item.meeting
+        rows = {
+            "decision": list(
+                self.session.scalars(
+                    select(Decision).where(Decision.source_agenda_item_id == item.id)
+                )
+            ),
+            "action": list(
+                self.session.scalars(
+                    select(ActionItem).where(ActionItem.source_agenda_item_id == item.id)
+                )
+            ),
+            "question": list(
+                self.session.scalars(
+                    select(OpenQuestion).where(
+                        OpenQuestion.source_agenda_item_id == item.id
+                    )
+                )
+            ),
+        }
+        existing = {
+            kind: {row.source_tag_key: row for row in values}
+            for kind, values in rows.items()
+        }
+        requested = {
+            kind: {tag.source_tag_key for tag in tags if tag.kind == kind}
+            for kind in ("decision", "action", "question")
+        }
+
+        for tag in tags:
+            row = existing[tag.kind].get(tag.source_tag_key)
+            if row is None:
+                if tag.kind == "decision":
+                    self.session.add(
+                        Decision(
+                            project_id=meeting.project_id,
+                            meeting_id=meeting.id,
+                            agenda_item_id=item.id,
+                            source_agenda_item_id=item.id,
+                            source_tag_key=tag.source_tag_key,
+                            title=tag.content,
+                            decision_markdown=tag.content,
+                            created_by=actor.id,
+                        )
+                    )
+                elif tag.kind == "action":
+                    self.session.add(
+                        ActionItem(
+                            project_id=meeting.project_id,
+                            meeting_id=meeting.id,
+                            agenda_item_id=item.id,
+                            source_agenda_item_id=item.id,
+                            source_tag_key=tag.source_tag_key,
+                            content=tag.content,
+                            created_by=actor.id,
+                        )
+                    )
+                else:
+                    self.session.add(
+                        OpenQuestion(
+                            project_id=meeting.project_id,
+                            meeting_id=meeting.id,
+                            agenda_item_id=item.id,
+                            source_agenda_item_id=item.id,
+                            source_tag_key=tag.source_tag_key,
+                            question_markdown=tag.content,
+                            created_by=actor.id,
+                        )
+                    )
+                continue
+
+            changed = False
+            for field, value in (
+                ("project_id", meeting.project_id),
+                ("meeting_id", meeting.id),
+                ("agenda_item_id", item.id),
+            ):
+                if getattr(row, field) != value:
+                    setattr(row, field, value)
+                    changed = True
+            content_fields = {
+                "decision": (("title", tag.content), ("decision_markdown", tag.content)),
+                "action": (("content", tag.content),),
+                "question": (("question_markdown", tag.content),),
+            }
+            for field, value in content_fields[tag.kind]:
+                if getattr(row, field) != value:
+                    setattr(row, field, value)
+                    changed = True
+            if changed:
+                row.version += 1
+
+        for kind, values in rows.items():
+            for row in values:
+                if row.source_tag_key not in requested[kind]:
+                    self.session.delete(row)
 
     def list(self, meeting_id: str) -> list[AgendaItem]:
         self._meeting(meeting_id)
@@ -208,6 +310,7 @@ class AgendaService:
         meeting = self._meeting(meeting_id)
         self._require_mutable(meeting)
         require_version(expected_meeting_version, meeting.version)
+        tags = parse_outcome_tags(payload.notes_markdown)
         self._users([payload.proposer_user_id, payload.presenter_user_id])
         items = self.list(meeting_id)
         position = (
@@ -233,6 +336,7 @@ class AgendaService:
         meeting.updated_by = actor.id
         try:
             self.session.flush()
+            self._reconcile_derived_outcomes(item, tags, actor)
             self._record(item, actor, "agenda.created")
             self.session.commit()
         except StaleDataError as exc:
@@ -249,6 +353,11 @@ class AgendaService:
         expected_meeting_version = meeting.version
         require_version(payload.expected_version, item.version)
         changes = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
+        tags = (
+            parse_outcome_tags(changes["notes_markdown"])
+            if "notes_markdown" in changes
+            else None
+        )
         if not changes or all(
             getattr(item, key) == value for key, value in changes.items()
         ):
@@ -256,6 +365,8 @@ class AgendaService:
         self._users([changes.get("proposer_user_id"), changes.get("presenter_user_id")])
         for field, value in changes.items():
             setattr(item, field, value)
+        if tags is not None:
+            self._reconcile_derived_outcomes(item, tags, actor)
         item.updated_by = actor.id
         item.version += 1
         meeting.updated_by = actor.id

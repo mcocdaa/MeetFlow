@@ -217,6 +217,41 @@ def test_finish_skips_unresolved_agenda_and_records_duration(
         assert snapshot_agenda[waiting.id]["actual_duration_seconds"] == 0
 
 
+def test_snapshot_includes_derived_outcome_source_metadata(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = AgendaService(session).create(
+            meeting_id,
+            AgendaWrite(
+                title="Tagged topic",
+                agenda_type="decision",
+                notes_markdown="@决策: 采用方案 A\n@行动: 发布\n@开放问题: 谁负责？",
+            ),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            actor,
+        )
+        completed = MeetingService(session).finish(
+            meeting_id, LifecycleCommand(expected_version=started.version), actor
+        )
+
+        snapshot_agenda = completed.current_snapshot.snapshot_json["agenda_items"][0]
+        decision = snapshot_agenda["decisions"][0]
+        assert decision["source_agenda_item_id"] == agenda.id
+        assert decision["source_tag_key"] == "decision:0"
+        assert decision["is_derived"] is True
+        assert snapshot_agenda["actions"][0]["source_tag_key"] == "action:0"
+        assert snapshot_agenda["actions"][0]["is_derived"] is True
+        assert snapshot_agenda["open_questions"][0]["source_tag_key"] == "question:0"
+        assert snapshot_agenda["open_questions"][0]["is_derived"] is True
+
+
 def test_finish_snapshots_full_agenda_chain_and_refinish_is_immutable(
     client, lifecycle_context
 ):

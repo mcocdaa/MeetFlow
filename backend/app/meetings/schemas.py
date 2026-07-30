@@ -83,6 +83,9 @@ class SnapshotDecision(StrictSnapshotModel):
     project_id: str
     meeting_id: str | None
     agenda_item_id: str | None
+    source_agenda_item_id: str | None
+    source_tag_key: str | None
+    is_derived: bool
     title: str
     decision_markdown: str
     rationale_markdown: str
@@ -101,6 +104,9 @@ class SnapshotAction(StrictSnapshotModel):
     project_id: str
     meeting_id: str | None
     agenda_item_id: str | None
+    source_agenda_item_id: str | None
+    source_tag_key: str | None
+    is_derived: bool
     content: str
     owner_user_id: str | None
     due_date: date | None
@@ -118,6 +124,9 @@ class SnapshotQuestion(StrictSnapshotModel):
     project_id: str
     meeting_id: str | None
     agenda_item_id: str | None
+    source_agenda_item_id: str | None
+    source_tag_key: str | None
+    is_derived: bool
     question_markdown: str
     owner_user_id: str | None
     status: OpenQuestionStatus

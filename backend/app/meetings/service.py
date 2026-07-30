@@ -818,6 +818,8 @@ class MeetingService:
                     "project_id",
                     "meeting_id",
                     "agenda_item_id",
+                    "source_agenda_item_id",
+                    "source_tag_key",
                     "title",
                     "decision_markdown",
                     "rationale_markdown",
@@ -830,6 +832,7 @@ class MeetingService:
                     "updated_at",
                 ),
             )
+            result["is_derived"] = decision.source_agenda_item_id is not None
             result["reviewers"] = [
                 columns(row, ("user_id", "status", "responded_at", "comment"))
                 for row in sorted(decision.reviewers, key=lambda row: row.user_id)
@@ -837,13 +840,15 @@ class MeetingService:
             return result
 
         def action_document(row):
-            return columns(
+            result = columns(
                 row,
                 (
                     "id",
                     "project_id",
                     "meeting_id",
                     "agenda_item_id",
+                    "source_agenda_item_id",
+                    "source_tag_key",
                     "content",
                     "owner_user_id",
                     "due_date",
@@ -856,15 +861,19 @@ class MeetingService:
                     "completed_at",
                 ),
             )
+            result["is_derived"] = row.source_agenda_item_id is not None
+            return result
 
         def question_document(row):
-            return columns(
+            result = columns(
                 row,
                 (
                     "id",
                     "project_id",
                     "meeting_id",
                     "agenda_item_id",
+                    "source_agenda_item_id",
+                    "source_tag_key",
                     "question_markdown",
                     "owner_user_id",
                     "status",
@@ -877,6 +886,8 @@ class MeetingService:
                     "updated_at",
                 ),
             )
+            result["is_derived"] = row.source_agenda_item_id is not None
+            return result
 
         agenda_documents = []
         for item in sorted(

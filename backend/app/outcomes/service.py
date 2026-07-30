@@ -291,6 +291,8 @@ class OutcomeService:
     ) -> Decision:
         self._require_active(actor)
         decision = self._decision(decision_id)
+        if decision.source_agenda_item_id is not None:
+            raise AppError(409, "derived_outcome_read_only", "议题备注生成的成果不可直接编辑")
         require_version(payload.expected_version, decision.version)
         if decision.status != DecisionStatus.proposed:
             raise AppError(409, "decision_immutable", "仅提议中的决策可编辑")
@@ -521,6 +523,8 @@ class OutcomeService:
     ) -> ActionItem:
         self._require_active(actor)
         action = self._action(action_id)
+        if action.source_agenda_item_id is not None:
+            raise AppError(409, "derived_outcome_read_only", "议题备注生成的成果不可直接编辑")
         require_version(payload.expected_version, action.version)
         previous_owner_user_id = action.owner_user_id
         requested = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
@@ -615,6 +619,8 @@ class OutcomeService:
     ) -> OpenQuestion:
         self._require_active(actor)
         question = self._question(question_id)
+        if question.source_agenda_item_id is not None:
+            raise AppError(409, "derived_outcome_read_only", "议题备注生成的成果不可直接编辑")
         require_version(payload.expected_version, question.version)
         changes = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
         if "owner_user_id" in changes:
@@ -1110,6 +1116,7 @@ class OutcomeService:
         result = {
             column.name: getattr(item, column.name) for column in item.__table__.columns
         }
+        result["is_derived"] = item.source_agenda_item_id is not None
         if isinstance(item, Decision):
             result["reviewers"] = [
                 {
