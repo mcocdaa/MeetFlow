@@ -23,7 +23,7 @@
 - Create: `frontend/src/tests/meetings-view.test.ts`
 - Modify: `frontend/src/views/MeetingsView.vue`
 
-- [ ] **Step 1: 写入页面夹具与高级面板入口测试。**
+- [x] **Step 1: 写入页面夹具与高级面板入口测试。**
 
 ```ts
 import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
@@ -65,13 +65,13 @@ describe('meeting list advanced search', () => {
 })
 ```
 
-- [ ] **Step 2: 运行测试，确认它因缺少入口而失败。**
+- [x] **Step 2: 运行测试，确认它因缺少入口而失败。**
 
 Run: `npm --prefix frontend test -- meetings-view.test.ts`
 
 Expected: FAIL，提示找不到名称为“高级筛选”的按钮。
 
-- [ ] **Step 3: 追加两个独立行为测试。**
+- [x] **Step 3: 追加两个独立行为测试。**
 
 ```ts
 it('filters by status and exposes the active filter count', async () => {
@@ -93,13 +93,13 @@ it('opens and highlights the series filter from the shared series URL, then clea
 })
 ```
 
-- [ ] **Step 4: 再次运行测试，确认新增断言在实现前失败。**
+- [x] **Step 4: 再次运行测试，确认新增断言在实现前失败。**
 
 Run: `npm --prefix frontend test -- meetings-view.test.ts`
 
 Expected: FAIL，包含缺少“会议状态”选择器、自动展开或“清除全部高级筛选”控件的断言。
 
-- [ ] **Step 5: 提交仅包含测试的红灯提交。**
+- [x] **Step 5: 提交仅包含测试的红灯提交。**
 
 ```bash
 git add frontend/src/tests/meetings-view.test.ts
@@ -112,7 +112,7 @@ git commit -m "test: cover meeting advanced search"
 - Modify: `frontend/src/views/MeetingsView.vue`
 - Test: `frontend/src/tests/meetings-view.test.ts`
 
-- [ ] **Step 1: 在现有筛选状态后声明状态筛选、展开态和系列选项。**
+- [x] **Step 1: 在现有筛选状态后声明状态筛选、展开态和系列选项。**
 
 ```ts
 const projectFilter = ref('')
@@ -127,7 +127,7 @@ const seriesOptions = computed(() => {
 const advancedFilterCount = computed(() => [projectFilter.value, activeSeriesFilter.value, statusFilter.value].filter(Boolean).length)
 ```
 
-- [ ] **Step 2: 用单一的组合谓词替换现有 `visible`，并实现清除语义。**
+- [x] **Step 2: 用单一的组合谓词替换现有 `visible`，并实现清除语义。**
 
 ```ts
 const visible = computed(() => meetings.value.filter((item) => (
@@ -152,7 +152,7 @@ function clearAdvancedFilters() {
 }
 ```
 
-- [ ] **Step 3: 把现有 `meeting-list-filters` 模板替换为按钮和条件面板。**
+- [x] **Step 3: 把现有 `meeting-list-filters` 模板替换为按钮和条件面板。**
 
 ```vue
 <section class="meeting-list-filters" aria-label="会议搜索与筛选">
@@ -172,13 +172,13 @@ function clearAdvancedFilters() {
 </section>
 ```
 
-- [ ] **Step 4: 运行目标测试，确认三项行为全部变绿。**
+- [x] **Step 4: 运行目标测试，确认三项行为全部变绿。**
 
 Run: `npm --prefix frontend test -- meetings-view.test.ts`
 
 Expected: PASS，3 tests passed。
 
-- [ ] **Step 5: 提交 Vue 实现。**
+- [x] **Step 5: 提交 Vue 实现。**
 
 ```bash
 git add frontend/src/views/MeetingsView.vue frontend/src/tests/meetings-view.test.ts
@@ -191,7 +191,7 @@ git commit -m "feat: add meeting advanced search"
 - Modify: `frontend/src/styles.css`
 - Test: `frontend/src/tests/meetings-view.test.ts`
 
-- [ ] **Step 1: 在会议列表样式区追加局部样式。**
+- [x] **Step 1: 在会议列表样式区追加局部样式。**
 
 ```css
 .meeting-list-filters { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin: 20px 0 30px; }
@@ -205,24 +205,24 @@ git commit -m "feat: add meeting advanced search"
 @media (max-width: 720px) { .meeting-list-filters { grid-template-columns: 1fr; }.meeting-advanced-toggle { width: 100%; }.meeting-advanced-fields { grid-template-columns: 1fr; }.meeting-advanced-panel header { align-items: flex-start; flex-direction: column; }.meeting-advanced-panel header .button { width: 100%; } }
 ```
 
-- [ ] **Step 2: 扩展入口测试，锁定激活类和可见结果文本。**
+- [x] **Step 2: 扩展入口测试，锁定激活类和可见结果文本。**
 
 ```ts
 expect(screen.getByRole('button', { name: '高级筛选（已启用 1 项）' })).toHaveClass('is-active')
 expect(screen.getByText('当前显示 1 场会议。')).toBeVisible()
 ```
 
-- [ ] **Step 3: 运行前端目标测试并生产构建。**
+- [x] **Step 3: 运行前端目标测试并生产构建。**
 
 Run: `npm --prefix frontend test -- meetings-view.test.ts && npm --prefix frontend run build`
 
 Expected: 测试全部通过；构建退出码为 0。
 
-- [ ] **Step 4: 以隔离服务做浏览器验证。**
+- [x] **Step 4: 以隔离服务做浏览器验证。**
 
 Use `testing-isolated-web-ui`：创建临时数据和服务，确认默认搜索仅有可见的高级入口、从项目系列链接进入自动展开且按钮显示计数、在 375px 宽度下输入框和按钮均完整可操作。完成后停止临时服务并删除临时数据。
 
-- [ ] **Step 5: 提交样式和最终测试。**
+- [x] **Step 5: 提交样式和最终测试。**
 
 ```bash
 git add frontend/src/styles.css frontend/src/tests/meetings-view.test.ts
@@ -234,7 +234,7 @@ git commit -m "style: clarify meeting advanced filters"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-30-meeting-series-advanced-search.md`
 
-- [ ] **Step 1: 运行仓库要求的全量验证。**
+- [x] **Step 1: 运行仓库要求的全量验证。**
 
 Run:
 
@@ -248,7 +248,7 @@ git diff --check
 
 Expected: 每条命令退出码为 0；若构建仅报告既有 chunk-size 警告，记录为非阻塞警告。
 
-- [ ] **Step 2: 在本计划中勾选实际已完成步骤并提交计划状态。**
+- [x] **Step 2: 在本计划中勾选实际已完成步骤并提交计划状态。**
 
 ```bash
 git add docs/superpowers/plans/2026-07-30-meeting-series-advanced-search.md
