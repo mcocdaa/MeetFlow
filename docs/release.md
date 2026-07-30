@@ -18,6 +18,8 @@
 
 `.github/workflows/release.yml` 只在 `v*` tag 推送时启动。工作流首先校验 tag 是带 `v` 前缀的 SemVer（可带预发布后缀），然后运行后端测试、前端测试和前端生产构建。
 
+发布 tag 必须指向 `main` 历史中的提交。GitHub 的 `main` 保护规则负责要求 PR 与 CI；发布工作流还会拉取 `main` 并拒绝任何不在该历史中的 tag，因此不能从未合并的功能分支发布镜像。
+
 通过测试后，工作流使用 QEMU 和 Buildx 将公开镜像发布到 `ghcr.io/mcocdaa/meetflow`，目标是 `linux/amd64` 和 `linux/arm64`。发布过程附带构建来源证明（provenance）与 SBOM。
 
 稳定标签例如 `v1.4.2` 会创建：
@@ -43,7 +45,7 @@ git push origin vX.Y.Z
 
 ## 发布前检查清单
 
-1. 确认 `main` 已包含要发布的提交，并且该提交对应的 CI 成功。
+1. 确认 `main` 已包含要发布的提交，并且该提交对应的 CI 成功；tag 必须直接指向该历史中的提交。
 2. 确认版本号符合带 `v` 前缀的 SemVer，稳定版本不带预发布后缀。
 3. 确认用户 README 和相关 `docs/` 页面反映了这次可见的部署、配置或发布行为。
 4. 推送 tag 后，在 GitHub Actions 中确认 `Publish container` job 成功。

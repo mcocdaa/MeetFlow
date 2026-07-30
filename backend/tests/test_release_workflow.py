@@ -10,6 +10,10 @@ def test_release_workflow_publishes_the_public_multiarch_tag_contract():
     required_fragments = (
         "IMAGE_NAME: ghcr.io/mcocdaa/meetflow",
         "packages: write",
+        "fetch-depth: 0",
+        'git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"',
+        'tag_commit="$(git rev-list -n1 "$GITHUB_REF")"',
+        'git merge-base --is-ancestor "$tag_commit" "origin/main"',
         "uses: docker/setup-qemu-action@v4",
         "uses: docker/setup-buildx-action@v4",
         "type=ref,event=tag",
