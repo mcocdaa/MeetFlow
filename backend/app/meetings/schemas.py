@@ -380,6 +380,30 @@ class MeetingSeriesEdit(StrictInput):
                 raise ValueError(f"{name} may not be null")
         return self
 
+    @model_validator(mode="after")
+    def validate_explicit_recurrence(self):
+        if self.recurrence_frequency is None:
+            return self
+        if (
+            self.recurrence_local_time is None
+            or self.recurrence_timezone is None
+            or self.recurrence_anchor_date is None
+        ):
+            raise ValueError("recurrence requires local time, timezone, and anchor date")
+        try:
+            ZoneInfo(self.recurrence_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("recurrence timezone must be an IANA timezone") from exc
+        if self.recurrence_frequency == RecurrenceFrequency.weekly and self.recurrence_weekday is None:
+            raise ValueError("weekly recurrence requires recurrence_weekday")
+        if self.recurrence_frequency == RecurrenceFrequency.monthly and self.recurrence_month_day is None:
+            raise ValueError("monthly recurrence requires recurrence_month_day")
+        if self.recurrence_frequency == RecurrenceFrequency.yearly and (
+            self.recurrence_month is None or self.recurrence_month_day is None
+        ):
+            raise ValueError("yearly recurrence requires recurrence_month and recurrence_month_day")
+        return self
+
 
 class _TimeWindow(StrictInput):
     scheduled_start: datetime

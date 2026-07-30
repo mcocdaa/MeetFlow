@@ -1,10 +1,12 @@
 from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.auth.models import User, UserRole, UserStatus
 from app.agendas.models import AgendaItem
+from app.domain.enums import OccurrenceKind
 from app.errors import AppError
 from app.meetings.models import (
     Meeting,
@@ -17,6 +19,8 @@ from app.meetings.schemas import (
     MeetingWrite,
     OccurrenceWrite,
 )
+from app.meetings.recurrence import RecurrenceRule
+from app.meetings.scheduler import MeetingSeriesScheduler
 from app.meetings.service import MeetingService
 from app.outcomes.models import ActionItem, Decision, OpenQuestion
 from app.projects.schemas import ProjectWrite
@@ -162,6 +166,182 @@ def test_manual_series_occurrence_serializes_its_kind(client, project, meeting_u
         body = service.serialize_meeting(meeting)
         assert body["occurrence_kind"] == "manual"
         assert body["series_slot_at"] is None
+
+
+def test_monthly_31st_uses_the_last_day_in_february():
+    rule = RecurrenceRule.monthly(
+        interval=1,
+        month_day=31,
+        local_time=time(9),
+        timezone_name="Asia/Shanghai",
+        anchor_date=date(2026, 1, 31),
+    )
+
+    assert rule.slot_for(date(2026, 2, 1)) == datetime(
+        2026, 2, 28, 1, tzinfo=timezone.utc
+    )
+
+
+def test_recurrence_slots_cover_daily_weekly_and_yearly_rules():
+    daily = RecurrenceRule.daily(
+        interval=2,
+        local_time=time(9),
+        timezone_name="UTC",
+        anchor_date=date(2026, 7, 1),
+    )
+    weekly = RecurrenceRule.weekly(
+        interval=2,
+        weekday=0,
+        local_time=time(9),
+        timezone_name="UTC",
+        anchor_date=date(2026, 7, 1),
+    )
+    yearly = RecurrenceRule.yearly(
+        interval=1,
+        month=2,
+        month_day=29,
+        local_time=time(9),
+        timezone_name="UTC",
+        anchor_date=date(2024, 2, 29),
+    )
+
+    assert daily.slots_through(datetime(2026, 7, 6, 9, tzinfo=timezone.utc)) == [
+        datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+        datetime(2026, 7, 3, 9, tzinfo=timezone.utc),
+        datetime(2026, 7, 5, 9, tzinfo=timezone.utc),
+    ]
+    assert weekly.slots_through(datetime(2026, 7, 31, 9, tzinfo=timezone.utc)) == [
+        datetime(2026, 7, 6, 9, tzinfo=timezone.utc),
+        datetime(2026, 7, 20, 9, tzinfo=timezone.utc),
+    ]
+    assert yearly.slots_through(datetime(2026, 3, 1, 9, tzinfo=timezone.utc)) == [
+        datetime(2024, 2, 29, 9, tzinfo=timezone.utc),
+        datetime(2025, 2, 28, 9, tzinfo=timezone.utc),
+        datetime(2026, 2, 28, 9, tzinfo=timezone.utc),
+    ]
+
+
+def test_materialize_due_occurrences_is_idempotent_and_preserves_manual_items(
+    client, project, meeting_users
+):
+    admin, member, recorder = meeting_users
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        series = service.create_series(
+            project.id,
+            series_payload(
+                admin,
+                member,
+                recorder,
+                recurrence_frequency="daily",
+                recurrence_interval=1,
+                recurrence_local_time=time(21, 30),
+                recurrence_timezone="Asia/Shanghai",
+                recurrence_anchor_date=date(2026, 7, 30),
+            ),
+            admin,
+        )
+        manual = service.create_occurrence(
+            series.id,
+            OccurrenceWrite(
+                title="Temporary delivery review",
+                scheduled_start=datetime(2026, 7, 30, 13, 30, tzinfo=timezone.utc),
+                scheduled_end=datetime(2026, 7, 30, 14, 15, tzinfo=timezone.utc),
+            ),
+            admin,
+        )
+
+        first = service.materialize_due_occurrences(
+            now=datetime(2026, 7, 31, tzinfo=timezone.utc)
+        )
+        second = service.materialize_due_occurrences(
+            now=datetime(2026, 7, 31, tzinfo=timezone.utc)
+        )
+
+        assert [item.occurrence_kind for item in first] == [OccurrenceKind.scheduled]
+        scheduled_body = service.serialize_meeting(first[0])
+        assert scheduled_body["series_slot_at"] == datetime(
+            2026, 7, 30, 13, 30, tzinfo=timezone.utc
+        )
+        assert scheduled_body["scheduled_start"] == scheduled_body["series_slot_at"]
+        assert scheduled_body["scheduled_end"] == datetime(
+            2026, 7, 30, 14, 15, tzinfo=timezone.utc
+        )
+        assert second == []
+        assert manual.occurrence_kind == OccurrenceKind.manual
+        assert manual.series_slot_at is None
+        listed = service.list_meetings(project.id)
+        assert {item["occurrence_kind"] for item in listed} == {"manual", "scheduled"}
+
+
+def test_series_detail_reconciles_due_occurrences(
+    client, project, meeting_users, monkeypatch
+):
+    admin, member, recorder = meeting_users
+    now = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.meetings.service.utcnow", lambda: now)
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        series = service.create_series(
+            project.id,
+            series_payload(
+                admin,
+                member,
+                recorder,
+                recurrence_frequency="daily",
+                recurrence_local_time=time(21, 30),
+                recurrence_timezone="Asia/Shanghai",
+                recurrence_anchor_date=date(2026, 7, 30),
+            ),
+            admin,
+        )
+
+        service.series_detail(series.id)
+
+        scheduled = session.scalars(
+            select(Meeting).where(Meeting.series_id == series.id)
+        ).all()
+        assert [item.occurrence_kind for item in scheduled] == [
+            OccurrenceKind.scheduled
+        ]
+
+
+def test_series_scheduler_materializes_due_occurrences(
+    client, project, meeting_users
+):
+    admin, member, recorder = meeting_users
+    with client.app.state.database.session() as session:
+        MeetingService(session).create_series(
+            project.id,
+            series_payload(
+                admin,
+                member,
+                recorder,
+                recurrence_frequency="daily",
+                recurrence_local_time=time(21, 30),
+                recurrence_timezone="Asia/Shanghai",
+                recurrence_anchor_date=date(2026, 7, 30),
+            ),
+            admin,
+        )
+
+    created = MeetingSeriesScheduler(client.app.state.database).run_once(
+        now=datetime(2026, 7, 31, tzinfo=timezone.utc)
+    )
+
+    assert len(created) == 1
+
+
+def test_series_edit_rejects_an_incomplete_recurrence_rule():
+    with pytest.raises(ValidationError, match="weekly recurrence requires recurrence_weekday"):
+        MeetingSeriesEdit(
+            expected_version=1,
+            recurrence_frequency="weekly",
+            recurrence_interval=1,
+            recurrence_local_time=time(9),
+            recurrence_timezone="Asia/Shanghai",
+            recurrence_anchor_date=date(2026, 7, 30),
+        )
 
 
 def test_occurrence_copies_current_series_defaults_and_participants(
