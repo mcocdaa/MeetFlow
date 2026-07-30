@@ -166,6 +166,59 @@ def test_finish_rejects_invalid_outcome_source_chain_without_snapshot(
         assert session.get(Meeting, meeting_id).status == MeetingStatus.in_progress
 
 
+def test_start_automatically_opens_first_planned_agenda(
+    client, lifecycle_context, monkeypatch
+):
+    admin_id, _, meeting_id = lifecycle_context
+    started_at = datetime(2026, 8, 10, 9, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.meetings.service.utcnow", lambda: started_at)
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        first = agendas.create(
+            meeting_id,
+            AgendaWrite(title="First", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        second = agendas.create(
+            meeting_id,
+            AgendaWrite(title="Second", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=session.get(Meeting, meeting_id).version,
+        )
+
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(
+                expected_version=session.get(Meeting, meeting_id).version
+            ),
+            actor,
+        )
+
+        by_id = {item.id: item for item in started.agenda_items}
+        assert by_id[first.id].status == AgendaStatus.in_progress
+        assert by_id[first.id].started_at == started_at.replace(tzinfo=None)
+        assert by_id[second.id].status == AgendaStatus.planned
+
+
+def test_start_without_agenda_remains_valid(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meeting = session.get(Meeting, meeting_id)
+
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(expected_version=meeting.version),
+            actor,
+        )
+
+        assert started.status == MeetingStatus.in_progress
+        assert started.agenda_items == []
+
+
 def test_finish_skips_unresolved_agenda_and_records_duration(
     client, lifecycle_context, monkeypatch
 ):
@@ -195,9 +248,6 @@ def test_finish_skips_unresolved_agenda_and_records_duration(
             meeting_id,
             LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
             actor,
-        )
-        active = AgendaService(session).start(
-            active.id, AgendaCommand(expected_version=active.version), actor
         )
 
         completed = service.finish(

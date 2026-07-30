@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.agendas.lifecycle import start_planned_item
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
@@ -746,6 +747,27 @@ class MeetingService:
         meeting.status = MeetingStatus.in_progress
         meeting.started_at = meeting.started_at or now
         meeting.updated_by = actor.id
+        first_planned = next(
+            (
+                item
+                for item in sorted(
+                    meeting.agenda_items, key=lambda row: (row.position, row.id)
+                )
+                if item.status == AgendaStatus.planned
+            ),
+            None,
+        )
+        if first_planned is not None:
+            start_planned_item(first_planned, actor_id=actor.id, at=now)
+            ActivityRecorder(self.session).record(
+                project_id=meeting.project_id,
+                meeting_id=meeting.id,
+                actor_user_id=actor.id,
+                event_type="agenda.started",
+                subject_type="agenda_item",
+                subject_id=first_planned.id,
+                payload={"title": first_planned.title},
+            )
         self._record_meeting(meeting, actor, "meeting.started")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
