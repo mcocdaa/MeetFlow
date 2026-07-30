@@ -52,6 +52,7 @@ class AgendaItem(Base):
         ForeignKey("users.id"), nullable=True
     )
     estimated_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes_markdown: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[AgendaStatus] = mapped_column(
         Enum(AgendaStatus), default=AgendaStatus.planned, index=True

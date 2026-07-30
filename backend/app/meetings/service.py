@@ -11,7 +11,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
-from app.domain.enums import AgendaStatus, MeetingStatus
+from app.domain.enums import AgendaStatus, MeetingStatus, OccurrenceKind
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.attachments.models import Attachment
@@ -343,6 +343,7 @@ class MeetingService:
         meeting = Meeting(
             project_id=series.project_id,
             series_id=series.id,
+            occurrence_kind=OccurrenceKind.manual,
             title=payload.title,
             purpose_markdown=series.purpose_markdown,
             scheduled_start=payload.scheduled_start,
@@ -956,6 +957,28 @@ class MeetingService:
             "title": series.title,
             "purpose_markdown": series.purpose_markdown,
             "recurrence_description": series.recurrence_description,
+            "recurrence": {
+                "frequency": (
+                    series.recurrence_frequency.value
+                    if series.recurrence_frequency is not None
+                    else None
+                ),
+                "interval": series.recurrence_interval,
+                "weekday": series.recurrence_weekday,
+                "month_day": series.recurrence_month_day,
+                "month": series.recurrence_month,
+                "local_time": (
+                    series.recurrence_local_time.isoformat()
+                    if series.recurrence_local_time is not None
+                    else None
+                ),
+                "timezone": series.recurrence_timezone,
+                "anchor_date": (
+                    series.recurrence_anchor_date.isoformat()
+                    if series.recurrence_anchor_date is not None
+                    else None
+                ),
+            },
             "default_duration_minutes": series.default_duration_minutes,
             "default_host": user_ref(series.default_host),
             "default_recorder": user_ref(series.default_recorder),
@@ -1040,6 +1063,12 @@ class MeetingService:
             ),
             "title": meeting.title,
             "purpose_markdown": meeting.purpose_markdown,
+            "occurrence_kind": meeting.occurrence_kind.value,
+            "series_slot_at": (
+                as_utc(meeting.series_slot_at)
+                if meeting.series_slot_at is not None
+                else None
+            ),
             "scheduled_start": as_utc(meeting.scheduled_start),
             "scheduled_end": as_utc(meeting.scheduled_end),
             "status": meeting.status,

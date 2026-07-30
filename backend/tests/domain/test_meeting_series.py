@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
 
 from app.auth.models import User, UserRole, UserStatus
+from app.agendas.models import AgendaItem
 from app.errors import AppError
 from app.meetings.models import (
     Meeting,
@@ -17,6 +18,7 @@ from app.meetings.schemas import (
     OccurrenceWrite,
 )
 from app.meetings.service import MeetingService
+from app.outcomes.models import ActionItem, Decision, OpenQuestion
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -95,6 +97,71 @@ def series_payload(admin, member, recorder, **overrides):
     }
     values.update(overrides)
     return MeetingSeriesWrite(**values)
+
+
+def test_series_persists_structured_recurrence_rule(client, project, meeting_users):
+    admin, member, recorder = meeting_users
+    payload = MeetingSeriesWrite(
+        title="Daily delivery review",
+        recurrence_frequency="daily",
+        recurrence_interval=1,
+        recurrence_local_time=time(21, 30),
+        recurrence_timezone="Asia/Shanghai",
+        recurrence_anchor_date=date(2026, 7, 30),
+        default_duration_minutes=45,
+        default_host_user_id=admin.id,
+        default_recorder_user_id=recorder.id,
+        participants=[{"user_id": member.id, "participation_role": "attendee"}],
+    )
+    with client.app.state.database.session() as session:
+        series = MeetingService(session).create_series(project.id, payload, admin)
+
+        assert series.recurrence_frequency == "daily"
+        assert series.recurrence_interval == 1
+        assert series.recurrence_local_time == time(21, 30)
+        assert series.recurrence_timezone == "Asia/Shanghai"
+        assert series.recurrence_anchor_date == date(2026, 7, 30)
+        assert MeetingService(session).serialize_series(series)["recurrence"] == {
+            "frequency": "daily",
+            "interval": 1,
+            "weekday": None,
+            "month_day": None,
+            "month": None,
+            "local_time": "21:30:00",
+            "timezone": "Asia/Shanghai",
+            "anchor_date": "2026-07-30",
+        }
+
+
+def test_meeting_domain_exposes_occurrence_duration_and_outcome_source_fields():
+    assert "occurrence_kind" in Meeting.__table__.c
+    assert "series_slot_at" in Meeting.__table__.c
+    assert "actual_duration_seconds" in AgendaItem.__table__.c
+    for model in (Decision, ActionItem, OpenQuestion):
+        assert "source_agenda_item_id" in model.__table__.c
+        assert "source_tag_key" in model.__table__.c
+
+
+def test_manual_series_occurrence_serializes_its_kind(client, project, meeting_users):
+    admin, member, recorder = meeting_users
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        series = service.create_series(
+            project.id, series_payload(admin, member, recorder), admin
+        )
+        meeting = service.create_occurrence(
+            series.id,
+            OccurrenceWrite(
+                title="Temporary occurrence",
+                scheduled_start=START,
+                scheduled_end=START + timedelta(minutes=45),
+            ),
+            admin,
+        )
+
+        body = service.serialize_meeting(meeting)
+        assert body["occurrence_kind"] == "manual"
+        assert body["series_slot_at"] is None
 
 
 def test_occurrence_copies_current_series_defaults_and_participants(

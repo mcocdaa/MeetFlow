@@ -11,6 +11,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +37,13 @@ def utcnow() -> datetime:
 
 class Decision(Base):
     __tablename__ = "decisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_agenda_item_id",
+            "source_tag_key",
+            name="uq_decision_agenda_source_tag",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -49,6 +57,10 @@ class Decision(Base):
     agenda_item_id: Mapped[str | None] = mapped_column(
         ForeignKey("agenda_items.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    source_agenda_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agenda_items.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    source_tag_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     title: Mapped[str] = mapped_column(String(300))
     decision_markdown: Mapped[str] = mapped_column(Text)
     rationale_markdown: Mapped[str] = mapped_column(Text, default="")
@@ -112,6 +124,13 @@ class DecisionReviewer(Base):
 
 class ActionItem(Base):
     __tablename__ = "action_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_agenda_item_id",
+            "source_tag_key",
+            name="uq_action_agenda_source_tag",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -125,6 +144,10 @@ class ActionItem(Base):
     agenda_item_id: Mapped[str | None] = mapped_column(
         ForeignKey("agenda_items.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    source_agenda_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agenda_items.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    source_tag_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     content: Mapped[str] = mapped_column(String(1000))
     owner_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
@@ -163,6 +186,13 @@ class ActionItem(Base):
 
 class OpenQuestion(Base):
     __tablename__ = "open_questions"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_agenda_item_id",
+            "source_tag_key",
+            name="uq_question_agenda_source_tag",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -176,6 +206,10 @@ class OpenQuestion(Base):
     agenda_item_id: Mapped[str | None] = mapped_column(
         ForeignKey("agenda_items.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    source_agenda_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agenda_items.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    source_tag_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     question_markdown: Mapped[str] = mapped_column(Text)
     owner_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True

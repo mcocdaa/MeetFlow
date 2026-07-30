@@ -1,5 +1,6 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -13,6 +14,7 @@ from app.domain.enums import (
     MeetingStatus,
     OpenQuestionStatus,
     ParticipationRole,
+    RecurrenceFrequency,
     SeriesStatus,
 )
 
@@ -240,6 +242,14 @@ class MeetingSeriesWrite(StrictInput):
     title: str = Field(min_length=1, max_length=240)
     purpose_markdown: str = Field(default="", max_length=100_000)
     recurrence_description: str = Field(default="", max_length=500)
+    recurrence_frequency: RecurrenceFrequency | None = None
+    recurrence_interval: int = Field(default=1, ge=1, le=365)
+    recurrence_weekday: int | None = Field(default=None, ge=0, le=6)
+    recurrence_month_day: int | None = Field(default=None, ge=1, le=31)
+    recurrence_month: int | None = Field(default=None, ge=1, le=12)
+    recurrence_local_time: time | None = None
+    recurrence_timezone: str | None = Field(default=None, max_length=64)
+    recurrence_anchor_date: date | None = None
     default_duration_minutes: int = Field(default=60, ge=1, le=1440)
     default_host_user_id: str | None = Field(default=None, max_length=64)
     default_recorder_user_id: str | None = Field(default=None, max_length=64)
@@ -252,6 +262,7 @@ class MeetingSeriesWrite(StrictInput):
     @field_validator(
         "title",
         "recurrence_description",
+        "recurrence_timezone",
         "default_host_user_id",
         "default_recorder_user_id",
         "status",
@@ -276,12 +287,44 @@ class MeetingSeriesWrite(StrictInput):
     def require_user_if_present(cls, value: str | None) -> str | None:
         return _required(value) if value is not None else None
 
+    @model_validator(mode="after")
+    def validate_recurrence(self):
+        if self.recurrence_frequency is None:
+            return self
+        if (
+            self.recurrence_local_time is None
+            or self.recurrence_timezone is None
+            or self.recurrence_anchor_date is None
+        ):
+            raise ValueError("recurrence requires local time, timezone, and anchor date")
+        try:
+            ZoneInfo(self.recurrence_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("recurrence timezone must be an IANA timezone") from exc
+        if self.recurrence_frequency == RecurrenceFrequency.weekly and self.recurrence_weekday is None:
+            raise ValueError("weekly recurrence requires recurrence_weekday")
+        if self.recurrence_frequency == RecurrenceFrequency.monthly and self.recurrence_month_day is None:
+            raise ValueError("monthly recurrence requires recurrence_month_day")
+        if self.recurrence_frequency == RecurrenceFrequency.yearly and (
+            self.recurrence_month is None or self.recurrence_month_day is None
+        ):
+            raise ValueError("yearly recurrence requires recurrence_month and recurrence_month_day")
+        return self
+
 
 class MeetingSeriesEdit(StrictInput):
     expected_version: int = Field(ge=0)
     title: str | None = Field(default=None, min_length=1, max_length=240)
     purpose_markdown: str | None = Field(default=None, max_length=100_000)
     recurrence_description: str | None = Field(default=None, max_length=500)
+    recurrence_frequency: RecurrenceFrequency | None = None
+    recurrence_interval: int | None = Field(default=None, ge=1, le=365)
+    recurrence_weekday: int | None = Field(default=None, ge=0, le=6)
+    recurrence_month_day: int | None = Field(default=None, ge=1, le=31)
+    recurrence_month: int | None = Field(default=None, ge=1, le=12)
+    recurrence_local_time: time | None = None
+    recurrence_timezone: str | None = Field(default=None, max_length=64)
+    recurrence_anchor_date: date | None = None
     default_duration_minutes: int | None = Field(default=None, ge=1, le=1440)
     default_host_user_id: str | None = Field(default=None, max_length=64)
     default_recorder_user_id: str | None = Field(default=None, max_length=64)
@@ -294,6 +337,7 @@ class MeetingSeriesEdit(StrictInput):
     @field_validator(
         "title",
         "recurrence_description",
+        "recurrence_timezone",
         "default_host_user_id",
         "default_recorder_user_id",
         "status",
@@ -320,7 +364,17 @@ class MeetingSeriesEdit(StrictInput):
 
     @model_validator(mode="after")
     def reject_null_nonnullable(self):
-        nullable = {"default_host_user_id", "default_recorder_user_id"}
+        nullable = {
+            "default_host_user_id",
+            "default_recorder_user_id",
+            "recurrence_frequency",
+            "recurrence_weekday",
+            "recurrence_month_day",
+            "recurrence_month",
+            "recurrence_local_time",
+            "recurrence_timezone",
+            "recurrence_anchor_date",
+        }
         for name in self.model_fields_set - {"expected_version"} - nullable:
             if getattr(self, name) is None:
                 raise ValueError(f"{name} may not be null")

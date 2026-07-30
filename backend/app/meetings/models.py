@@ -1,22 +1,31 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
     Integer,
     String,
     Text,
+    Time,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
 from app.database import Base
-from app.domain.enums import AgendaType, MeetingStatus, ParticipationRole, SeriesStatus
+from app.domain.enums import (
+    AgendaType,
+    MeetingStatus,
+    OccurrenceKind,
+    ParticipationRole,
+    RecurrenceFrequency,
+    SeriesStatus,
+)
 from app.projects.models import Project
 
 if TYPE_CHECKING:
@@ -40,6 +49,16 @@ class MeetingSeries(Base):
     title: Mapped[str] = mapped_column(String(240))
     purpose_markdown: Mapped[str] = mapped_column(Text, default="")
     recurrence_description: Mapped[str] = mapped_column(String(500), default="")
+    recurrence_frequency: Mapped[RecurrenceFrequency | None] = mapped_column(
+        Enum(RecurrenceFrequency), nullable=True
+    )
+    recurrence_interval: Mapped[int] = mapped_column(Integer, default=1)
+    recurrence_weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recurrence_month_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recurrence_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recurrence_local_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    recurrence_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recurrence_anchor_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     default_duration_minutes: Mapped[int] = mapped_column(Integer, default=60)
     default_host_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
@@ -126,6 +145,9 @@ class StandingAgendaItem(Base):
 
 class Meeting(Base):
     __tablename__ = "meetings"
+    __table_args__ = (
+        UniqueConstraint("series_id", "series_slot_at", name="uq_meeting_series_slot"),
+    )
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -135,6 +157,12 @@ class Meeting(Base):
     )
     series_id: Mapped[str | None] = mapped_column(
         ForeignKey("meeting_series.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    occurrence_kind: Mapped[OccurrenceKind] = mapped_column(
+        Enum(OccurrenceKind), default=OccurrenceKind.manual, index=True
+    )
+    series_slot_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     title: Mapped[str] = mapped_column(String(240), index=True)
     purpose_markdown: Mapped[str] = mapped_column(Text, default="")
