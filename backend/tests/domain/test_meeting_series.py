@@ -13,6 +13,7 @@ from app.meetings.models import (
     MeetingSeries,
 )
 from app.meetings.schemas import (
+    LifecycleCommand,
     MeetingEdit,
     MeetingSeriesEdit,
     MeetingSeriesWrite,
@@ -330,6 +331,46 @@ def test_series_scheduler_materializes_due_occurrences(
     )
 
     assert len(created) == 1
+
+
+def test_starting_next_scheduled_occurrence_finishes_the_previous_slot(
+    client, project, meeting_users, monkeypatch
+):
+    admin, member, recorder = meeting_users
+    now = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.meetings.service.utcnow", lambda: now)
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        series = service.create_series(
+            project.id,
+            series_payload(
+                admin,
+                member,
+                recorder,
+                recurrence_frequency="daily",
+                recurrence_local_time=time(21, 30),
+                recurrence_timezone="Asia/Shanghai",
+                recurrence_anchor_date=date(2026, 7, 30),
+            ),
+            admin,
+        )
+        previous, current = service.materialize_due_occurrences(now=now)
+
+        started = service.start(
+            current.id,
+            LifecycleCommand(expected_version=current.version),
+            admin,
+        )
+        session.refresh(previous)
+
+        assert started.status.value == "in_progress"
+        assert previous.status.value == "completed"
+        assert [item.status.value for item in previous.agenda_items] == [
+            "skipped",
+            "skipped",
+        ]
+        assert previous.current_snapshot is not None
+        assert started.series_id == series.id
 
 
 def test_series_edit_rejects_an_incomplete_recurrence_rule():

@@ -717,8 +717,34 @@ class MeetingService:
         require_version(payload.expected_version, meeting.version)
         if meeting.status not in {MeetingStatus.draft, MeetingStatus.ready}:
             self._invalid_transition(meeting, MeetingStatus.in_progress)
+        now = utcnow()
+        if (
+            meeting.occurrence_kind == OccurrenceKind.scheduled
+            and meeting.series_id is not None
+            and meeting.series_slot_at is not None
+        ):
+            previous_id = self.session.scalar(
+                select(Meeting.id)
+                .where(
+                    Meeting.series_id == meeting.series_id,
+                    Meeting.occurrence_kind == OccurrenceKind.scheduled,
+                    Meeting.series_slot_at < meeting.series_slot_at,
+                    Meeting.status.in_(
+                        [
+                            MeetingStatus.draft,
+                            MeetingStatus.ready,
+                            MeetingStatus.in_progress,
+                        ]
+                    ),
+                )
+                .order_by(Meeting.series_slot_at.desc())
+                .limit(1)
+            )
+            if previous_id is not None:
+                previous = self._meeting_for_snapshot(previous_id)
+                self._finish_in_session(previous, actor=actor, now=now)
         meeting.status = MeetingStatus.in_progress
-        meeting.started_at = meeting.started_at or utcnow()
+        meeting.started_at = meeting.started_at or now
         meeting.updated_by = actor.id
         self._record_meeting(meeting, actor, "meeting.started")
         return self._commit_meeting_command(meeting, payload.expected_version)
@@ -866,6 +892,7 @@ class MeetingService:
                     "proposer_user_id",
                     "presenter_user_id",
                     "estimated_minutes",
+                    "actual_duration_seconds",
                     "notes_markdown",
                     "status",
                     "position",
@@ -1010,21 +1037,34 @@ class MeetingService:
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.in_progress:
             self._invalid_transition(meeting, MeetingStatus.completed)
-        unresolved = [
-            row.id
-            for row in sorted(
-                meeting.agenda_items, key=lambda row: (row.position, row.id)
-            )
-            if row.status in {AgendaStatus.planned, AgendaStatus.in_progress}
-        ]
-        if unresolved:
-            raise AppError(
-                409,
-                "meeting_has_unresolved_agenda",
-                "会议仍有未处理议题",
-                details={"agenda_ids": unresolved},
-            )
+        self._finish_in_session(meeting, actor=actor, now=utcnow())
+        meeting_id = meeting.id
+        try:
+            self.session.commit()
+        except (StaleDataError, IntegrityError) as exc:
+            self._raise_meeting_stale(meeting_id, payload.expected_version, exc)
+        return self._reload_meeting(meeting_id)
+
+    @staticmethod
+    def _agenda_actual_duration_seconds(item: AgendaItem, now: datetime) -> int:
+        if item.started_at is None:
+            return 0
+        return max(0, int((as_utc(now) - as_utc(item.started_at)).total_seconds()))
+
+    def _finish_in_session(
+        self, meeting: Meeting, *, actor: User, now: datetime
+    ) -> None:
         self._validate_outcome_source_chain(meeting)
+        for item in meeting.agenda_items:
+            if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
+                continue
+            item.status = AgendaStatus.skipped
+            item.completed_at = now
+            item.actual_duration_seconds = self._agenda_actual_duration_seconds(
+                item, now
+            )
+            item.updated_by = actor.id
+            item.version += 1
         completion_number = (
             self.session.scalar(
                 select(func.max(MeetingSnapshot.completion_number)).where(
@@ -1033,6 +1073,9 @@ class MeetingService:
             )
             or 0
         ) + 1
+        meeting.status = MeetingStatus.completed
+        meeting.completed_at = now
+        meeting.updated_by = actor.id
         snapshot = MeetingSnapshot(
             meeting_id=meeting.id,
             completion_number=completion_number,
@@ -1041,11 +1084,8 @@ class MeetingService:
         )
         self.session.add(snapshot)
         meeting.current_snapshot = snapshot
-        meeting.status = MeetingStatus.completed
-        meeting.completed_at = utcnow()
-        meeting.updated_by = actor.id
+        meeting.version += 1
         self._record_meeting(meeting, actor, "meeting.finished")
-        return self._commit_meeting_command(meeting, payload.expected_version)
 
     def list_snapshots(
         self, meeting_id: str, *, limit: int = 50, offset: int = 0
@@ -1284,6 +1324,7 @@ class MeetingService:
                     "proposer": user_ref(row.proposer),
                     "presenter": user_ref(row.presenter),
                     "estimated_minutes": row.estimated_minutes,
+                    "actual_duration_seconds": row.actual_duration_seconds,
                     "notes_markdown": row.notes_markdown,
                     "status": row.status,
                     "position": row.position,

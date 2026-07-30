@@ -32,6 +32,12 @@ def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
+def _actual_duration_seconds(item: AgendaItem, finished_at: datetime) -> int:
+    if item.started_at is None:
+        return 0
+    return max(0, int((_aware(finished_at) - _aware(item.started_at)).total_seconds()))
+
+
 class AgendaService:
     def __init__(self, session: Session):
         self.session = session
@@ -335,6 +341,7 @@ class AgendaService:
             item.started_at = now
         item.status = target
         item.completed_at = now
+        item.actual_duration_seconds = _actual_duration_seconds(item, now)
         item.updated_by = actor.id
         item.version += 1
         meeting.updated_by = actor.id
@@ -476,6 +483,7 @@ class AgendaService:
         item.status = AgendaStatus.planned
         item.started_at = None
         item.completed_at = None
+        item.actual_duration_seconds = None
         item.updated_by = actor.id
         item.version += 1
 

@@ -138,6 +138,7 @@ class SnapshotAgendaItem(StrictSnapshotModel):
     proposer_user_id: str | None
     presenter_user_id: str | None
     estimated_minutes: int | None
+    actual_duration_seconds: int | None
     notes_markdown: str
     status: AgendaStatus
     position: int
