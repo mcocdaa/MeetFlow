@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, apiDownload } from './client'
 import type { Meeting } from '../domain/meetings'
 
 export type LifecycleAction = 'start' | 'finish'
@@ -29,4 +29,8 @@ export function runMeetingLifecycle(id: string, action: LifecycleAction, expecte
     method: 'POST',
     body: JSON.stringify({ expected_version: expectedVersion }),
   })
+}
+
+export function downloadMeetingExport(id: string, exporterId: string) {
+  return apiDownload(`/api/meetings/${id}/plugin-exports/${encodeURIComponent(exporterId)}`, { method: 'POST' })
 }

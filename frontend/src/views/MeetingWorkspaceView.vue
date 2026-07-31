@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
 import { api } from '../api/client'
-import { getMeeting, runMeetingLifecycle } from '../api/meetings'
+import { downloadMeetingExport, getMeeting, runMeetingLifecycle } from '../api/meetings'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
 import AttachmentPanel from '../components/AttachmentPanel.vue'
 import CompletedMeetingChain from '../components/CompletedMeetingChain.vue'
@@ -34,6 +34,7 @@ const summaryEditor = ref<MarkdownEditorHandle | null>(null)
 const purposeEditor = ref<MarkdownEditorHandle | null>(null)
 const rawNotesEditor = ref<MarkdownEditorHandle | null>(null)
 const workbench = ref<{ flushCurrentDraft: () => Promise<boolean> } | null>(null)
+const exportAction = ref<string | null>(null)
 const workspace = useMeetingWorkspace({ autoSave: false })
 const meeting = workspace.meeting
 const draft = workspace.draft
@@ -162,6 +163,26 @@ async function refreshAgenda(): Promise<boolean> {
   }
 }
 
+async function downloadExport(exporterId: string) {
+  if (!meeting.value || exportAction.value) return
+  exportAction.value = exporterId
+  error.value = ''
+  try {
+    const { blob, filename } = await downloadMeetingExport(meeting.value.id, exporterId)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.style.display = 'none'
+    document.body.append(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '会议导出失败'
+  } finally { exportAction.value = null }
+}
+
 let clockHandle: number | undefined
 onMounted(() => {
   void load()
@@ -180,7 +201,7 @@ onBeforeUnmount(() => {
     <template v-else-if="meeting">
       <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${new Date(meeting.scheduled_start).toLocaleString('zh-CN')} · ${meeting.participants.length} 位参与者`">
         <template #meta><div class="project-context"><span class="status-pill" :data-status="meeting.status">{{ meeting.status === 'draft' || meeting.status === 'ready' ? '待开始' : meeting.status === 'in_progress' ? '会议进行中' : '会议已完成' }}</span><span v-if="meeting.status === 'in_progress' && liveElapsed" class="meeting-live-clock">进行 {{ liveElapsed }}</span><span>主持：{{ meeting.host?.display_name ?? '未指定' }}</span><span>记录：{{ meeting.recorder?.display_name ?? '未指定' }}</span></div></template>
-        <template #actions><button v-if="meeting.status === 'draft' || meeting.status === 'ready'" class="button button-quiet" :disabled="busy" @click="preparationOpen = true">准备信息</button><button v-if="meeting.status === 'draft' || meeting.status === 'ready'" class="button button-primary" :disabled="busy" @click="lifecycle('start')">{{ lifecycleAction === 'start' ? '开始中' : '开始会议' }}</button><button v-else-if="meeting.status === 'in_progress'" class="button button-primary" :disabled="busy" @click="lifecycle('finish')">{{ lifecycleAction === 'finish' ? '结束中' : '结束会议' }}</button></template>
+        <template #actions><button v-if="meeting.status === 'completed'" class="button button-quiet" :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.markdown')">{{ exportAction === 'meeting-export.markdown' ? '导出中…' : '导出 Markdown' }}</button><button v-if="meeting.status === 'completed'" class="button button-quiet" :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.json')">{{ exportAction === 'meeting-export.json' ? '导出中…' : '导出 JSON' }}</button><button v-if="meeting.status === 'draft' || meeting.status === 'ready'" class="button button-quiet" :disabled="busy" @click="preparationOpen = true">准备信息</button><button v-if="meeting.status === 'draft' || meeting.status === 'ready'" class="button button-primary" :disabled="busy" @click="lifecycle('start')">{{ lifecycleAction === 'start' ? '开始中' : '开始会议' }}</button><button v-else-if="meeting.status === 'in_progress'" class="button button-primary" :disabled="busy" @click="lifecycle('finish')">{{ lifecycleAction === 'finish' ? '结束中' : '结束会议' }}</button></template>
       </PageHeader>
       <p v-if="meeting.status === 'in_progress' && unresolved.length" class="meeting-unresolved">还有 {{ unresolved.length }} 个议题未结束。结束后，未结束议题会记为跳过。</p>
       <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>

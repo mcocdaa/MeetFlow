@@ -2,8 +2,8 @@ import { defineComponent, onBeforeUnmount, onMounted } from 'vue'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { apiMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), editorBuffer: { value: '' } }))
-vi.mock('../api/client', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
+const { apiMock, apiDownloadMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), apiDownloadMock: vi.fn(), editorBuffer: { value: '' } }))
+vi.mock('../api/client', () => ({ api: apiMock, apiDownload: apiDownloadMock, ApiError: class ApiError extends Error {} }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'm1' } }),
   onBeforeRouteLeave: () => undefined,
@@ -55,7 +55,7 @@ function meetingFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('meeting workspace', () => {
-  beforeEach(() => { apiMock.mockReset(); apiMock.mockResolvedValue(meeting); editorBuffer.value = '' })
+  beforeEach(() => { apiMock.mockReset(); apiDownloadMock.mockReset(); apiMock.mockResolvedValue(meeting); editorBuffer.value = '' })
 
   it('keeps preparation fields on demand instead of above the active agenda', async () => {
     render(MeetingWorkspaceView)
@@ -209,6 +209,21 @@ describe('meeting workspace', () => {
       '/api/meetings/m1/start',
     ])
     expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1/ready', expect.anything())
+  })
+
+  it('offers bounded exports after a meeting is completed', async () => {
+    apiMock.mockResolvedValueOnce(meetingFixture({ status: 'completed' }))
+    apiDownloadMock.mockResolvedValue({ blob: new Blob(['# meeting']), filename: 'meeting.md' })
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:meeting') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    render(MeetingWorkspaceView)
+    await screen.findByText('迭代评审')
+
+    await fireEvent.click(screen.getByRole('button', { name: '导出 Markdown' }))
+
+    await waitFor(() => expect(apiDownloadMock).toHaveBeenCalledWith('/api/meetings/m1/plugin-exports/meeting-export.markdown', { method: 'POST' }))
+    anchorClick.mockRestore()
   })
 
   it('protects dirty meeting drafts from browser unload', async () => {

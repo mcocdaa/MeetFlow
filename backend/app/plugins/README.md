@@ -25,6 +25,9 @@ Exporter plugins receive only the bounded meeting context and return a
 validated `PluginExport`. The core enforces a safe single-segment filename,
 bytes-only content and an 8 MB limit before sending the download response;
 exporters do not receive a SQLAlchemy session or data-directory path.
+The first-party `meeting-export` plugin exposes Markdown and JSON buttons on
+completed meeting pages; disabling or removing that plugin leaves the core
+meeting workspace usable and turns an attempted export into an inline error.
 
 The `/app/plugins` directory should be mounted read-only. Plugin manifests declare configuration fields and secrets. Secrets are encrypted in SQLite and are passed only to the corresponding loaded plugin action.
 
