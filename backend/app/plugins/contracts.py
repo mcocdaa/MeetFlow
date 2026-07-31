@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.plugins.exporters import PluginExport
+
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
@@ -60,6 +62,7 @@ Handler = Callable[
     Awaitable[dict[str, Any]],
 ]
 EventHandler = Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]]
+ExporterHandler = Callable[[dict[str, Any], dict[str, Any]], Awaitable[PluginExport]]
 StreamHandler = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]],
     AsyncIterator[str],
@@ -88,6 +91,7 @@ class PluginRegistry:
     plugin_id: str
     actions: dict[str, MeetingAction] = field(default_factory=dict)
     event_subscribers: dict[str, EventHandler] = field(default_factory=dict)
+    exporters: dict[str, ExporterHandler] = field(default_factory=dict)
 
     def register_meeting_action(self, action: MeetingAction) -> None:
         if not action.action_id.startswith(f"{self.plugin_id}."):
@@ -102,3 +106,10 @@ class PluginRegistry:
         if event_type in self.event_subscribers:
             raise ValueError("duplicate event subscriber")
         self.event_subscribers[event_type] = handler
+
+    def register_exporter(self, exporter_id: str, handler: ExporterHandler) -> None:
+        if not exporter_id.startswith(f"{self.plugin_id}.") or not callable(handler):
+            raise ValueError("exporter id must be prefixed by plugin id")
+        if exporter_id in self.exporters:
+            raise ValueError("duplicate exporter id")
+        self.exporters[exporter_id] = handler

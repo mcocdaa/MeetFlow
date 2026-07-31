@@ -23,6 +23,7 @@ from app.plugins.contracts import (
     PluginManifest,
     PluginRegistry,
 )
+from app.plugins.exporters import PluginExport, validate_export
 from app.plugins.models import PluginConfig, PluginJob, PluginJobStatus, PluginState
 from app.plugins.secrets import SecretBox
 
@@ -62,6 +63,7 @@ class PluginManager:
         self._loaded_descriptors: dict[str, PluginDescriptor] = {}
         self._actions: dict[str, MeetingAction] = {}
         self._event_subscribers: dict[str, list[tuple[str, Any]]] = {}
+        self._exporters: dict[str, tuple[str, Any]] = {}
         self._errors: list[PluginLoadError] = []
         self._modules: dict[str, ModuleType] = {}
 
@@ -236,6 +238,7 @@ class PluginManager:
         self._errors = []
         self._actions = {}
         self._event_subscribers = {}
+        self._exporters = {}
         self._modules = {}
         self._loaded_descriptors = {}
         for descriptor in self.discover():
@@ -253,9 +256,26 @@ class PluginManager:
                         raise ValueError("duplicate global action id")
                     self._actions[action_id] = action
                 for event_type, handler in registry.event_subscribers.items():
+                    if (
+                        descriptor.manifest.api_version >= 2
+                        and event_type
+                        not in descriptor.manifest.capabilities.event_subscriptions
+                    ):
+                        raise ValueError(
+                            f"event subscriber {event_type} is not declared"
+                        )
                     self._event_subscribers.setdefault(event_type, []).append(
                         (descriptor.plugin_id, handler)
                     )
+                for exporter_id, handler in registry.exporters.items():
+                    if (
+                        descriptor.manifest.api_version >= 2
+                        and exporter_id not in descriptor.manifest.capabilities.exporters
+                    ):
+                        raise ValueError(f"exporter {exporter_id} is not declared")
+                    if exporter_id in self._exporters:
+                        raise ValueError("duplicate global exporter id")
+                    self._exporters[exporter_id] = (descriptor.plugin_id, handler)
                 self._modules[descriptor.plugin_id] = module
                 self._loaded_descriptors[descriptor.plugin_id] = descriptor
             except Exception as exc:
@@ -413,6 +433,27 @@ class PluginManager:
         for plugin_id, handler in self._event_subscribers.get(event_type, []):
             config = self.runtime_config(plugin_id, session)
             await handler(payload, config)
+
+    def loaded_exporters(self) -> list[str]:
+        return list(self._exporters)
+
+    async def export(
+        self,
+        exporter_id: str,
+        context: dict[str, Any],
+        session: Session,
+    ) -> PluginExport:
+        registered = self._exporters.get(exporter_id)
+        if registered is None:
+            raise KeyError(exporter_id)
+        plugin_id, handler = registered
+        result = await handler(context, self.runtime_config(plugin_id, session))
+        if not isinstance(result, PluginExport):
+            raise PluginOutputError("plugin exporter returned an invalid result")
+        try:
+            return validate_export(result)
+        except ValueError as exc:
+            raise PluginOutputError("plugin exporter result failed validation") from exc
 
     async def invoke(
         self,

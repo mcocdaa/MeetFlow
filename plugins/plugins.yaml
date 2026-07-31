@@ -2,3 +2,6 @@ plugins:
   ai-work-assistant:
     path: ai-work-assistant
     enabled: true
+  meeting-export:
+    path: meeting-export
+    enabled: true

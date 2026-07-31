@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 from fastapi import (
@@ -447,3 +448,45 @@ async def run_action(
             type(exc).__name__,
         )
         raise AppError(502, "plugin_failed", "插件执行失败") from exc
+
+
+@meeting_actions_router.post("/{meeting_id}/plugin-exports/{exporter_id}")
+async def export_meeting(
+    meeting_id: str,
+    exporter_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> Response:
+    manager = request.app.state.plugin_manager
+    if exporter_id not in manager.loaded_exporters():
+        raise AppError(404, "plugin_export_not_found", "会议导出器不存在")
+    context = MeetingService(session).plugin_context(meeting_id, user)
+    try:
+        result = await asyncio.wait_for(
+            manager.export(exporter_id, context, session),
+            timeout=request.app.state.settings.plugin_timeout_seconds,
+        )
+    except PluginConfigurationError as exc:
+        raise AppError(409, "plugin_not_configured", "插件配置不完整") from exc
+    except PluginOutputError as exc:
+        raise AppError(502, "plugin_invalid_output", "插件导出结果无效") from exc
+    except TimeoutError as exc:
+        raise AppError(504, "plugin_timeout", "插件执行超时") from exc
+    except Exception as exc:
+        logger.error(
+            "Plugin export failed plugin_id=%s exporter_id=%s error_type=%s",
+            exporter_id.split(".", 1)[0],
+            exporter_id,
+            type(exc).__name__,
+        )
+        raise AppError(502, "plugin_failed", "插件导出失败") from exc
+    return Response(
+        content=result.content,
+        media_type=result.media_type,
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{quote(result.filename)}"
+            )
+        },
+    )

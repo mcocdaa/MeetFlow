@@ -1,0 +1,13 @@
+id: meeting-export
+name: 会议导出
+version: 1.0.0
+api_version: 2
+backend_entry: backend.py
+description: 将 bounded 会议上下文导出为 Markdown 或 JSON
+capabilities:
+  exporters:
+    - meeting-export.markdown
+    - meeting-export.json
+  context_scopes:
+    - meeting
+  external_network: false
