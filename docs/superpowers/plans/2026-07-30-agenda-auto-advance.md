@@ -501,9 +501,10 @@ git commit -m "docs: complete agenda auto advance plan"
 
 ## 实施验证记录
 
-- `python -m pytest -q`：`142 passed in 142.29s (0:02:22)`。
+- `python -m pytest -q`：`145 passed in 150.97s (0:02:30)`。
+- 审查回归：`python -m pytest -q backend/tests/domain/test_agendas.py -k 'complete_and_advance_requires or converts_stale_next'`：`3 passed`。
 - `npm --prefix frontend test`：`22 passed (22)` 个测试文件、`92 passed (92)` 个测试。
-- `npm --prefix frontend run build`：生产构建成功，`✓ built in 14.86s`；仅保留既有的 chunk-size 非阻断警告。
+- `npm --prefix frontend run build`：生产构建成功，`✓ built in 15.64s`；仅保留既有的 chunk-size 非阻断警告。
 - `python -m pytest -q backend/tests/test_release_workflow.py`：`1 passed in 0.02s`。
 - `git diff --check`：成功，无输出。
 - 隔离浏览器：以临时镜像 `meetflow-agenda-auto-advance:5f6a40f`、独立数据目录和 `127.0.0.1:45336` 运行；登录前插件模块请求为 401、登录后重试为 200 且插件控件可见。创建四项议题后，开始会议自动选中议题一并显示 `agenda-current-wash`；打开议题三不会结束议题一；完成议题三后自动打开议题四；选择已完成的议题三时计算动画为 `none`；刷新后议题一、议题四仍为进行中，议题三仍为已完成。临时容器、镜像、数据和截图均已清理，原有 `meetflow-series-smoke` 容器保持不变。
