@@ -1,8 +1,73 @@
 import pytest
 from sqlalchemy import select
 
-from app.plugins.events import record_plugin_event
+import app.models  # noqa: F401 - register all ORM models
+from app.database import Database
+from app.meetings.models import utcnow
+from app.plugins.events import record_plugin_event, retry_plugin_event
 from app.plugins.models import PluginEvent, PluginEventStatus
+
+
+def event_database():
+    database = Database("sqlite://")
+    database.create_schema()
+    return database
+
+
+def add_event(database, *, event_id="event-1", status=PluginEventStatus.queued):
+    with database.session() as session:
+        event = PluginEvent(
+            event_id=event_id,
+            event_type="meeting.completed",
+            payload_version=1,
+            target_type="meeting",
+            target_id="meeting-1",
+            payload_json={"meeting_id": "m1"},
+            status=status,
+            attempts=5 if status == PluginEventStatus.failed else 0,
+            next_attempt_at=utcnow(),
+            claimed_at=utcnow() if status == PluginEventStatus.failed else None,
+            finished_at=utcnow() if status == PluginEventStatus.failed else None,
+            last_error="provider timeout" if status == PluginEventStatus.failed else None,
+        )
+        session.add(event)
+        session.commit()
+
+
+def test_retry_failed_event_requeues_same_event_and_clears_runtime_state():
+    database = event_database()
+    add_event(database, event_id="evt-retry", status=PluginEventStatus.failed)
+
+    with database.session() as session:
+        retried = retry_plugin_event(session, "evt-retry")
+
+        assert retried.event_id == "evt-retry"
+        assert retried.payload_json == {"meeting_id": "m1"}
+        assert retried.status == PluginEventStatus.queued
+        assert retried.attempts == 0
+        assert retried.claimed_at is None
+        assert retried.finished_at is None
+        assert retried.last_error is None
+        assert retried.next_attempt_at is not None
+
+
+def test_retry_plugin_event_rejects_missing_or_non_failed_events():
+    database = event_database()
+    add_event(database, event_id="queued", status=PluginEventStatus.queued)
+    add_event(database, event_id="processing", status=PluginEventStatus.processing)
+    add_event(database, event_id="succeeded", status=PluginEventStatus.succeeded)
+
+    with database.session() as session:
+        with pytest.raises(KeyError):
+            retry_plugin_event(session, "missing")
+        for event_id in ("queued", "processing", "succeeded"):
+            with pytest.raises(ValueError, match="only failed"):
+                retry_plugin_event(session, event_id)
+
+    with database.session() as session:
+        assert session.scalar(select(PluginEvent).where(PluginEvent.event_id == "queued")).status == PluginEventStatus.queued
+        assert session.scalar(select(PluginEvent).where(PluginEvent.event_id == "processing")).status == PluginEventStatus.processing
+        assert session.scalar(select(PluginEvent).where(PluginEvent.event_id == "succeeded")).status == PluginEventStatus.succeeded
 
 
 def test_record_event_is_idempotent_and_queued(plugin_client, plugin_meeting_id):

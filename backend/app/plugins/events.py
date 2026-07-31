@@ -79,3 +79,21 @@ def record_plugin_event(
     session.add(event)
     session.flush()
     return event
+
+
+def retry_plugin_event(session: Session, event_id: str) -> PluginEvent:
+    """Requeue one terminally failed event without changing its identity."""
+    event = session.get(PluginEvent, event_id)
+    if event is None:
+        raise KeyError(event_id)
+    if event.status != PluginEventStatus.failed:
+        raise ValueError("only failed plugin events can be retried")
+    event.status = PluginEventStatus.queued
+    event.attempts = 0
+    event.next_attempt_at = utcnow()
+    event.claimed_at = None
+    event.finished_at = None
+    event.last_error = None
+    session.commit()
+    session.refresh(event)
+    return event
