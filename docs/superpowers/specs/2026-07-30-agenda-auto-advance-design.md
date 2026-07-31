@@ -11,7 +11,7 @@
 
 ## 状态与数据契约
 
-不新增持久化字段或数据库迁移。议题继续使用既有 `planned`、`in_progress`、`completed`、`skipped` 和 `canceled` 状态，以及既有 `started_at`、`completed_at` 与 `actual_duration_seconds`。
+议题使用 `planned`、`in_progress`、`completed`、`skipped` 和 `canceled` 状态，以及 `started_at`、`completed_at` 与 `actual_duration_seconds`。其中 `actual_duration_seconds` 是本工作流新增的持久化字段，并由配套 Alembic 迁移创建。
 
 ### 开始会议
 

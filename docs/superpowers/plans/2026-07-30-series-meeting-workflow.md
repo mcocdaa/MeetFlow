@@ -1,7 +1,7 @@
 # 系列会议工作流 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
+>
 > **实施状态（2026-07-30）：已完成。** 任务 1–9 及其收尾回归修复位于 `feature/series-meeting-workflow`；按要求，本地 `main` 已恢复为与 `origin/main` 一致。完成快照会保存结束时间并展示会议总实际时长；会议 API 与新快照统一输出带 `Z` 的 UTC，前端兼容按 UTC 解析旧 SQLite 快照的无后缀时间。复选框保留为原始执行模板。
 
 **Goal:** Deliver executable, time-zone-aware meeting series plus a direct meeting workflow, agenda-derived outcomes, persistent minutes, and an improved existing two-column meeting workbench.

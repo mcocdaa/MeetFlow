@@ -26,7 +26,7 @@
 - Modify: `frontend/src/components/AgendaDetail.vue:81-96`
 - Test: `frontend/src/tests/agenda-workbench.test.ts`
 
-- [ ] **Step 1: Write a failing regression test**
+- [x] **Step 1: Write a failing regression test**
 
 ```ts
 it('saves pending notes before completing and advancing', async () => {
@@ -36,13 +36,13 @@ it('saves pending notes before completing and advancing', async () => {
 })
 ```
 
-- [ ] **Step 2: Run the test and verify the expected failure**
+- [x] **Step 2: Run the test and verify the expected failure**
 
 Run: `npm --prefix frontend test -- agenda-workbench.test.ts`
 
 Expected: the completion request is issued without a preceding PATCH.
 
-- [ ] **Step 3: Implement the minimal persistence gate**
+- [x] **Step 3: Implement the minimal persistence gate**
 
 ```ts
 async function complete() {
@@ -57,7 +57,7 @@ async function complete() {
 }
 ```
 
-- [ ] **Step 4: Re-run the focused test and commit**
+- [x] **Step 4: Re-run the focused test and commit**
 
 Run: `npm --prefix frontend test -- agenda-workbench.test.ts`
 
@@ -77,7 +77,7 @@ git commit -m "fix: persist agenda edits before completion"
 - Test: `frontend/src/tests/meetings-view.test.ts`
 - Test: `frontend/src/tests/project-create-panel.test.ts`
 
-- [ ] **Step 1: Write failing filter and request-payload tests**
+- [x] **Step 1: Write failing filter and request-payload tests**
 
 ```ts
 it('renders canceled meetings when 已取消 is selected', async () => {
@@ -89,13 +89,13 @@ it('submits recurrence_anchor_date for a weekly series', async () => {
 })
 ```
 
-- [ ] **Step 2: Run the tests and verify the expected failures**
+- [x] **Step 2: Run the tests and verify the expected failures**
 
 Run: `npm --prefix frontend test -- meetings-view.test.ts project-create-panel.test.ts`
 
 Expected: the canceled meeting is not in any group and the payload assertion is absent.
 
-- [ ] **Step 3: Add local formatting and a canceled group**
+- [x] **Step 3: Add local formatting and a canceled group**
 
 ```ts
 function todayLocalDate(): string {
@@ -110,7 +110,7 @@ const recurrenceAnchorDate = ref(todayLocalDate())
   .sort((a, b) => b.scheduled_start.localeCompare(a.scheduled_start)) },
 ```
 
-- [ ] **Step 4: Re-run the focused tests and commit**
+- [x] **Step 4: Re-run the focused tests and commit**
 
 Run: `npm --prefix frontend test -- meetings-view.test.ts project-create-panel.test.ts`
 
@@ -130,7 +130,7 @@ git commit -m "fix: render canceled meetings and local anchors"
 - Modify: `backend/app/meetings/schemas.py:252-416`
 - Test: `backend/tests/domain/test_meeting_series.py`
 
-- [ ] **Step 1: Write failing recurrence and project-isolation tests**
+- [x] **Step 1: Write failing recurrence and project-isolation tests**
 
 ```python
 def test_slots_through_ignores_slots_before_earliest_cutoff():
@@ -147,13 +147,13 @@ def test_slots_through_ignores_slots_before_earliest_cutoff():
     assert all(slot >= datetime(2026, 7, 1, tzinfo=timezone.utc) for slot in slots)
 ```
 
-- [ ] **Step 2: Run the tests and verify the expected failures**
+- [x] **Step 2: Run the tests and verify the expected failures**
 
 Run: `.venv/bin/python -m pytest -q backend/tests/domain/test_meeting_series.py -k 'earliest_cutoff or requested_project'`
 
 Expected: slots have no cutoff and list materializes every active series.
 
-- [ ] **Step 3: Implement finite, project-aware materialization**
+- [x] **Step 3: Implement finite, project-aware materialization**
 
 ```python
 MAX_RECURRENCE_BACKFILL = timedelta(days=90)
@@ -169,7 +169,7 @@ def materialize_due_occurrences(
 
 `_materialize_series` loads existing slots once, normalizes them with `as_utc`, and creates only missing slots. `list_series` and `list_meetings` pass `project_id`; `RecurrenceRule.__post_init__` raises `ValueError` for missing selectors and documents its DST behavior.
 
-- [ ] **Step 4: Re-run the focused suite and commit**
+- [x] **Step 4: Re-run the focused suite and commit**
 
 Run: `.venv/bin/python -m pytest -q backend/tests/domain/test_meeting_series.py`
 
@@ -188,7 +188,7 @@ git commit -m "fix: bound and scope series materialization"
 - Modify: `backend/app/meetings/service.py:709-746`
 - Test: `backend/tests/domain/test_meeting_series.py`
 
-- [ ] **Step 1: Write failing scheduler and lifecycle tests**
+- [x] **Step 1: Write failing scheduler and lifecycle tests**
 
 ```python
 def test_start_scheduled_meeting_finishes_all_older_open_slots(
@@ -199,17 +199,24 @@ def test_start_scheduled_meeting_finishes_all_older_open_slots(
     # and assert the first two Meeting.status values are completed.
 ```
 
-- [ ] **Step 2: Run the tests and verify the expected failures**
+- [x] **Step 2: Run the tests and verify the expected failures**
 
 Run: `.venv/bin/python -m pytest -q backend/tests/domain/test_meeting_series.py -k 'all_older_open_slots or continues_after_one_run_failure'`
 
 Expected: only one old slot is closed and `serve` exits after an error.
 
-- [ ] **Step 3: Implement all-row closure and isolated scheduler execution**
+- [x] **Step 3: Implement all-row closure and isolated scheduler execution**
 
 ```python
 previous_ids = list(self.session.scalars(
-    select(Meeting.id).where(...).order_by(Meeting.series_slot_at)
+    select(Meeting.id)
+    .where(
+        Meeting.series_id == meeting.series_id,
+        Meeting.occurrence_kind == OccurrenceKind.scheduled,
+        Meeting.series_slot_at < meeting.series_slot_at,
+        Meeting.status.in_([MeetingStatus.draft, MeetingStatus.ready, MeetingStatus.in_progress]),
+    )
+    .order_by(Meeting.series_slot_at)
 ))
 for previous_id in previous_ids:
     self._finish_in_session(self._meeting_for_snapshot(previous_id), actor=actor, now=now)
@@ -222,7 +229,7 @@ except Exception:
     logger.exception("meeting series scheduler run failed")
 ```
 
-- [ ] **Step 4: Re-run focused tests and commit**
+- [x] **Step 4: Re-run focused tests and commit**
 
 Run: `.venv/bin/python -m pytest -q backend/tests/domain/test_meeting_series.py`
 
@@ -242,7 +249,7 @@ git commit -m "fix: harden series scheduling lifecycle"
 - Test: `backend/tests/domain/test_agendas.py`, `test_outcomes.py`, `test_meeting_lifecycle.py`
 - Test: `backend/tests/migrations/test_fresh_baseline.py`, `backend/tests/plugins/test_jobs.py`
 
-- [ ] **Step 1: Write failing duration, source-chain, and metadata-parity tests**
+- [x] **Step 1: Write failing duration, source-chain, and metadata-parity tests**
 
 ```python
 def test_finish_uses_shared_agenda_duration_lifecycle(client, meeting, meeting_users):
@@ -250,13 +257,13 @@ def test_finish_uses_shared_agenda_duration_lifecycle(client, meeting, meeting_u
     # at T0 + timedelta(minutes=5), and assert actual_duration_seconds == 300.
 ```
 
-- [ ] **Step 2: Run targeted tests and verify the expected failures**
+- [x] **Step 2: Run targeted tests and verify the expected failures**
 
 Run: `.venv/bin/python -m pytest -q backend/tests/domain/test_agendas.py backend/tests/domain/test_outcomes.py backend/tests/migrations/test_fresh_baseline.py backend/tests/plugins/test_jobs.py`
 
 Expected: direct duration assignment/schema defaults or source migration violates the new assertions.
 
-- [ ] **Step 3: Reuse one duration function and preserve source ownership**
+- [x] **Step 3: Reuse one duration function and preserve source ownership**
 
 ```python
 from app.agendas.lifecycle import actual_duration_seconds, complete_item, start_planned_item
@@ -266,7 +273,7 @@ item.actual_duration_seconds = actual_duration_seconds(item, now)
 
 Use the shared helper in both services. Agenda migration must skip source-owned outputs unless it updates their `agenda_item_id`, source fields, and reconciliation state atomically. The plugin context test completes through lifecycle functions instead of assigning duration directly.
 
-- [ ] **Step 4: Align migration types and temporary defaults**
+- [x] **Step 4: Align migration types and temporary defaults**
 
 ```python
 sa.Enum(RecurrenceFrequency, name="recurrencefrequency")
@@ -275,7 +282,7 @@ batch_op.alter_column("recurrence_interval", server_default=None)
 batch_op.alter_column("occurrence_kind", server_default=None)
 ```
 
-- [ ] **Step 5: Re-run targeted tests and commit**
+- [x] **Step 5: Re-run targeted tests and commit**
 
 Run: `.venv/bin/python -m pytest -q backend/tests/domain/test_agendas.py backend/tests/domain/test_outcomes.py backend/tests/domain/test_meeting_lifecycle.py backend/tests/migrations/test_fresh_baseline.py backend/tests/plugins/test_jobs.py`
 
@@ -295,11 +302,11 @@ git commit -m "fix: preserve agenda outcome persistence contracts"
 - Modify: `docs/superpowers/plans/2026-07-30-series-meeting-workflow.md:3-4`
 - Modify: `docs/superpowers/plans/2026-07-31-pr2-review-fixes.md`
 
-- [ ] **Step 1: Correct the contract records**
+- [x] **Step 1: Correct the contract records**
 
 List `agenda_outcome_tags`, `estimated_minutes`, `actual_duration_seconds`, `source_agenda_item_id`, `source_tag_key`, and `is_derived` in plugin context documentation. Correct the older design record to acknowledge the persisted duration migration, and remove the blank line between its predecessor plan's two blockquote lines.
 
-- [ ] **Step 2: Run full verification**
+- [x] **Step 2: Run full verification**
 
 Run:
 
@@ -313,7 +320,7 @@ git diff --check
 
 Expected: each command exits `0`; only the existing frontend chunk-size advisory may remain.
 
-- [ ] **Step 3: Record results, mark completed task checkboxes, and commit**
+- [x] **Step 3: Record results, mark completed task checkboxes, and commit**
 
 ```bash
 git add backend/app/plugins/README.md docs/superpowers/specs/2026-07-30-agenda-auto-advance-design.md docs/superpowers/plans/2026-07-30-series-meeting-workflow.md docs/superpowers/plans/2026-07-31-pr2-review-fixes.md
@@ -325,3 +332,16 @@ git commit -m "docs: record review fix verification"
 - **Spec coverage:** Tasks 1–5 map one-to-one to each in-scope section of `2026-07-31-pr2-review-fixes-design.md`; Task 6 covers documentation and release verification.
 - **Deferred scope:** return annotations, status-label extraction, `SeriesStatus` narrowing, reactive route synchronization, and generic helper extraction remain out of scope.
 - **TDD integrity:** Every runtime task begins with a named failing regression and requires an observed RED run before implementation.
+
+## Execution record (2026-07-31)
+
+- Task 1 focused test: `npm --prefix frontend test -- agenda-workbench.test.ts` — 17 passed.
+- Task 2 focused tests: `npm --prefix frontend test -- meetings-view.test.ts project-create-panel.test.ts` — 6 passed.
+- Tasks 3–4 focused test: `python -m pytest -q backend/tests/domain/test_meeting_series.py` — 19 passed.
+- Task 5 focused regressions passed for derived-outcome ownership, lifecycle duration, fresh migration schema parity, and plugin meeting context.
+- Full verification (the local checkout has no `.venv`, so `python` is the active test interpreter):
+  - `python -m pytest -q` — 149 passed in 149.71s.
+  - `npm --prefix frontend test` — 22 files and 95 tests passed.
+  - `npm --prefix frontend run build` — passed; Vite reports only its existing chunk-size advisory.
+  - `python -m pytest -q backend/tests/test_release_workflow.py` — 1 passed.
+  - `git diff --check` — passed.
