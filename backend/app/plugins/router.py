@@ -31,7 +31,7 @@ from app.plugins.manager import (
     PluginStreamingError,
 )
 from app.plugins.context import PluginContextBuilder
-from app.plugins.models import PluginState
+from app.plugins.models import PluginEvent, PluginEventStatus, PluginState
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
 from app.workspace.work_briefs import replace_work_brief
@@ -82,6 +82,21 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
     }
 
 
+def serialize_event(event: PluginEvent) -> dict[str, Any]:
+    return {
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "target_type": event.target_type,
+        "target_id": event.target_id,
+        "status": event.status,
+        "attempts": event.attempts,
+        "last_error": event.last_error,
+        "created_at": event.created_at,
+        "claimed_at": event.claimed_at,
+        "finished_at": event.finished_at,
+    }
+
+
 @admin_router.get("")
 def list_plugins(
     request: Request,
@@ -97,8 +112,11 @@ def list_plugins(
                 "id": descriptor.plugin_id,
                 "name": descriptor.manifest.name,
                 "version": descriptor.manifest.version,
+                "api_version": descriptor.manifest.api_version,
                 "description": descriptor.manifest.description,
                 "enabled": descriptor.enabled,
+                "loaded": manager.is_loaded(descriptor.plugin_id),
+                "capabilities": descriptor.manifest.capabilities.model_dump(),
                 "config_schema": {
                     key: [field.model_dump() for field in fields]
                     for key, fields in descriptor.manifest.config_schema.items()
@@ -160,6 +178,21 @@ def update_plugin_enabled(
         )
     session.commit()
     return {"enabled": payload.enabled, "restart_required": True}
+
+
+@admin_router.get("/events")
+def list_plugin_events(
+    status: PluginEventStatus | None = None,
+    limit: int = 50,
+    _admin: User = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    statement = select(PluginEvent).order_by(
+        PluginEvent.created_at.desc(), PluginEvent.event_id.desc()
+    ).limit(min(max(limit, 1), 200))
+    if status is not None:
+        statement = statement.where(PluginEvent.status == status)
+    return {"items": [serialize_event(event) for event in session.scalars(statement)]}
 
 
 @actions_router.get("/actions")

@@ -424,6 +424,9 @@ class PluginManager:
     def event_subscribers(self, event_type: str) -> list[str]:
         return [plugin_id for plugin_id, _handler in self._event_subscribers.get(event_type, [])]
 
+    def is_loaded(self, plugin_id: str) -> bool:
+        return plugin_id in self._loaded_descriptors
+
     async def invoke_event(
         self,
         event_type: str,

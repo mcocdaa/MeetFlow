@@ -17,6 +17,10 @@ SQLite transaction as the snapshot. The single-process worker claims queued
 events, retries failures with bounded backoff, and marks events as failed after
 five attempts; a restart requeues only events that were being processed.
 
+管理员插件页通过 `GET /api/admin/plugins` 查看 manifest 能力、API 版本和本次进程是否已加载；通过
+`GET /api/admin/plugins/events?status=failed` 查看脱敏后的失败事件、重试次数和最后错误。该诊断接口只读，
+不会返回插件配置或事件 payload。
+
 Exporter plugins receive only the bounded meeting context and return a
 validated `PluginExport`. The core enforces a safe single-segment filename,
 bytes-only content and an 8 MB limit before sending the download response;
