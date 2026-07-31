@@ -61,6 +61,7 @@ class PluginManager:
         self._descriptors: dict[str, PluginDescriptor] = {}
         self._loaded_descriptors: dict[str, PluginDescriptor] = {}
         self._actions: dict[str, MeetingAction] = {}
+        self._event_subscribers: dict[str, list[tuple[str, Any]]] = {}
         self._errors: list[PluginLoadError] = []
         self._modules: dict[str, ModuleType] = {}
 
@@ -234,6 +235,7 @@ class PluginManager:
     def load_enabled(self) -> None:
         self._errors = []
         self._actions = {}
+        self._event_subscribers = {}
         self._modules = {}
         self._loaded_descriptors = {}
         for descriptor in self.discover():
@@ -250,6 +252,10 @@ class PluginManager:
                     if action_id in self._actions:
                         raise ValueError("duplicate global action id")
                     self._actions[action_id] = action
+                for event_type, handler in registry.event_subscribers.items():
+                    self._event_subscribers.setdefault(event_type, []).append(
+                        (descriptor.plugin_id, handler)
+                    )
                 self._modules[descriptor.plugin_id] = module
                 self._loaded_descriptors[descriptor.plugin_id] = descriptor
             except Exception as exc:
@@ -394,6 +400,19 @@ class PluginManager:
             for action in self._actions.values()
             if not action.admin_only or role == UserRole.ADMIN
         ]
+
+    def event_subscribers(self, event_type: str) -> list[str]:
+        return [plugin_id for plugin_id, _handler in self._event_subscribers.get(event_type, [])]
+
+    async def invoke_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        session: Session,
+    ) -> None:
+        for plugin_id, handler in self._event_subscribers.get(event_type, []):
+            config = self.runtime_config(plugin_id, session)
+            await handler(payload, config)
 
     async def invoke(
         self,

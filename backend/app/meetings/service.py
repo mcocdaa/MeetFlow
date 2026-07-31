@@ -44,6 +44,7 @@ from app.meetings.projectors import (
 )
 from app.meetings.queries import MeetingQueries
 from app.outcomes.models import ActionItem, DecisionReviewer, OpenQuestion
+from app.plugins.events import record_plugin_event
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -1164,6 +1165,19 @@ class MeetingService:
         self.session.add(snapshot)
         meeting.current_snapshot = snapshot
         meeting.version += 1
+        self.session.flush()
+        record_plugin_event(
+            self.session,
+            event_type="meeting.completed",
+            target_type="meeting",
+            target_id=meeting.id,
+            event_id=f"meeting.completed:meeting:{meeting.id}:{completion_number}",
+            payload={
+                "meeting_id": meeting.id,
+                "snapshot_id": snapshot.id,
+                "version": meeting.version,
+            },
+        )
         self._record_meeting(meeting, actor, "meeting.finished")
 
     def list_snapshots(

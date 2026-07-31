@@ -59,6 +59,7 @@ Handler = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]],
     Awaitable[dict[str, Any]],
 ]
+EventHandler = Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]]
 StreamHandler = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]],
     AsyncIterator[str],
@@ -86,6 +87,7 @@ class MeetingAction:
 class PluginRegistry:
     plugin_id: str
     actions: dict[str, MeetingAction] = field(default_factory=dict)
+    event_subscribers: dict[str, EventHandler] = field(default_factory=dict)
 
     def register_meeting_action(self, action: MeetingAction) -> None:
         if not action.action_id.startswith(f"{self.plugin_id}."):
@@ -93,3 +95,10 @@ class PluginRegistry:
         if action.action_id in self.actions:
             raise ValueError("duplicate action_id")
         self.actions[action.action_id] = action
+
+    def register_event_subscriber(self, event_type: str, handler: EventHandler) -> None:
+        if not event_type or not callable(handler):
+            raise ValueError("event subscriber requires an event type and handler")
+        if event_type in self.event_subscribers:
+            raise ValueError("duplicate event subscriber")
+        self.event_subscribers[event_type] = handler

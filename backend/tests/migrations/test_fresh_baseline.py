@@ -30,6 +30,7 @@ APPLICATION_TABLES = {
     "open_questions",
     "outcome_migration_records",
     "plugin_configs",
+    "plugin_events",
     "plugin_jobs",
     "plugin_states",
     "project_members",
@@ -149,6 +150,11 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         if index["unique"]
     }
     assert ("dedupe_key", "status") in plugin_job_indexes
+    plugin_event_indexes = {
+        tuple(index["column_names"])
+        for index in inspector.get_indexes("plugin_events")
+    }
+    assert ("status", "next_attempt_at") in plugin_event_indexes
     notification_indexes = {
         tuple(index["column_names"]) for index in inspector.get_indexes("notifications")
     }

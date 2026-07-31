@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, JSON, String, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -43,6 +43,44 @@ class PluginJobStatus(StrEnum):
     failed = "failed"
     interrupted = "interrupted"
     canceled = "canceled"
+
+
+class PluginEventStatus(StrEnum):
+    queued = "queued"
+    processing = "processing"
+    succeeded = "succeeded"
+    failed = "failed"
+
+
+class PluginEvent(Base):
+    __tablename__ = "plugin_events"
+    __table_args__ = (
+        Index("ix_plugin_events_claim", "status", "next_attempt_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(120), index=True)
+    payload_version: Mapped[int] = mapped_column(Integer, default=1)
+    target_type: Mapped[str] = mapped_column(String(40), index=True)
+    target_id: Mapped[str] = mapped_column(String(36), index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[PluginEventStatus] = mapped_column(
+        String(20), default=PluginEventStatus.queued, index=True
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
 
 
 class PluginJob(Base):

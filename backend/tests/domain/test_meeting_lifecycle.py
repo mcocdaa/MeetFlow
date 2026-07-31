@@ -16,6 +16,7 @@ from app.meetings.models import (
     MeetingParticipant,
     MeetingSnapshot,
 )
+from app.plugins.models import PluginEvent, PluginEventStatus
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -326,6 +327,13 @@ def test_snapshot_keeps_raw_notes_and_start_accepts_draft(client, lifecycle_cont
             completed.current_snapshot.snapshot_json["meeting"]["raw_notes_markdown"]
             == "  raw notes\n"
         )
+        event = session.get(
+            PluginEvent,
+            f"meeting.completed:meeting:{meeting_id}:1",
+        )
+        assert event is not None
+        assert event.status == PluginEventStatus.queued
+        assert event.payload_json["snapshot_id"] == completed.current_snapshot_id
 
 
 def test_snapshot_includes_derived_outcome_source_metadata(client, lifecycle_context):

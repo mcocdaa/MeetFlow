@@ -12,6 +12,11 @@ integration surface. Declaring a capability does not grant access by itself;
 the corresponding server-side contract must still validate the action,
 bounded context, target and output.
 
+Completed meetings are recorded in the `plugin_events` outbox in the same
+SQLite transaction as the snapshot. The single-process worker claims queued
+events, retries failures with bounded backoff, and marks events as failed after
+five attempts; a restart requeues only events that were being processed.
+
 The `/app/plugins` directory should be mounted read-only. Plugin manifests declare configuration fields and secrets. Secrets are encrypted in SQLite and are passed only to the corresponding loaded plugin action.
 
 For meeting-targeted actions, MeetFlow supplies a server-built, read-only context package. It may include the saved meeting summary, participants, agenda notes and statuses, `agenda_outcome_tags`, `estimated_minutes`, `actual_duration_seconds`, and manual or note-derived outcomes. Outcome rows expose `source_agenda_item_id`, `source_tag_key`, and `is_derived`; these field names are stable plugin-contract fields. The supported tag syntax is `@决策:` / `@行动:` / `@开放问题:`. Treat this package as authoritative input for suggestions, not as permission to mutate domain records: action handlers return a proposed editor value and the normal authenticated save path remains the only write boundary.
