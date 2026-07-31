@@ -40,7 +40,7 @@ function completedOutcomeFixture() {
     meeting: { title: '迭代评审', summary_markdown: '本轮范围已经确认' },
     agenda_items: [
       {
-        id: 'a1', title: '发布方案', status: 'completed',
+        id: 'a1', title: '发布方案', status: 'completed', notes_markdown: '确认灰度范围并记录回滚条件。', estimated_minutes: 20, actual_duration_seconds: 95,
         decisions: [{ id: 'd1', title: '采用灰度发布', decision_markdown: '先向 10% 用户发布。', rationale_markdown: '先验证核心指标。', status: 'final' }],
         actions: [{ id: 'ac1', content: '准备灰度发布清单', priority: 'high', due_date: '2026-07-30', status: 'open' }],
         open_questions: [{ id: 'q1', question_markdown: '回滚阈值是什么？', status: 'open' }],
@@ -58,21 +58,26 @@ describe('meeting lifecycle workspace', () => {
   beforeEach(() => apiMock.mockReset())
 
   it.each([
-    ['draft', '准备会议'],
-    ['in_progress', '完成议题并进入下一项'],
-    ['completed', '添加更正'],
-  ] as const)('renders %s meeting controls', async (status, control) => {
+    ['draft', '开始会议', 'button'],
+    ['in_progress', '完成议题并进入下一项', undefined],
+    ['completed', '添加更正', undefined],
+  ] as const)('renders %s meeting controls', async (status, control, selector) => {
     apiMock.mockResolvedValue(fixture(status, status === 'in_progress' ? 1 : 0))
     render(MeetingWorkspaceView)
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1'))
-    expect(await screen.findByText(control, { selector: status === 'draft' ? 'span' : undefined })).toBeVisible()
+    expect(await screen.findByText(control, { selector })).toBeVisible()
   })
 
-  it('weakens finish while unresolved agenda remains', async () => {
+  it('allows finishing with unresolved agenda and lets the server mark them skipped', async () => {
     apiMock.mockResolvedValue(fixture('in_progress', 2))
     render(MeetingWorkspaceView)
-    expect(await screen.findByRole('button', { name: '结束会议' })).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.getByText('还有 2 个议题未处理')).toBeVisible()
+    const finish = await screen.findByRole('button', { name: '结束会议' })
+    expect(finish).toBeEnabled()
+    expect(screen.getByText(/结束后，未结束议题会记为跳过。/)).toBeVisible()
+    await fireEvent.click(finish)
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/finish', {
+      method: 'POST', body: JSON.stringify({ expected_version: 4 }),
+    }))
   })
 
   it('adds an amendment without editing the completed snapshot', async () => {
@@ -93,11 +98,12 @@ describe('meeting lifecycle workspace', () => {
 
     const first = await screen.findByTestId('completed-agenda-a1')
     const second = screen.getByTestId('completed-agenda-a2')
-    expect(first).not.toHaveAttribute('open')
-    expect(second).not.toHaveAttribute('open')
+    expect(first).toHaveAttribute('open')
+    expect(second).toHaveAttribute('open')
     expect(screen.queryByText('当前可变决策')).not.toBeInTheDocument()
+    expect(screen.getByText('确认灰度范围并记录回滚条件。')).toBeVisible()
+    expect(within(first).getByText(/预计 20 分钟 · 实际 1 分 35 秒/)).toBeVisible()
 
-    await fireEvent.click(within(first).getByText('发布方案'))
     expect(first).toHaveAttribute('open')
     expect(screen.getByText('采用灰度发布')).toBeVisible()
     expect(screen.getByText('先向 10% 用户发布。')).toBeVisible()
@@ -105,21 +111,35 @@ describe('meeting lifecycle workspace', () => {
     expect(screen.getByText(/截止：2026-07-30/)).toBeVisible()
     expect(screen.getByText('回滚阈值是什么？')).toBeVisible()
 
-    await fireEvent.click(within(second).getByText('后续跟进'))
     expect(first).toHaveAttribute('open')
     expect(second).toHaveAttribute('open')
     expect(within(second).getByText('本议题未记录产出')).toBeVisible()
 
     const meetingLevel = screen.getByTestId('completed-meeting-outcomes')
-    await fireEvent.click(within(meetingLevel).getByText('会议级产出'))
     expect(meetingLevel).toHaveAttribute('open')
     expect(screen.getByText('每周复盘一次')).toBeVisible()
+  })
+
+  it('shows the frozen total actual duration in the completed summary', async () => {
+    const meeting = completedOutcomeFixture()
+    if (!meeting.current_snapshot) throw new Error('completed fixture requires a snapshot')
+    const snapshot = meeting.current_snapshot as { snapshot_json: { meeting: Record<string, unknown> } }
+    snapshot.snapshot_json.meeting = {
+      ...snapshot.snapshot_json.meeting,
+      started_at: '2026-07-24T02:00:00',
+      completed_at: '2026-07-24T03:05:09',
+    }
+    apiMock.mockResolvedValue(meeting)
+
+    render(MeetingWorkspaceView)
+
+    expect(await screen.findByTestId('completed-meeting-duration')).toHaveTextContent('实际会议时长：1 小时 5 分 9 秒')
   })
 
   it('omits meeting-level outcomes when the completed snapshot has none', async () => {
     apiMock.mockResolvedValue(fixture('completed'))
     render(MeetingWorkspaceView)
-    await screen.findByText('议题与产出')
+    await screen.findByText('议题记录与产出')
     expect(screen.queryByTestId('completed-meeting-outcomes')).not.toBeInTheDocument()
   })
 })

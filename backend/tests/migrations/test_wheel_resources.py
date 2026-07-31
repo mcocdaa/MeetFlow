@@ -96,6 +96,15 @@ from sqlalchemy import inspect, text
 database = Database(%r)
 database.migrate()
 assert %r <= set(inspect(database.engine).get_table_names())
+columns = {
+    table: {column["name"] for column in inspect(database.engine).get_columns(table)}
+    for table in ("meeting_series", "meetings", "agenda_items", "decisions", "action_items", "open_questions")
+}
+assert {"recurrence_frequency", "recurrence_local_time", "recurrence_timezone"} <= columns["meeting_series"]
+assert {"occurrence_kind", "series_slot_at"} <= columns["meetings"]
+assert "actual_duration_seconds" in columns["agenda_items"]
+for table in ("decisions", "action_items", "open_questions"):
+    assert {"source_agenda_item_id", "source_tag_key"} <= columns[table]
 with database.engine.connect() as connection:
     assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ScriptDirectory.from_config(
         Config(migration_config_path())

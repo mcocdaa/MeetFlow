@@ -18,7 +18,7 @@ class AgendaWrite(StrictInput):
     agenda_type: AgendaType
     proposer_user_id: str | None = Field(default=None, max_length=64)
     presenter_user_id: str | None = Field(default=None, max_length=64)
-    estimated_minutes: int | None = Field(default=None, ge=1, le=480)
+    estimated_minutes: int | None = Field(default=5, ge=1, le=480)
     notes_markdown: str = Field(default="", max_length=100_000)
     position: int | None = Field(default=None, ge=0)
 

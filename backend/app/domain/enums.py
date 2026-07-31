@@ -31,6 +31,18 @@ class SeriesStatus(StrEnum):
     archived = "archived"
 
 
+class RecurrenceFrequency(StrEnum):
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+    yearly = "yearly"
+
+
+class OccurrenceKind(StrEnum):
+    scheduled = "scheduled"
+    manual = "manual"
+
+
 class MeetingStatus(StrEnum):
     draft = "draft"
     ready = "ready"

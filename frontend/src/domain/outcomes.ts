@@ -14,6 +14,7 @@ export type Decision = Versioned & {
   decision_markdown: string
   rationale_markdown: string
   status: DecisionStatus
+  is_derived?: boolean
   created_by: UserRef
   created_at: string
   updated_at: string
@@ -29,6 +30,7 @@ export type ActionItem = Versioned & {
   due_date: string | null
   priority: ActionPriority
   status: ActionStatus
+  is_derived?: boolean
   created_by: UserRef
   created_at: string
   updated_at: string
@@ -43,6 +45,7 @@ export type OpenQuestion = Versioned & {
   question_markdown: string
   owner: UserRef | null
   status: OpenQuestionStatus
+  is_derived?: boolean
   created_by: UserRef
   created_at: string
   updated_at: string

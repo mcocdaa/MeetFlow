@@ -17,6 +17,7 @@ from app.database import Database
 from app.errors import install_error_handlers
 from app.inbox.router import router as inbox_router
 from app.meetings.router import router as meetings_router
+from app.meetings.scheduler import MeetingSeriesScheduler
 from app.outcomes.router import router as outcomes_router
 from app.plugins.manager import PluginManager
 from app.plugins.worker import PluginJobWorker
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved.plugins_dir, database, resolved.app_secret_key
     )
     plugin_worker = PluginJobWorker(database, plugin_manager)
+    series_scheduler = MeetingSeriesScheduler(database)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -60,14 +62,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if resolved.app_env != "test"
             else None
         )
+        scheduler_task = (
+            asyncio.create_task(series_scheduler.serve())
+            if resolved.app_env != "test"
+            else None
+        )
         try:
             yield
         finally:
             plugin_worker.stop()
-            if worker_task is not None:
-                worker_task.cancel()
+            series_scheduler.stop()
+            for task in (worker_task, scheduler_task):
+                if task is None:
+                    continue
+                task.cancel()
                 try:
-                    await worker_task
+                    await task
                 except asyncio.CancelledError:
                     pass
         database.engine.dispose()
@@ -79,6 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.attachment_storage = attachment_storage
     app.state.plugin_manager = plugin_manager
     app.state.plugin_worker = plugin_worker
+    app.state.series_scheduler = series_scheduler
     install_error_handlers(app)
     app.include_router(auth_router)
     app.include_router(admin_router)

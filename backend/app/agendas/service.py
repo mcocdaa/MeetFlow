@@ -7,7 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.agendas.lifecycle import actual_duration_seconds, complete_item, start_planned_item
 from app.agendas.models import AgendaItem
+from app.agendas.outcome_tags import TaggedOutcome, parse_outcome_tags
 from app.agendas.schemas import (
     AgendaCommand,
     AgendaEdit,
@@ -22,6 +24,7 @@ from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import Meeting
 from app.meetings.service import user_ref
+from app.outcomes.models import ActionItem, Decision, OpenQuestion
 
 
 def utcnow() -> datetime:
@@ -91,6 +94,106 @@ class AgendaService:
         if item is None:
             raise AppError(404, "agenda_item_not_found", "议题不存在")
         return item
+
+    def _reconcile_derived_outcomes(
+        self, item: AgendaItem, tags: list[TaggedOutcome], actor: User
+    ) -> None:
+        meeting = item.meeting
+        rows = {
+            "decision": list(
+                self.session.scalars(
+                    select(Decision).where(Decision.source_agenda_item_id == item.id)
+                )
+            ),
+            "action": list(
+                self.session.scalars(
+                    select(ActionItem).where(ActionItem.source_agenda_item_id == item.id)
+                )
+            ),
+            "question": list(
+                self.session.scalars(
+                    select(OpenQuestion).where(
+                        OpenQuestion.source_agenda_item_id == item.id
+                    )
+                )
+            ),
+        }
+        existing = {
+            kind: {row.source_tag_key: row for row in values}
+            for kind, values in rows.items()
+        }
+        requested = {
+            kind: {tag.source_tag_key for tag in tags if tag.kind == kind}
+            for kind in ("decision", "action", "question")
+        }
+
+        for tag in tags:
+            row = existing[tag.kind].get(tag.source_tag_key)
+            if row is None:
+                if tag.kind == "decision":
+                    self.session.add(
+                        Decision(
+                            project_id=meeting.project_id,
+                            meeting_id=meeting.id,
+                            agenda_item_id=item.id,
+                            source_agenda_item_id=item.id,
+                            source_tag_key=tag.source_tag_key,
+                            title=tag.content,
+                            decision_markdown=tag.content,
+                            created_by=actor.id,
+                        )
+                    )
+                elif tag.kind == "action":
+                    self.session.add(
+                        ActionItem(
+                            project_id=meeting.project_id,
+                            meeting_id=meeting.id,
+                            agenda_item_id=item.id,
+                            source_agenda_item_id=item.id,
+                            source_tag_key=tag.source_tag_key,
+                            content=tag.content,
+                            created_by=actor.id,
+                        )
+                    )
+                else:
+                    self.session.add(
+                        OpenQuestion(
+                            project_id=meeting.project_id,
+                            meeting_id=meeting.id,
+                            agenda_item_id=item.id,
+                            source_agenda_item_id=item.id,
+                            source_tag_key=tag.source_tag_key,
+                            question_markdown=tag.content,
+                            created_by=actor.id,
+                        )
+                    )
+                continue
+
+            changed = False
+            for field, value in (
+                ("project_id", meeting.project_id),
+                ("meeting_id", meeting.id),
+                ("agenda_item_id", item.id),
+            ):
+                if getattr(row, field) != value:
+                    setattr(row, field, value)
+                    changed = True
+            content_fields = {
+                "decision": (("title", tag.content), ("decision_markdown", tag.content)),
+                "action": (("content", tag.content),),
+                "question": (("question_markdown", tag.content),),
+            }
+            for field, value in content_fields[tag.kind]:
+                if getattr(row, field) != value:
+                    setattr(row, field, value)
+                    changed = True
+            if changed:
+                row.version += 1
+
+        for kind, values in rows.items():
+            for row in values:
+                if row.source_tag_key not in requested[kind]:
+                    self.session.delete(row)
 
     def list(self, meeting_id: str) -> list[AgendaItem]:
         self._meeting(meeting_id)
@@ -202,6 +305,7 @@ class AgendaService:
         meeting = self._meeting(meeting_id)
         self._require_mutable(meeting)
         require_version(expected_meeting_version, meeting.version)
+        tags = parse_outcome_tags(payload.notes_markdown)
         self._users([payload.proposer_user_id, payload.presenter_user_id])
         items = self.list(meeting_id)
         position = (
@@ -227,6 +331,7 @@ class AgendaService:
         meeting.updated_by = actor.id
         try:
             self.session.flush()
+            self._reconcile_derived_outcomes(item, tags, actor)
             self._record(item, actor, "agenda.created")
             self.session.commit()
         except StaleDataError as exc:
@@ -243,6 +348,11 @@ class AgendaService:
         expected_meeting_version = meeting.version
         require_version(payload.expected_version, item.version)
         changes = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
+        tags = (
+            parse_outcome_tags(changes["notes_markdown"])
+            if "notes_markdown" in changes
+            else None
+        )
         if not changes or all(
             getattr(item, key) == value for key, value in changes.items()
         ):
@@ -250,6 +360,8 @@ class AgendaService:
         self._users([changes.get("proposer_user_id"), changes.get("presenter_user_id")])
         for field, value in changes.items():
             setattr(item, field, value)
+        if tags is not None:
+            self._reconcile_derived_outcomes(item, tags, actor)
         item.updated_by = actor.id
         item.version += 1
         meeting.updated_by = actor.id
@@ -335,6 +447,7 @@ class AgendaService:
             item.started_at = now
         item.status = target
         item.completed_at = now
+        item.actual_duration_seconds = actual_duration_seconds(item, now)
         item.updated_by = actor.id
         item.version += 1
         meeting.updated_by = actor.id
@@ -361,6 +474,50 @@ class AgendaService:
     def complete(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
         return self._transition(item_id, payload, actor, AgendaStatus.completed)
 
+    def complete_and_advance(
+        self, item_id: str, payload: AgendaCommand, actor: User
+    ) -> tuple[AgendaItem, str | None]:
+        self._require_active(actor)
+        item = self.get(item_id)
+        meeting = item.meeting
+        if meeting.status != MeetingStatus.in_progress:
+            raise AppError(409, "meeting_not_in_progress", "会议尚未开始")
+        meeting_id = meeting.id
+        expected_meeting_version = meeting.version
+        require_version(payload.expected_version, item.version)
+        if item.status != AgendaStatus.in_progress:
+            raise AppError(409, "invalid_agenda_transition", "议题状态不可再次结束")
+        try:
+            next_item = next(
+                (
+                    row
+                    for row in self.list(meeting_id)
+                    if row.position > item.position
+                    and row.status == AgendaStatus.planned
+                ),
+                None,
+            )
+            now = utcnow()
+            complete_item(item, actor_id=actor.id, at=now)
+            if next_item is not None:
+                start_planned_item(next_item, actor_id=actor.id, at=now)
+            meeting.updated_by = actor.id
+            meeting.version += 1
+            self._record(item, actor, "agenda.completed")
+            if next_item is not None:
+                self._record(next_item, actor, "agenda.started")
+            self.session.commit()
+        except StaleDataError as exc:
+            self._raise_item_or_meeting_stale(
+                item_id=item_id,
+                expected_item_version=payload.expected_version,
+                meeting_id=meeting_id,
+                expected_meeting_version=expected_meeting_version,
+                exc=exc,
+            )
+        self.session.refresh(item)
+        return item, next_item.id if next_item is not None else None
+
     def start(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
         self._require_active(actor)
         item = self.get(item_id)
@@ -371,10 +528,7 @@ class AgendaService:
         require_version(payload.expected_version, item.version)
         if item.status != AgendaStatus.planned:
             raise AppError(409, "invalid_agenda_transition", "只有待处理议题可以开始")
-        item.status = AgendaStatus.in_progress
-        item.started_at = utcnow()
-        item.updated_by = actor.id
-        item.version += 1
+        start_planned_item(item, actor_id=actor.id, at=utcnow())
         meeting.updated_by = actor.id
         meeting.version += 1
         self._record(item, actor, "agenda.started")
@@ -476,6 +630,7 @@ class AgendaService:
         item.status = AgendaStatus.planned
         item.started_at = None
         item.completed_at = None
+        item.actual_duration_seconds = None
         item.updated_by = actor.id
         item.version += 1
 

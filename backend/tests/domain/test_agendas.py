@@ -19,6 +19,8 @@ from app.meetings.models import Meeting
 from app.meetings.schemas import LifecycleCommand, MeetingWrite
 from app.meetings.service import MeetingService
 from app.outcomes.models import ActionItem, Decision, OpenQuestion
+from app.outcomes.schemas import ActionEdit, ActionWrite, DecisionEdit, QuestionEdit
+from app.outcomes.service import OutcomeService
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -99,6 +101,175 @@ def test_create_appends_and_inserts_with_contiguous_positions(client, agenda_con
         assert middle.version == 1
 
 
+def test_agenda_write_defaults_to_a_five_minute_estimate():
+    assert AgendaWrite(title="Default estimate", agenda_type="discussion").estimated_minutes == 5
+
+
+def test_complete_and_advance_starts_next_planned_without_finishing_other_started(
+    client, agenda_context, monkeypatch
+):
+    admin, _, meeting_id = agenda_context
+    first_at = datetime(2026, 8, 10, 9, tzinfo=timezone.utc)
+    completed_at = datetime(2026, 8, 10, 9, 5, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.agendas.service.utcnow", lambda: completed_at)
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        session.refresh(meeting)
+        already_open = add_item(agendas, meeting, admin, "Earlier open")
+        session.refresh(meeting)
+        next_item = add_item(agendas, meeting, admin, "Next")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+        current.started_at = first_at
+        already_open.status = "in_progress"
+        already_open.started_at = first_at
+        session.commit()
+
+        completed, next_id = agendas.complete_and_advance(
+            current.id,
+            AgendaCommand(expected_version=current.version),
+            admin,
+        )
+
+        assert completed.status.value == "completed"
+        assert completed.actual_duration_seconds == 300
+        assert next_id == next_item.id
+        assert session.get(AgendaItem, next_item.id).status.value == "in_progress"
+        assert session.get(AgendaItem, already_open.id).status.value == "in_progress"
+
+
+def test_complete_and_advance_returns_none_when_no_later_planned_item(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(agendas, meeting, admin, "Only")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        completed, next_id = agendas.complete_and_advance(
+            item.id,
+            AgendaCommand(expected_version=item.version),
+            admin,
+        )
+
+        assert completed.status.value == "completed"
+        assert next_id is None
+
+
+def test_complete_and_advance_rejects_a_stale_item_without_starting_next(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        session.refresh(meeting)
+        later = add_item(agendas, meeting, admin, "Later")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                current.id,
+                AgendaCommand(expected_version=current.version + 1),
+                admin,
+            )
+
+        assert error.value.code == "version_conflict"
+        assert session.get(AgendaItem, current.id).status.value == "in_progress"
+        assert session.get(AgendaItem, later.id).status.value == "planned"
+
+
+def test_complete_and_advance_requires_a_live_meeting(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(agendas, meeting, admin, "Draft agenda")
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                item.id, AgendaCommand(expected_version=item.version), admin
+            )
+
+        assert error.value.code == "meeting_not_in_progress"
+        assert session.get(AgendaItem, item.id).status.value == "planned"
+
+
+def test_complete_and_advance_requires_an_in_progress_agenda(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        session.refresh(meeting)
+        planned = add_item(agendas, meeting, admin, "Later")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                planned.id, AgendaCommand(expected_version=planned.version), admin
+            )
+
+        assert error.value.code == "invalid_agenda_transition"
+        assert session.get(AgendaItem, current.id).status.value == "in_progress"
+        assert session.get(AgendaItem, planned.id).status.value == "planned"
+
+
+def test_complete_and_advance_converts_stale_next_agenda_query_to_conflict(
+    client, agenda_context, monkeypatch
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        def raise_stale_next_agenda_query(_meeting_id):
+            raise StaleDataError()
+
+        monkeypatch.setattr(agendas, "list", raise_stale_next_agenda_query)
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                current.id, AgendaCommand(expected_version=current.version), admin
+            )
+
+        assert error.value.code == "version_conflict"
+        assert session.get(AgendaItem, current.id).status.value == "in_progress"
+
+
 def test_public_agenda_edit_reorder_transitions_and_parent_lock(client, agenda_context):
     admin, _, meeting_id = agenda_context
     with client.app.state.database.session() as session:
@@ -148,6 +319,145 @@ def test_public_agenda_edit_reorder_transitions_and_parent_lock(client, agenda_c
                 admin,
             )
         assert locked.value.code == "meeting_immutable"
+
+
+def test_saving_agenda_reconciles_tagged_outcomes_and_preserves_manual_rows(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agenda_service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = add_item(agenda_service, meeting, admin, "Delivery decision")
+        manual = OutcomeService(session).create_action(
+            meeting.project_id,
+            ActionWrite(
+                project_id=meeting.project_id,
+                meeting_id=meeting.id,
+                agenda_item_id=agenda.id,
+                content="Manual follow-up",
+            ),
+            admin,
+        )
+
+        saved = agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=agenda.version,
+                notes_markdown="@决策: 采用方案 A\n@行动: 发布\n@开放问题: 谁负责？",
+            ),
+            admin,
+        )
+
+        decisions = session.scalars(
+            select(Decision).where(Decision.source_agenda_item_id == agenda.id)
+        ).all()
+        actions = session.scalars(
+            select(ActionItem).where(ActionItem.source_agenda_item_id == agenda.id)
+        ).all()
+        questions = session.scalars(
+            select(OpenQuestion).where(OpenQuestion.source_agenda_item_id == agenda.id)
+        ).all()
+        assert [(row.source_tag_key, row.decision_markdown) for row in decisions] == [
+            ("decision:0", "采用方案 A")
+        ]
+        assert [(row.source_tag_key, row.content) for row in actions] == [
+            ("action:0", "发布")
+        ]
+        assert [(row.source_tag_key, row.question_markdown) for row in questions] == [
+            ("question:0", "谁负责？")
+        ]
+        assert manual.id not in {row.id for row in actions}
+        assert manual.id in {row.id for row in saved.actions}
+
+        with pytest.raises(AppError) as readonly:
+            OutcomeService(session).update_action(
+                actions[0].id,
+                ActionEdit(expected_version=actions[0].version, content="Rewrite"),
+                admin,
+            )
+        assert readonly.value.code == "derived_outcome_read_only"
+        with pytest.raises(AppError, match="derived_outcome_read_only"):
+            OutcomeService(session).update_decision(
+                decisions[0].id,
+                DecisionEdit(expected_version=decisions[0].version, title="Rewrite"),
+                admin,
+            )
+        with pytest.raises(AppError, match="derived_outcome_read_only"):
+            OutcomeService(session).update_question(
+                questions[0].id,
+                QuestionEdit(
+                    expected_version=questions[0].version,
+                    question_markdown="Rewrite",
+                ),
+                admin,
+            )
+
+
+def test_removing_a_tag_deletes_only_its_derived_outcome(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agenda_service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = add_item(agenda_service, meeting, admin, "Follow-up")
+        manual = OutcomeService(session).create_action(
+            meeting.project_id,
+            ActionWrite(
+                project_id=meeting.project_id,
+                meeting_id=meeting.id,
+                agenda_item_id=agenda.id,
+                content="Keep manual action",
+            ),
+            admin,
+        )
+        first = agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=agenda.version,
+                notes_markdown="@行动: Derived action\n@决策: Derived decision",
+            ),
+            admin,
+        )
+        derived_action = session.scalar(
+            select(ActionItem).where(
+                ActionItem.source_agenda_item_id == agenda.id,
+                ActionItem.source_tag_key == "action:0",
+            )
+        )
+
+        agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=first.version,
+                notes_markdown="@决策: Updated decision",
+            ),
+            admin,
+        )
+
+        assert session.get(ActionItem, derived_action.id) is None
+        assert session.get(ActionItem, manual.id) is not None
+        decision = session.scalar(
+            select(Decision).where(Decision.source_agenda_item_id == agenda.id)
+        )
+        assert decision.decision_markdown == "Updated decision"
+
+
+def test_empty_agenda_outcome_tag_is_rejected_without_saving(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agenda_service = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = add_item(agenda_service, meeting, admin, "Invalid tag")
+
+        with pytest.raises(AppError) as error:
+            agenda_service.update(
+                agenda.id,
+                AgendaEdit(expected_version=agenda.version, notes_markdown="@行动:   "),
+                admin,
+            )
+
+        assert error.value.code == "invalid_agenda_outcome_tag"
+        assert session.get(AgendaItem, agenda.id).notes_markdown == ""
 
 
 def test_move_preserves_item_and_outcomes_and_repairs_both_queues(

@@ -3,11 +3,14 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
-from app.database import Database
+from app.database import Database, migration_config_path
 from app import schema_guard
 from app.schema_guard import LegacyDatabaseError, reject_legacy_schema
+from app.meetings.models import Meeting, MeetingSeries
 
 APPLICATION_TABLES = {
     "action_items",
@@ -58,6 +61,20 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     assert "created_by" in project_update_columns
     assert "created_by_user_id" not in project_update_columns
     assert "author_id" not in project_update_columns
+    recurrence_columns = {
+        column["name"]: column for column in inspector.get_columns("meeting_series")
+    }
+    meeting_columns = {
+        column["name"]: column for column in inspector.get_columns("meetings")
+    }
+    assert recurrence_columns["recurrence_frequency"]["type"].length == (
+        MeetingSeries.__table__.c.recurrence_frequency.type.length
+    )
+    assert meeting_columns["occurrence_kind"]["type"].length == (
+        Meeting.__table__.c.occurrence_kind.type.length
+    )
+    assert recurrence_columns["recurrence_interval"]["default"] is None
+    assert meeting_columns["occurrence_kind"]["default"] is None
     assert {
         "id",
         "target_type",
@@ -155,7 +172,9 @@ def test_fresh_database_upgrades_to_head(tmp_path):
     }
     with database.engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0006"
+            ScriptDirectory.from_config(
+                Config(migration_config_path())
+            ).get_current_head()
         )
 
 

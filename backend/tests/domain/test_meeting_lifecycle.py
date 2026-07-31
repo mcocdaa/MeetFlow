@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.agendas.models import AgendaItem
-from app.agendas.schemas import AgendaWrite
+from app.agendas.schemas import AgendaCommand, AgendaWrite
 from app.agendas.service import AgendaService
 from app.auth.models import User, UserRole, UserStatus
 from app.domain.enums import AgendaStatus, MeetingStatus
@@ -164,6 +164,146 @@ def test_finish_rejects_invalid_outcome_source_chain_without_snapshot(
         }
         assert session.scalar(select(func.count(MeetingSnapshot.id))) == 0
         assert session.get(Meeting, meeting_id).status == MeetingStatus.in_progress
+
+
+def test_start_automatically_opens_first_planned_agenda(
+    client, lifecycle_context, monkeypatch
+):
+    admin_id, _, meeting_id = lifecycle_context
+    started_at = datetime(2026, 8, 10, 9, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.meetings.service.utcnow", lambda: started_at)
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        first = agendas.create(
+            meeting_id,
+            AgendaWrite(title="First", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        second = agendas.create(
+            meeting_id,
+            AgendaWrite(title="Second", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=session.get(Meeting, meeting_id).version,
+        )
+
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(
+                expected_version=session.get(Meeting, meeting_id).version
+            ),
+            actor,
+        )
+
+        by_id = {item.id: item for item in started.agenda_items}
+        assert by_id[first.id].status == AgendaStatus.in_progress
+        assert by_id[first.id].started_at == started_at.replace(tzinfo=None)
+        assert by_id[second.id].status == AgendaStatus.planned
+
+
+def test_start_without_agenda_remains_valid(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meeting = session.get(Meeting, meeting_id)
+
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(expected_version=meeting.version),
+            actor,
+        )
+
+        assert started.status == MeetingStatus.in_progress
+        assert started.agenda_items == []
+
+
+def test_finish_skips_unresolved_agenda_and_records_duration(
+    client, lifecycle_context, monkeypatch
+):
+    admin_id, _, meeting_id = lifecycle_context
+    started_at = datetime(2026, 8, 10, 9, tzinfo=timezone.utc)
+    finished_at = datetime(2026, 8, 10, 9, 5, tzinfo=timezone.utc)
+    meeting_times = iter((started_at, finished_at))
+    monkeypatch.setattr("app.agendas.service.utcnow", lambda: started_at)
+    monkeypatch.setattr("app.meetings.service.utcnow", lambda: next(meeting_times))
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        service = MeetingService(session)
+        meeting = session.get(Meeting, meeting_id)
+        active = AgendaService(session).create(
+            meeting_id,
+            AgendaWrite(title="Active topic", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        waiting = AgendaService(session).create(
+            meeting_id,
+            AgendaWrite(title="Waiting topic", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=session.get(Meeting, meeting_id).version,
+        )
+        service.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            actor,
+        )
+
+        completed = service.finish(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            actor,
+        )
+
+        by_id = {item.id: item for item in completed.agenda_items}
+        assert by_id[active.id].status == AgendaStatus.skipped
+        assert by_id[active.id].actual_duration_seconds == 300
+        assert by_id[waiting.id].status == AgendaStatus.skipped
+        assert by_id[waiting.id].actual_duration_seconds == 0
+        snapshot_agenda = {
+            item["id"]: item for item in completed.current_snapshot.snapshot_json["agenda_items"]
+        }
+        snapshot_meeting = completed.current_snapshot.snapshot_json["meeting"]
+        assert snapshot_agenda[active.id]["actual_duration_seconds"] == 300
+        assert snapshot_agenda[waiting.id]["actual_duration_seconds"] == 0
+        assert snapshot_meeting["started_at"] == started_at.isoformat().replace("+00:00", "Z")
+        assert snapshot_meeting["completed_at"] == finished_at.isoformat().replace("+00:00", "Z")
+
+
+def test_snapshot_includes_derived_outcome_source_metadata(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = AgendaService(session).create(
+            meeting_id,
+            AgendaWrite(
+                title="Tagged topic",
+                agenda_type="decision",
+                notes_markdown="@决策: 采用方案 A\n@行动: 发布\n@开放问题: 谁负责？",
+            ),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            actor,
+        )
+        completed = MeetingService(session).finish(
+            meeting_id, LifecycleCommand(expected_version=started.version), actor
+        )
+
+        snapshot_agenda = completed.current_snapshot.snapshot_json["agenda_items"][0]
+        decision = snapshot_agenda["decisions"][0]
+        assert decision["source_agenda_item_id"] == agenda.id
+        assert decision["source_tag_key"] == "decision:0"
+        assert decision["is_derived"] is True
+        assert snapshot_agenda["actions"][0]["source_tag_key"] == "action:0"
+        assert snapshot_agenda["actions"][0]["is_derived"] is True
+        assert snapshot_agenda["open_questions"][0]["source_tag_key"] == "question:0"
+        assert snapshot_agenda["open_questions"][0]["is_derived"] is True
 
 
 def test_finish_snapshots_full_agenda_chain_and_refinish_is_immutable(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from sqlalchemy import and_, func, or_, select
@@ -8,10 +8,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.agendas.lifecycle import actual_duration_seconds, start_planned_item
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
-from app.domain.enums import AgendaStatus, MeetingStatus
+from app.domain.enums import (
+    AgendaStatus,
+    MeetingStatus,
+    OccurrenceKind,
+    RecurrenceFrequency,
+    SeriesStatus,
+)
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.attachments.models import Attachment
@@ -24,6 +31,7 @@ from app.meetings.models import (
     SeriesParticipant,
     StandingAgendaItem,
 )
+from app.meetings.recurrence import RecurrenceRule
 from app.outcomes.models import ActionItem, DecisionReviewer, OpenQuestion
 from app.meetings.schemas import (
     AmendmentWrite,
@@ -43,6 +51,9 @@ from app.projects.models import Project
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+MAX_RECURRENCE_BACKFILL = timedelta(days=90)
 
 
 def user_ref(user: User | None) -> dict[str, str] | None:
@@ -343,6 +354,7 @@ class MeetingService:
         meeting = Meeting(
             project_id=series.project_id,
             series_id=series.id,
+            occurrence_kind=OccurrenceKind.manual,
             title=payload.title,
             purpose_markdown=series.purpose_markdown,
             scheduled_start=payload.scheduled_start,
@@ -385,6 +397,168 @@ class MeetingService:
         )
         self.session.commit()
         return self._reload_meeting(meeting_id)
+
+    @staticmethod
+    def _recurrence_rule(series: MeetingSeries) -> RecurrenceRule | None:
+        if (
+            series.recurrence_frequency is None
+            or series.recurrence_local_time is None
+            or series.recurrence_timezone is None
+            or series.recurrence_anchor_date is None
+        ):
+            return None
+        common = {
+            "interval": series.recurrence_interval,
+            "local_time": series.recurrence_local_time,
+            "timezone_name": series.recurrence_timezone,
+            "anchor_date": series.recurrence_anchor_date,
+        }
+        if series.recurrence_frequency == RecurrenceFrequency.daily:
+            return RecurrenceRule.daily(**common)
+        if series.recurrence_frequency == RecurrenceFrequency.weekly:
+            if series.recurrence_weekday is None:
+                return None
+            return RecurrenceRule.weekly(
+                weekday=series.recurrence_weekday,
+                **common,
+            )
+        if series.recurrence_frequency == RecurrenceFrequency.monthly:
+            if series.recurrence_month_day is None:
+                return None
+            return RecurrenceRule.monthly(
+                month_day=series.recurrence_month_day,
+                **common,
+            )
+        if (
+            series.recurrence_month is None
+            or series.recurrence_month_day is None
+        ):
+            return None
+        return RecurrenceRule.yearly(
+            month=series.recurrence_month,
+            month_day=series.recurrence_month_day,
+            **common,
+        )
+
+    def _create_series_occurrence(
+        self,
+        series: MeetingSeries,
+        *,
+        slot_at: datetime,
+        created_by: str,
+    ) -> Meeting:
+        participants = [
+            ParticipantWrite(
+                user_id=row.user_id, participation_role=row.participation_role
+            )
+            for row in series.participants
+        ]
+        meeting = Meeting(
+            project_id=series.project_id,
+            series_id=series.id,
+            occurrence_kind=OccurrenceKind.scheduled,
+            series_slot_at=slot_at,
+            title=series.title,
+            purpose_markdown=series.purpose_markdown,
+            scheduled_start=slot_at,
+            scheduled_end=slot_at + timedelta(minutes=series.default_duration_minutes),
+            host_user_id=series.default_host_user_id,
+            recorder_user_id=series.default_recorder_user_id,
+            version=1,
+            created_by=created_by,
+            updated_by=created_by,
+            participants=self._meeting_participants(participants),
+        )
+        meeting.agenda_items = [
+            AgendaItem(
+                title=row.title,
+                agenda_type=row.agenda_type,
+                proposer_user_id=None,
+                presenter_user_id=row.default_owner_user_id,
+                estimated_minutes=row.default_duration_minutes,
+                notes_markdown="",
+                position=position,
+                version=1,
+                created_by=created_by,
+                updated_by=created_by,
+            )
+            for position, row in enumerate(series.standing_items)
+        ]
+        self.session.add(meeting)
+        return meeting
+
+    def _materialize_series(
+        self, series: MeetingSeries, *, now: datetime
+    ) -> list[str]:
+        rule = self._recurrence_rule(series)
+        if rule is None:
+            return []
+        slots = rule.slots_through(
+            now,
+            earliest=as_utc(now) - MAX_RECURRENCE_BACKFILL,
+        )
+        if not slots:
+            return []
+        existing_slots = {
+            as_utc(slot_at)
+            for slot_at in self.session.scalars(
+                select(Meeting.series_slot_at).where(
+                    Meeting.series_id == series.id,
+                    Meeting.series_slot_at.in_(slots),
+                )
+            )
+            if slot_at is not None
+        }
+        created: list[str] = []
+        for slot_at in slots:
+            if as_utc(slot_at) in existing_slots:
+                continue
+            try:
+                with self.session.begin_nested():
+                    meeting = self._create_series_occurrence(
+                        series,
+                        slot_at=slot_at,
+                        created_by=series.updated_by,
+                    )
+                    self.session.flush()
+                    created.append(meeting.id)
+            except IntegrityError:
+                # A second application worker can win the unique slot race.
+                # The committed row is then the authoritative occurrence.
+                continue
+        return created
+
+    def materialize_due_occurrences(
+        self, *, now: datetime, project_id: str | None = None
+    ) -> list[Meeting]:
+        if now.tzinfo is None or now.utcoffset() is None:
+            now = now.replace(tzinfo=timezone.utc)
+        statement = select(MeetingSeries).where(
+            MeetingSeries.status == SeriesStatus.active,
+            MeetingSeries.recurrence_frequency.is_not(None),
+        )
+        if project_id is not None:
+            statement = statement.where(MeetingSeries.project_id == project_id)
+        series = list(self.session.scalars(statement.options(*series_relationship_options())))
+        created_ids = [
+            meeting_id
+            for item in series
+            for meeting_id in self._materialize_series(item, now=now)
+        ]
+        if not created_ids:
+            return []
+        self.session.commit()
+        return [self._reload_meeting(meeting_id) for meeting_id in created_ids]
+
+    def reconcile_series(self, series_id: str, *, now: datetime) -> list[Meeting]:
+        series = self._reload_series(series_id)
+        if series.status != SeriesStatus.active:
+            return []
+        created_ids = self._materialize_series(series, now=now)
+        if not created_ids:
+            return []
+        self.session.commit()
+        return [self._reload_meeting(meeting_id) for meeting_id in created_ids]
 
     def create_meeting(
         self, project_id: str, payload: MeetingWrite, actor: User
@@ -547,12 +721,64 @@ class MeetingService:
     def start(self, meeting_id: str, payload: LifecycleCommand, actor: User) -> Meeting:
         self._require_active(actor)
         meeting = self.get_meeting(meeting_id)
+        if (
+            meeting.occurrence_kind == OccurrenceKind.scheduled
+            and meeting.series_id is not None
+        ):
+            self.reconcile_series(meeting.series_id, now=utcnow())
+            meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status not in {MeetingStatus.draft, MeetingStatus.ready}:
             self._invalid_transition(meeting, MeetingStatus.in_progress)
+        now = utcnow()
+        if (
+            meeting.occurrence_kind == OccurrenceKind.scheduled
+            and meeting.series_id is not None
+            and meeting.series_slot_at is not None
+        ):
+            previous_ids = list(self.session.scalars(
+                select(Meeting.id)
+                .where(
+                    Meeting.series_id == meeting.series_id,
+                    Meeting.occurrence_kind == OccurrenceKind.scheduled,
+                    Meeting.series_slot_at < meeting.series_slot_at,
+                    Meeting.status.in_(
+                        [
+                            MeetingStatus.draft,
+                            MeetingStatus.ready,
+                            MeetingStatus.in_progress,
+                        ]
+                    ),
+                )
+                .order_by(Meeting.series_slot_at)
+            ))
+            for previous_id in previous_ids:
+                previous = self._meeting_for_snapshot(previous_id)
+                self._finish_in_session(previous, actor=actor, now=now)
         meeting.status = MeetingStatus.in_progress
-        meeting.started_at = meeting.started_at or utcnow()
+        meeting.started_at = meeting.started_at or now
         meeting.updated_by = actor.id
+        first_planned = next(
+            (
+                item
+                for item in sorted(
+                    meeting.agenda_items, key=lambda row: (row.position, row.id)
+                )
+                if item.status == AgendaStatus.planned
+            ),
+            None,
+        )
+        if first_planned is not None:
+            start_planned_item(first_planned, actor_id=actor.id, at=now)
+            ActivityRecorder(self.session).record(
+                project_id=meeting.project_id,
+                meeting_id=meeting.id,
+                actor_user_id=actor.id,
+                event_type="agenda.started",
+                subject_type="agenda_item",
+                subject_id=first_planned.id,
+                payload={"title": first_planned.title},
+            )
         self._record_meeting(meeting, actor, "meeting.started")
         return self._commit_meeting_command(meeting, payload.expected_version)
 
@@ -615,7 +841,14 @@ class MeetingService:
     @staticmethod
     def _snapshot_document(meeting: Meeting) -> dict[str, Any]:
         def columns(item, names):
-            return {name: getattr(item, name) for name in names}
+            return {
+                name: (
+                    as_utc(value)
+                    if isinstance(value := getattr(item, name), datetime)
+                    else value
+                )
+                for name in names
+            }
 
         def decision_document(decision):
             result = columns(
@@ -625,6 +858,8 @@ class MeetingService:
                     "project_id",
                     "meeting_id",
                     "agenda_item_id",
+                    "source_agenda_item_id",
+                    "source_tag_key",
                     "title",
                     "decision_markdown",
                     "rationale_markdown",
@@ -637,6 +872,7 @@ class MeetingService:
                     "updated_at",
                 ),
             )
+            result["is_derived"] = decision.source_agenda_item_id is not None
             result["reviewers"] = [
                 columns(row, ("user_id", "status", "responded_at", "comment"))
                 for row in sorted(decision.reviewers, key=lambda row: row.user_id)
@@ -644,13 +880,15 @@ class MeetingService:
             return result
 
         def action_document(row):
-            return columns(
+            result = columns(
                 row,
                 (
                     "id",
                     "project_id",
                     "meeting_id",
                     "agenda_item_id",
+                    "source_agenda_item_id",
+                    "source_tag_key",
                     "content",
                     "owner_user_id",
                     "due_date",
@@ -663,15 +901,19 @@ class MeetingService:
                     "completed_at",
                 ),
             )
+            result["is_derived"] = row.source_agenda_item_id is not None
+            return result
 
         def question_document(row):
-            return columns(
+            result = columns(
                 row,
                 (
                     "id",
                     "project_id",
                     "meeting_id",
                     "agenda_item_id",
+                    "source_agenda_item_id",
+                    "source_tag_key",
                     "question_markdown",
                     "owner_user_id",
                     "status",
@@ -684,6 +926,8 @@ class MeetingService:
                     "updated_at",
                 ),
             )
+            result["is_derived"] = row.source_agenda_item_id is not None
+            return result
 
         agenda_documents = []
         for item in sorted(
@@ -699,6 +943,7 @@ class MeetingService:
                     "proposer_user_id",
                     "presenter_user_id",
                     "estimated_minutes",
+                    "actual_duration_seconds",
                     "notes_markdown",
                     "status",
                     "position",
@@ -744,6 +989,7 @@ class MeetingService:
                 "created_at",
                 "updated_at",
                 "started_at",
+                "completed_at",
             ),
         )
         meeting_data["status_before_completion"] = meeting.status
@@ -843,21 +1089,26 @@ class MeetingService:
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.in_progress:
             self._invalid_transition(meeting, MeetingStatus.completed)
-        unresolved = [
-            row.id
-            for row in sorted(
-                meeting.agenda_items, key=lambda row: (row.position, row.id)
-            )
-            if row.status in {AgendaStatus.planned, AgendaStatus.in_progress}
-        ]
-        if unresolved:
-            raise AppError(
-                409,
-                "meeting_has_unresolved_agenda",
-                "会议仍有未处理议题",
-                details={"agenda_ids": unresolved},
-            )
+        self._finish_in_session(meeting, actor=actor, now=utcnow())
+        meeting_id = meeting.id
+        try:
+            self.session.commit()
+        except (StaleDataError, IntegrityError) as exc:
+            self._raise_meeting_stale(meeting_id, payload.expected_version, exc)
+        return self._reload_meeting(meeting_id)
+
+    def _finish_in_session(
+        self, meeting: Meeting, *, actor: User, now: datetime
+    ) -> None:
         self._validate_outcome_source_chain(meeting)
+        for item in meeting.agenda_items:
+            if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
+                continue
+            item.status = AgendaStatus.skipped
+            item.completed_at = now
+            item.actual_duration_seconds = actual_duration_seconds(item, now)
+            item.updated_by = actor.id
+            item.version += 1
         completion_number = (
             self.session.scalar(
                 select(func.max(MeetingSnapshot.completion_number)).where(
@@ -866,6 +1117,9 @@ class MeetingService:
             )
             or 0
         ) + 1
+        meeting.status = MeetingStatus.completed
+        meeting.completed_at = now
+        meeting.updated_by = actor.id
         snapshot = MeetingSnapshot(
             meeting_id=meeting.id,
             completion_number=completion_number,
@@ -874,11 +1128,8 @@ class MeetingService:
         )
         self.session.add(snapshot)
         meeting.current_snapshot = snapshot
-        meeting.status = MeetingStatus.completed
-        meeting.completed_at = utcnow()
-        meeting.updated_by = actor.id
+        meeting.version += 1
         self._record_meeting(meeting, actor, "meeting.finished")
-        return self._commit_meeting_command(meeting, payload.expected_version)
 
     def list_snapshots(
         self, meeting_id: str, *, limit: int = 50, offset: int = 0
@@ -956,6 +1207,28 @@ class MeetingService:
             "title": series.title,
             "purpose_markdown": series.purpose_markdown,
             "recurrence_description": series.recurrence_description,
+            "recurrence": {
+                "frequency": (
+                    series.recurrence_frequency.value
+                    if series.recurrence_frequency is not None
+                    else None
+                ),
+                "interval": series.recurrence_interval,
+                "weekday": series.recurrence_weekday,
+                "month_day": series.recurrence_month_day,
+                "month": series.recurrence_month,
+                "local_time": (
+                    series.recurrence_local_time.isoformat()
+                    if series.recurrence_local_time is not None
+                    else None
+                ),
+                "timezone": series.recurrence_timezone,
+                "anchor_date": (
+                    series.recurrence_anchor_date.isoformat()
+                    if series.recurrence_anchor_date is not None
+                    else None
+                ),
+            },
             "default_duration_minutes": series.default_duration_minutes,
             "default_host": user_ref(series.default_host),
             "default_recorder": user_ref(series.default_recorder),
@@ -1040,6 +1313,12 @@ class MeetingService:
             ),
             "title": meeting.title,
             "purpose_markdown": meeting.purpose_markdown,
+            "occurrence_kind": meeting.occurrence_kind.value,
+            "series_slot_at": (
+                as_utc(meeting.series_slot_at)
+                if meeting.series_slot_at is not None
+                else None
+            ),
             "scheduled_start": as_utc(meeting.scheduled_start),
             "scheduled_end": as_utc(meeting.scheduled_end),
             "status": meeting.status,
@@ -1089,6 +1368,7 @@ class MeetingService:
                     "proposer": user_ref(row.proposer),
                     "presenter": user_ref(row.presenter),
                     "estimated_minutes": row.estimated_minutes,
+                    "actual_duration_seconds": row.actual_duration_seconds,
                     "notes_markdown": row.notes_markdown,
                     "status": row.status,
                     "position": row.position,
@@ -1134,6 +1414,7 @@ class MeetingService:
 
     def list_series(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
+        self.materialize_due_occurrences(now=utcnow(), project_id=project_id)
         statement = (
             select(MeetingSeries)
             .where(MeetingSeries.project_id == project_id)
@@ -1148,6 +1429,7 @@ class MeetingService:
 
     def list_meetings(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
+        self.materialize_due_occurrences(now=utcnow(), project_id=project_id)
         agenda_count = (
             select(func.count(AgendaItem.id))
             .where(AgendaItem.meeting_id == Meeting.id)
@@ -1187,6 +1469,12 @@ class MeetingService:
                     else None
                 ),
                 "title": meeting.title,
+                "occurrence_kind": meeting.occurrence_kind.value,
+                "series_slot_at": (
+                    as_utc(meeting.series_slot_at)
+                    if meeting.series_slot_at is not None
+                    else None
+                ),
                 "scheduled_start": as_utc(meeting.scheduled_start),
                 "scheduled_end": as_utc(meeting.scheduled_end),
                 "status": meeting.status,
@@ -1206,6 +1494,7 @@ class MeetingService:
         ]
 
     def series_detail(self, series_id: str) -> dict[str, Any]:
+        self.reconcile_series(series_id, now=utcnow())
         series = self.session.scalar(
             select(MeetingSeries)
             .where(MeetingSeries.id == series_id)
@@ -1323,6 +1612,7 @@ class MeetingService:
         # source kind while keeping the 1.0 API serialization untouched.
         return {
             **package,
+            "agenda_outcome_tags": ["@决策:", "@行动:", "@开放问题:"],
             "project": package["project"]["name"],
             "meeting_type": "series" if package["series"] else "standalone",
             "meeting_date": package["scheduled_start"],
