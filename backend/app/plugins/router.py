@@ -24,6 +24,7 @@ from app.auth.models import User
 from app.database import get_session
 from app.errors import AppError
 from app.meetings.service import MeetingService
+from app.plugins.events import retry_plugin_event as retry_plugin_event_command
 from app.plugins.manager import (
     PluginConfigurationError,
     PluginInputError,
@@ -193,6 +194,21 @@ def list_plugin_events(
     if status is not None:
         statement = statement.where(PluginEvent.status == status)
     return {"items": [serialize_event(event) for event in session.scalars(statement)]}
+
+
+@admin_router.post("/events/{event_id}/retry")
+def retry_plugin_event_endpoint(
+    event_id: str,
+    _admin: User = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    try:
+        event = retry_plugin_event_command(session, event_id)
+    except KeyError as exc:
+        raise AppError(404, "plugin_event_not_found", "插件事件不存在") from exc
+    except ValueError as exc:
+        raise AppError(409, "plugin_event_not_retryable", "只有失败事件可以重试") from exc
+    return serialize_event(event)
 
 
 @actions_router.get("/actions")

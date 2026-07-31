@@ -70,6 +70,32 @@ def test_retry_plugin_event_rejects_missing_or_non_failed_events():
         assert session.scalar(select(PluginEvent).where(PluginEvent.event_id == "succeeded")).status == PluginEventStatus.succeeded
 
 
+def test_admin_retry_endpoint_requeues_failed_event_without_payload(plugin_client):
+    database = plugin_client.app.state.database
+    add_event(database, event_id="evt-admin", status=PluginEventStatus.failed)
+
+    response = plugin_client.post("/api/admin/plugins/events/evt-admin/retry")
+
+    assert response.status_code == 200
+    assert response.json()["event_id"] == "evt-admin"
+    assert response.json()["status"] == "queued"
+    assert response.json()["attempts"] == 0
+    assert "payload_json" not in response.json()
+
+
+def test_admin_retry_endpoint_rejects_missing_and_non_failed_events(plugin_client):
+    database = plugin_client.app.state.database
+    add_event(database, event_id="evt-queued", status=PluginEventStatus.queued)
+
+    missing = plugin_client.post("/api/admin/plugins/events/missing/retry")
+    non_failed = plugin_client.post("/api/admin/plugins/events/evt-queued/retry")
+
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "plugin_event_not_found"
+    assert non_failed.status_code == 409
+    assert non_failed.json()["error"]["code"] == "plugin_event_not_retryable"
+
+
 def test_record_event_is_idempotent_and_queued(plugin_client, plugin_meeting_id):
     database = plugin_client.app.state.database
     event_id = f"meeting.completed:meeting:{plugin_meeting_id}:1"
