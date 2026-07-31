@@ -310,7 +310,7 @@ class MeetingSeriesWrite(StrictInput):
             raise ValueError("recurrence requires local time, timezone, and anchor date")
         try:
             ZoneInfo(self.recurrence_timezone)
-        except ZoneInfoNotFoundError as exc:
+        except (ValueError, ZoneInfoNotFoundError) as exc:
             raise ValueError("recurrence timezone must be an IANA timezone") from exc
         if self.recurrence_frequency == RecurrenceFrequency.weekly and self.recurrence_weekday is None:
             raise ValueError("weekly recurrence requires recurrence_weekday")
@@ -403,7 +403,7 @@ class MeetingSeriesEdit(StrictInput):
             raise ValueError("recurrence requires local time, timezone, and anchor date")
         try:
             ZoneInfo(self.recurrence_timezone)
-        except ZoneInfoNotFoundError as exc:
+        except (ValueError, ZoneInfoNotFoundError) as exc:
             raise ValueError("recurrence timezone must be an IANA timezone") from exc
         if self.recurrence_frequency == RecurrenceFrequency.weekly and self.recurrence_weekday is None:
             raise ValueError("weekly recurrence requires recurrence_weekday")

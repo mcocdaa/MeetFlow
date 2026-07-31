@@ -30,6 +30,18 @@ class RecurrenceRule:
     month_day: int | None = None
     month: int | None = None
 
+    def __post_init__(self) -> None:
+        if self.interval < 1:
+            raise ValueError("recurrence interval must be positive")
+        if self.frequency == RecurrenceFrequency.weekly and self.weekday is None:
+            raise ValueError("weekly recurrence requires weekday")
+        if self.frequency == RecurrenceFrequency.monthly and self.month_day is None:
+            raise ValueError("monthly recurrence requires month_day")
+        if self.frequency == RecurrenceFrequency.yearly and (
+            self.month is None or self.month_day is None
+        ):
+            raise ValueError("yearly recurrence requires month and month_day")
+
     @classmethod
     def daily(
         cls,
@@ -111,6 +123,8 @@ class RecurrenceRule:
         return ZoneInfo(self.timezone_name)
 
     def _utc_slot(self, local_date: date) -> datetime:
+        # ZoneInfo selects the first autumn-fold occurrence and applies its UTC
+        # offset rule for a nonexistent spring-gap local time.
         return datetime.combine(local_date, self.local_time, tzinfo=self.timezone).astimezone(
             timezone.utc
         )
@@ -124,19 +138,23 @@ class RecurrenceRule:
         if self.frequency == RecurrenceFrequency.daily:
             return self._utc_slot(period_date)
         if self.frequency == RecurrenceFrequency.weekly:
-            assert self.weekday is not None
+            if self.weekday is None:
+                raise ValueError("weekly recurrence requires weekday")
             local_date = period_date + timedelta(
                 days=(self.weekday - period_date.weekday()) % 7
             )
             return self._utc_slot(local_date)
         if self.frequency == RecurrenceFrequency.monthly:
-            assert self.month_day is not None
+            if self.month_day is None:
+                raise ValueError("monthly recurrence requires month_day")
             local_date = period_date.replace(
                 day=min(self.month_day, self._last_day(period_date.year, period_date.month))
             )
             return self._utc_slot(local_date)
-        assert self.frequency == RecurrenceFrequency.yearly
-        assert self.month is not None and self.month_day is not None
+        if self.frequency != RecurrenceFrequency.yearly:
+            raise ValueError("unsupported recurrence frequency")
+        if self.month is None or self.month_day is None:
+            raise ValueError("yearly recurrence requires month and month_day")
         local_date = date(
             period_date.year,
             self.month,
@@ -144,12 +162,22 @@ class RecurrenceRule:
         )
         return self._utc_slot(local_date)
 
-    def slots_through(self, now: datetime) -> list[datetime]:
+    def slots_through(
+        self, now: datetime, *, earliest: datetime | None = None
+    ) -> list[datetime]:
         """Return all due slots from the anchor through an instant, ordered in UTC."""
         if now.tzinfo is None or now.utcoffset() is None:
             now = now.replace(tzinfo=timezone.utc)
         now = now.astimezone(timezone.utc)
+        if earliest is not None:
+            if earliest.tzinfo is None or earliest.utcoffset() is None:
+                earliest = earliest.replace(tzinfo=timezone.utc)
+            earliest = earliest.astimezone(timezone.utc)
         slots: list[datetime] = []
+
+        def append_if_due(slot: datetime) -> None:
+            if earliest is None or slot >= earliest:
+                slots.append(slot)
 
         if self.frequency == RecurrenceFrequency.daily:
             local_date = self.anchor_date
@@ -157,12 +185,13 @@ class RecurrenceRule:
                 slot = self._utc_slot(local_date)
                 if slot > now:
                     break
-                slots.append(slot)
+                append_if_due(slot)
                 local_date += timedelta(days=self.interval)
             return slots
 
         if self.frequency == RecurrenceFrequency.weekly:
-            assert self.weekday is not None
+            if self.weekday is None:
+                raise ValueError("weekly recurrence requires weekday")
             first = self.anchor_date + timedelta(
                 days=(self.weekday - self.anchor_date.weekday()) % 7
             )
@@ -171,12 +200,13 @@ class RecurrenceRule:
                 slot = self._utc_slot(local_date)
                 if slot > now:
                     break
-                slots.append(slot)
+                append_if_due(slot)
                 local_date += timedelta(days=7 * self.interval)
             return slots
 
         if self.frequency == RecurrenceFrequency.monthly:
-            assert self.month_day is not None
+            if self.month_day is None:
+                raise ValueError("monthly recurrence requires month_day")
             month = _month_start(self.anchor_date)
             while True:
                 local_date = month.replace(
@@ -186,12 +216,14 @@ class RecurrenceRule:
                     slot = self._utc_slot(local_date)
                     if slot > now:
                         break
-                    slots.append(slot)
+                    append_if_due(slot)
                 month = _add_months(month, self.interval)
             return slots
 
-        assert self.frequency == RecurrenceFrequency.yearly
-        assert self.month is not None and self.month_day is not None
+        if self.frequency != RecurrenceFrequency.yearly:
+            raise ValueError("unsupported recurrence frequency")
+        if self.month is None or self.month_day is None:
+            raise ValueError("yearly recurrence requires month and month_day")
         year = self.anchor_date.year
         while True:
             local_date = date(
@@ -203,6 +235,6 @@ class RecurrenceRule:
                 slot = self._utc_slot(local_date)
                 if slot > now:
                     break
-                slots.append(slot)
+                append_if_due(slot)
             year += self.interval
         return slots

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from app.database import Database
 from app.meetings.service import MeetingService
+
+
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -27,7 +31,12 @@ class MeetingSeriesScheduler:
 
     async def serve(self) -> None:
         while not self._stop.is_set():
-            self.run_once()
+            try:
+                await asyncio.to_thread(self.run_once)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("meeting series scheduler run failed")
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=60)
             except TimeoutError:

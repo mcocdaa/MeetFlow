@@ -53,6 +53,9 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+MAX_RECURRENCE_BACKFILL = timedelta(days=90)
+
+
 def user_ref(user: User | None) -> dict[str, str] | None:
     if user is None:
         return None
@@ -490,15 +493,25 @@ class MeetingService:
         rule = self._recurrence_rule(series)
         if rule is None:
             return []
-        created: list[str] = []
-        for slot_at in rule.slots_through(now):
-            exists = self.session.scalar(
-                select(Meeting.id).where(
+        slots = rule.slots_through(
+            now,
+            earliest=as_utc(now) - MAX_RECURRENCE_BACKFILL,
+        )
+        if not slots:
+            return []
+        existing_slots = {
+            as_utc(slot_at)
+            for slot_at in self.session.scalars(
+                select(Meeting.series_slot_at).where(
                     Meeting.series_id == series.id,
-                    Meeting.series_slot_at == slot_at,
+                    Meeting.series_slot_at.in_(slots),
                 )
             )
-            if exists is not None:
+            if slot_at is not None
+        }
+        created: list[str] = []
+        for slot_at in slots:
+            if as_utc(slot_at) in existing_slots:
                 continue
             try:
                 with self.session.begin_nested():
@@ -515,19 +528,18 @@ class MeetingService:
                 continue
         return created
 
-    def materialize_due_occurrences(self, *, now: datetime) -> list[Meeting]:
+    def materialize_due_occurrences(
+        self, *, now: datetime, project_id: str | None = None
+    ) -> list[Meeting]:
         if now.tzinfo is None or now.utcoffset() is None:
             now = now.replace(tzinfo=timezone.utc)
-        series = list(
-            self.session.scalars(
-                select(MeetingSeries)
-                .where(
-                    MeetingSeries.status == SeriesStatus.active,
-                    MeetingSeries.recurrence_frequency.is_not(None),
-                )
-                .options(*series_relationship_options())
-            )
+        statement = select(MeetingSeries).where(
+            MeetingSeries.status == SeriesStatus.active,
+            MeetingSeries.recurrence_frequency.is_not(None),
         )
+        if project_id is not None:
+            statement = statement.where(MeetingSeries.project_id == project_id)
+        series = list(self.session.scalars(statement.options(*series_relationship_options())))
         created_ids = [
             meeting_id
             for item in series
@@ -724,7 +736,7 @@ class MeetingService:
             and meeting.series_id is not None
             and meeting.series_slot_at is not None
         ):
-            previous_id = self.session.scalar(
+            previous_ids = list(self.session.scalars(
                 select(Meeting.id)
                 .where(
                     Meeting.series_id == meeting.series_id,
@@ -738,10 +750,9 @@ class MeetingService:
                         ]
                     ),
                 )
-                .order_by(Meeting.series_slot_at.desc())
-                .limit(1)
-            )
-            if previous_id is not None:
+                .order_by(Meeting.series_slot_at)
+            ))
+            for previous_id in previous_ids:
                 previous = self._meeting_for_snapshot(previous_id)
                 self._finish_in_session(previous, actor=actor, now=now)
         meeting.status = MeetingStatus.in_progress
@@ -1411,7 +1422,7 @@ class MeetingService:
 
     def list_series(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
-        self.materialize_due_occurrences(now=utcnow())
+        self.materialize_due_occurrences(now=utcnow(), project_id=project_id)
         statement = (
             select(MeetingSeries)
             .where(MeetingSeries.project_id == project_id)
@@ -1426,7 +1437,7 @@ class MeetingService:
 
     def list_meetings(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
-        self.materialize_due_occurrences(now=utcnow())
+        self.materialize_due_occurrences(now=utcnow(), project_id=project_id)
         agenda_count = (
             select(func.count(AgendaItem.id))
             .where(AgendaItem.meeting_id == Meeting.id)

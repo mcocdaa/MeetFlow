@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
@@ -222,6 +223,26 @@ def test_recurrence_slots_cover_daily_weekly_and_yearly_rules():
     ]
 
 
+def test_recurrence_slots_ignore_dates_before_an_explicit_cutoff():
+    rule = RecurrenceRule.daily(
+        interval=1,
+        local_time=time(9),
+        timezone_name="UTC",
+        anchor_date=date(2024, 1, 1),
+    )
+
+    slots = rule.slots_through(
+        datetime(2026, 7, 3, 9, tzinfo=timezone.utc),
+        earliest=datetime(2026, 7, 1, tzinfo=timezone.utc),
+    )
+
+    assert slots == [
+        datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+        datetime(2026, 7, 2, 9, tzinfo=timezone.utc),
+        datetime(2026, 7, 3, 9, tzinfo=timezone.utc),
+    ]
+
+
 def test_materialize_due_occurrences_is_idempotent_and_preserves_manual_items(
     client, project, meeting_users
 ):
@@ -307,6 +328,58 @@ def test_series_detail_reconciles_due_occurrences(
         ]
 
 
+def test_listing_a_project_does_not_materialize_another_projects_series(
+    client, project, meeting_users, monkeypatch
+):
+    admin, member, recorder = meeting_users
+    now = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.meetings.service.utcnow", lambda: now)
+    with client.app.state.database.session() as session:
+        service = MeetingService(session)
+        service.create_series(
+            project.id,
+            series_payload(
+                admin,
+                member,
+                recorder,
+                recurrence_frequency="daily",
+                recurrence_local_time=time(9),
+                recurrence_timezone="UTC",
+                recurrence_anchor_date=date(2026, 7, 30),
+            ),
+            admin,
+        )
+        other_project = ProjectService(session).create(
+            ProjectWrite(
+                name="Other meeting project",
+                slug="other-meeting-project",
+                status="active",
+                lead_user_id=admin.id,
+                member_ids=[admin.id, member.id, recorder.id],
+            ),
+            admin,
+        )
+        other_series = service.create_series(
+            other_project.id,
+            series_payload(
+                admin,
+                member,
+                recorder,
+                recurrence_frequency="daily",
+                recurrence_local_time=time(9),
+                recurrence_timezone="UTC",
+                recurrence_anchor_date=date(2026, 7, 30),
+            ),
+            admin,
+        )
+
+        service.list_meetings(project.id)
+
+        assert session.scalar(
+            select(Meeting.id).where(Meeting.series_id == other_series.id)
+        ) is None
+
+
 def test_series_scheduler_materializes_due_occurrences(
     client, project, meeting_users
 ):
@@ -333,11 +406,40 @@ def test_series_scheduler_materializes_due_occurrences(
     assert len(created) == 1
 
 
+def test_series_scheduler_continues_after_one_run_failure(client, monkeypatch):
+    scheduler = MeetingSeriesScheduler(client.app.state.database)
+    calls: list[int] = []
+    loop = asyncio.new_event_loop()
+
+    def run_once() -> list[str]:
+        calls.append(len(calls) + 1)
+        if len(calls) == 1:
+            raise RuntimeError("transient database error")
+        loop.call_soon_threadsafe(scheduler.stop)
+        return []
+
+    monkeypatch.setattr(scheduler, "run_once", run_once)
+
+    async def timeout_without_waiting(awaitable, *_args, **_kwargs):
+        awaitable.close()
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        "app.meetings.scheduler.asyncio.wait_for", timeout_without_waiting
+    )
+    try:
+        loop.run_until_complete(scheduler.serve())
+    finally:
+        loop.close()
+
+    assert calls == [1, 2]
+
+
 def test_starting_next_scheduled_occurrence_finishes_the_previous_slot(
     client, project, meeting_users, monkeypatch
 ):
     admin, member, recorder = meeting_users
-    now = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 1, 14, tzinfo=timezone.utc)
     monkeypatch.setattr("app.meetings.service.utcnow", lambda: now)
     with client.app.state.database.session() as session:
         service = MeetingService(session)
@@ -354,17 +456,23 @@ def test_starting_next_scheduled_occurrence_finishes_the_previous_slot(
             ),
             admin,
         )
-        previous, current = service.materialize_due_occurrences(now=now)
+        first, previous, current = service.materialize_due_occurrences(now=now)
 
         started = service.start(
             current.id,
             LifecycleCommand(expected_version=current.version),
             admin,
         )
+        session.refresh(first)
         session.refresh(previous)
 
         assert started.status.value == "in_progress"
+        assert first.status.value == "completed"
         assert previous.status.value == "completed"
+        assert [item.status.value for item in first.agenda_items] == [
+            "skipped",
+            "skipped",
+        ]
         assert [item.status.value for item in previous.agenda_items] == [
             "skipped",
             "skipped",
