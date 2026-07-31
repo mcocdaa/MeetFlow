@@ -13,6 +13,10 @@ const content = ref('')
 const start = ref('')
 const end = ref('')
 type RecurrenceFrequency = '' | 'daily' | 'weekly' | 'monthly' | 'yearly'
+function todayLocalDate(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
 const recurrenceFrequency = ref<RecurrenceFrequency>('weekly')
 const recurrenceInterval = ref(1)
 const recurrenceWeekday = ref(0)
@@ -20,7 +24,7 @@ const recurrenceMonthDay = ref(1)
 const recurrenceMonth = ref(1)
 const recurrenceLocalTime = ref('09:00')
 const recurrenceTimezone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
-const recurrenceAnchorDate = ref(new Date().toISOString().slice(0, 10))
+const recurrenceAnchorDate = ref(todayLocalDate())
 const defaultDurationMinutes = ref(60)
 const saving = ref(false)
 const error = ref('')

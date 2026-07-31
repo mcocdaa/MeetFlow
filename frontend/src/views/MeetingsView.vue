@@ -52,6 +52,7 @@ const groups = computed(() => [
   { id: 'active', title: '进行中的会议', items: visible.value.filter((item) => item.status === 'in_progress') },
   { id: 'upcoming', title: '即将开始', items: visible.value.filter((item) => item.status === 'draft' || item.status === 'ready').sort((a, b) => a.scheduled_start.localeCompare(b.scheduled_start)) },
   { id: 'completed', title: '最近完成', items: visible.value.filter((item) => item.status === 'completed').sort((a, b) => b.scheduled_start.localeCompare(a.scheduled_start)) },
+  { id: 'canceled', title: '已取消', items: visible.value.filter((item) => item.status === 'canceled').sort((a, b) => b.scheduled_start.localeCompare(a.scheduled_start)) },
 ])
 
 async function load() {

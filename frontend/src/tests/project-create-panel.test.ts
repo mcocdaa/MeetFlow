@@ -39,6 +39,28 @@ describe('project series form', () => {
       recurrence_weekday: 0,
       recurrence_local_time: '10:00:00',
       recurrence_timezone: 'Asia/Shanghai',
+      recurrence_anchor_date: expect.any(String),
     })
+  })
+
+  it('uses the browser local calendar date as the default recurrence anchor', () => {
+    class LocalCalendarDate extends Date {
+      constructor() {
+        super('2026-07-31T16:30:00.000Z')
+      }
+
+      getFullYear() { return 2026 }
+      getMonth() { return 7 }
+      getDate() { return 1 }
+    }
+
+    vi.stubGlobal('Date', LocalCalendarDate)
+    try {
+      render(ProjectCreatePanel, { props: { kind: 'series', project } })
+
+      expect(screen.getByLabelText('起始日期')).toHaveValue('2026-08-01')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
