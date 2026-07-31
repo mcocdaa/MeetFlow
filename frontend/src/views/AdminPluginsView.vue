@@ -23,6 +23,7 @@ const drafts = reactive<Record<string, Record<string, string | number | boolean 
 const saving = ref('')
 const error = ref('')
 const restartRequired = ref(false)
+const retryingEvent = ref('')
 const unmatchedErrors = computed(() => pluginErrors.value.filter(
   (item) => !plugins.value.some((plugin) => plugin.id === item.plugin_id),
 ))
@@ -96,6 +97,19 @@ async function toggle(plugin: PluginInfo) {
   }
 }
 
+async function retryEvent(eventId: string) {
+  retryingEvent.value = eventId
+  error.value = ''
+  try {
+    await api(`/api/admin/plugins/events/${encodeURIComponent(eventId)}/retry`, { method: 'POST' })
+    await load()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '插件事件重试失败'
+  } finally {
+    retryingEvent.value = ''
+  }
+}
+
 function secretConfigured(plugin: PluginInfo, key: string) {
   const value = plugin.config?.[key]
   return !!value && typeof value === 'object' && 'configured' in value && (value as { configured: boolean }).configured
@@ -133,7 +147,7 @@ onMounted(load)
       </article>
     </div>
     <div v-if="unmatchedErrors.length" class="plugin-errors"><p v-for="item in unmatchedErrors" :key="`${item.plugin_id}-${item.error_type}`" class="notice notice-error">{{ item.plugin_id }} · {{ item.message }}</p></div>
-    <section v-if="failedEvents.length" class="plugin-errors" aria-labelledby="plugin-event-errors-title"><h2 id="plugin-event-errors-title">事件失败</h2><p v-for="event in failedEvents" :key="event.event_id" class="notice notice-error">{{ event.event_type }} · 已重试 {{ event.attempts }} 次<span v-if="event.last_error"> · {{ event.last_error }}</span></p></section>
+    <section v-if="failedEvents.length" class="plugin-errors" aria-labelledby="plugin-event-errors-title"><h2 id="plugin-event-errors-title">事件失败</h2><p v-for="event in failedEvents" :key="event.event_id" class="notice notice-error"><span>{{ event.event_type }} · 已重试 {{ event.attempts }} 次<span v-if="event.last_error"> · {{ event.last_error }}</span></span><button type="button" class="button button-small" :disabled="retryingEvent !== ''" @click="retryEvent(event.event_id)">{{ retryingEvent === event.event_id ? '重试中…' : '重试' }}</button></p></section>
     <div v-if="!plugins.length" class="empty-state"><strong>没有发现插件</strong><p>将插件挂载到服务器插件目录并重启后，它们会显示在这里。</p></div>
   </main>
 </template>

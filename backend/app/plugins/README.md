@@ -19,7 +19,8 @@ five attempts; a restart requeues only events that were being processed.
 
 管理员插件页通过 `GET /api/admin/plugins` 查看 manifest 能力、API 版本和本次进程是否已加载；通过
 `GET /api/admin/plugins/events?status=failed` 查看脱敏后的失败事件、重试次数和最后错误。该诊断接口只读，
-不会返回插件配置或事件 payload。
+不会返回插件配置或事件 payload。修复配置后，管理员可以对单条失败事件调用
+`POST /api/admin/plugins/events/{event_id}/retry`，它只把原事件重新置为 `queued`，由 Worker 异步处理。
 
 Exporter plugins receive only the bounded meeting context and return a
 validated `PluginExport`. The core enforces a safe single-segment filename,
