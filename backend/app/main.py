@@ -28,6 +28,7 @@ from app.plugins.router import (
     meeting_actions_router,
 )
 from app.projects.router import router as projects_router, updates_router
+from app.runtime_info import package_version, readiness_payload
 from app.schema_guard import reject_legacy_schema
 from app.workspace.router import router as workspace_router
 
@@ -82,7 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     pass
         database.engine.dispose()
 
-    app = FastAPI(title="MeetFlow", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="MeetFlow", version=package_version(), lifespan=lifespan)
     app.state.settings = resolved
     app.state.database = database
     app.state.auth_service = auth_service
@@ -130,6 +131,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/meta")
+    def meta() -> dict[str, str]:
+        return {"version": package_version()}
+
+    @app.get("/api/health/ready")
+    def readiness() -> JSONResponse:
+        payload, ready = readiness_payload(
+            database,
+            plugin_manager,
+            plugin_worker,
+            test_mode=resolved.app_env == "test",
+        )
+        return JSONResponse(status_code=200 if ready else 503, content=payload)
 
     frontend_dist = resolved.frontend_dist.resolve()
     frontend_index = frontend_dist / "index.html"

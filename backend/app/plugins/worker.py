@@ -121,6 +121,11 @@ class PluginJobWorker:
         self.database = database
         self.manager = manager
         self._stop = asyncio.Event()
+        self._running = False
+
+    @property
+    def running(self) -> bool:
+        return self._running
 
     def recover(self) -> None:
         with self.database.session() as session:
@@ -176,12 +181,16 @@ class PluginJobWorker:
         return True
 
     async def serve(self) -> None:
-        while not self._stop.is_set():
-            if not await self.run_once():
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=1)
-                except TimeoutError:
-                    pass
+        self._running = True
+        try:
+            while not self._stop.is_set():
+                if not await self.run_once():
+                    try:
+                        await asyncio.wait_for(self._stop.wait(), timeout=1)
+                    except TimeoutError:
+                        pass
+        finally:
+            self._running = False
 
     def stop(self) -> None:
         self._stop.set()
