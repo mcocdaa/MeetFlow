@@ -100,6 +100,13 @@ describe('meeting workspace', () => {
     expect(screen.getByRole('status')).toHaveTextContent('纪要已保存')
   })
 
+  it('exposes the meeting raw notes as an accessible editor', async () => {
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    expect(screen.getByRole('textbox', { name: '整场会议原始笔记' })).toBeInTheDocument()
+  })
+
   it('treats a timezone-less meeting start timestamp as UTC for the live clock', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 6, 30, 6, 40, 0))
     apiMock.mockResolvedValue(meetingFixture({ status: 'in_progress', started_at: '2026-07-30T06:38:44.670756' }))
@@ -182,5 +189,22 @@ describe('meeting workspace', () => {
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
     expect(apiMock.mock.calls.map(([path]) => path)).toEqual(['/api/meetings/m1', '/api/meetings/m1/start'])
     expect(apiMock.mock.calls[1][1]).toEqual({ method: 'POST', body: JSON.stringify({ expected_version: 2 }) })
+  })
+
+  it('starts a draft meeting directly without posting a ready transition', async () => {
+    const draftMeeting = meetingFixture({ status: 'draft', version: 2 })
+    const started = meetingFixture({ status: 'in_progress', version: 3 })
+    apiMock.mockResolvedValueOnce(draftMeeting).mockResolvedValueOnce(started)
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
+    expect(apiMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/meetings/m1',
+      '/api/meetings/m1/start',
+    ])
+    expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1/ready', expect.anything())
   })
 })

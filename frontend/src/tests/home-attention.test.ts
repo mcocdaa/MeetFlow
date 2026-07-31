@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import HomeView from '../views/HomeView.vue'
@@ -77,6 +77,30 @@ describe('personal workspace home', () => {
     expect(await screen.findByText('跨项目工作摘要')).toBeInTheDocument()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '生成项目简报' })).not.toBeInTheDocument()
+  })
+
+  it('keeps attention visible when optional plugin actions fail', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/attention') return Promise.resolve({
+        items: [{
+          subject_type: 'action', subject_id: 'a1', title: '仍需处理的待办',
+          project: { id: 'p1', name: 'MeetFlow', slug: 'meetflow' },
+          reasons: ['action_overdue'], due_date: null, status: 'open',
+        }],
+        notifications: [], mentions: [], unread_count: 0, truncated: false,
+      })
+      if (path === '/api/plugins/actions') return Promise.reject(new Error('插件 action 不可用'))
+      if (path === '/api/work-brief') return Promise.resolve({ content_markdown: '', generated_at: null })
+      return Promise.resolve([])
+    })
+
+    render(HomeView, { global: { stubs: { RouterLink } } })
+
+    expect(await screen.findByText('仍需处理的待办')).toBeInTheDocument()
+    const aiPanel = screen.getByText('AI 工作简报').closest('section')
+    expect(aiPanel).not.toBeNull()
+    expect(within(aiPanel as HTMLElement).getByRole('alert')).toHaveTextContent('插件 action 不可用')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
   })
 
   it('filters the project list without hiding project context', async () => {

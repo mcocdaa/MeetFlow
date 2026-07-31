@@ -271,6 +271,26 @@ def test_finish_skips_unresolved_agenda_and_records_duration(
         assert snapshot_meeting["completed_at"] == finished_at.isoformat().replace("+00:00", "Z")
 
 
+def test_snapshot_keeps_raw_notes_and_start_accepts_draft(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        draft = session.get(Meeting, meeting_id)
+
+        started = MeetingService(session).start(
+            meeting_id, LifecycleCommand(expected_version=draft.version), actor
+        )
+        completed = MeetingService(session).finish(
+            meeting_id, LifecycleCommand(expected_version=started.version), actor
+        )
+
+        assert completed.status == MeetingStatus.completed
+        assert (
+            completed.current_snapshot.snapshot_json["meeting"]["raw_notes_markdown"]
+            == "  raw notes\n"
+        )
+
+
 def test_snapshot_includes_derived_outcome_source_metadata(client, lifecycle_context):
     admin_id, _, meeting_id = lifecycle_context
     with client.app.state.database.session() as session:
