@@ -79,6 +79,11 @@ async function save(expectedVersion = currentVersion.value) {
 defineExpose({ flushIfDirty })
 
 async function complete() {
+  try {
+    await persistIfDirty()
+  } catch {
+    return
+  }
   saving.value = true
   error.value = ''
   try {

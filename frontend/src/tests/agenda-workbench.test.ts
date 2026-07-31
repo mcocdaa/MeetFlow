@@ -243,6 +243,29 @@ describe('agenda workbench', () => {
     }))
   })
 
+  it('saves a dirty agenda record before completing and advancing', async () => {
+    const item = meetingFixture().agenda_items[0]
+    const notes = '@决策: 采用灰度发布'
+    const advanced = vi.fn()
+    editorBuffer.value = notes
+    apiMock
+      .mockResolvedValueOnce({ ...item, notes_markdown: notes, version: 3 })
+      .mockResolvedValueOnce({ agenda_item: { ...item, notes_markdown: notes, version: 4 }, next_agenda_item_id: 'a2' })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item }, attrs: { onAdvance: advanced } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '完成议题并进入下一项' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
+    expect(apiMock.mock.calls[0]).toEqual(['/api/agenda-items/a1', {
+      method: 'PUT',
+      body: JSON.stringify({ expected_version: 2, title: '进展同步', agenda_type: 'information', notes_markdown: notes, estimated_minutes: 20 }),
+    }])
+    expect(apiMock.mock.calls[1]).toEqual(['/api/agenda-items/a1/complete-and-advance', {
+      method: 'POST', body: JSON.stringify({ expected_version: 3 }),
+    }])
+    expect(advanced).toHaveBeenCalledWith('a2')
+  })
+
   it('uses the accepted version when agenda completion follows a manual save', async () => {
     const item = meetingFixture().agenda_items[0]
     const changed = vi.fn()
