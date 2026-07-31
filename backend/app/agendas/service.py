@@ -486,30 +486,32 @@ class AgendaService:
         self._require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
-        self._require_mutable(meeting)
+        if meeting.status != MeetingStatus.in_progress:
+            raise AppError(409, "meeting_not_in_progress", "会议尚未开始")
         meeting_id = meeting.id
         expected_meeting_version = meeting.version
         require_version(payload.expected_version, item.version)
-        if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
+        if item.status != AgendaStatus.in_progress:
             raise AppError(409, "invalid_agenda_transition", "议题状态不可再次结束")
-        now = utcnow()
-        complete_item(item, actor_id=actor.id, at=now)
-        next_item = next(
-            (
-                row
-                for row in self.list(meeting_id)
-                if row.position > item.position and row.status == AgendaStatus.planned
-            ),
-            None,
-        )
-        if next_item is not None:
-            start_planned_item(next_item, actor_id=actor.id, at=now)
-        meeting.updated_by = actor.id
-        meeting.version += 1
-        self._record(item, actor, "agenda.completed")
-        if next_item is not None:
-            self._record(next_item, actor, "agenda.started")
         try:
+            next_item = next(
+                (
+                    row
+                    for row in self.list(meeting_id)
+                    if row.position > item.position
+                    and row.status == AgendaStatus.planned
+                ),
+                None,
+            )
+            now = utcnow()
+            complete_item(item, actor_id=actor.id, at=now)
+            if next_item is not None:
+                start_planned_item(next_item, actor_id=actor.id, at=now)
+            meeting.updated_by = actor.id
+            meeting.version += 1
+            self._record(item, actor, "agenda.completed")
+            if next_item is not None:
+                self._record(next_item, actor, "agenda.started")
             self.session.commit()
         except StaleDataError as exc:
             self._raise_item_or_meeting_stale(

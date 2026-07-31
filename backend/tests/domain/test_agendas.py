@@ -198,6 +198,78 @@ def test_complete_and_advance_rejects_a_stale_item_without_starting_next(
         assert session.get(AgendaItem, later.id).status.value == "planned"
 
 
+def test_complete_and_advance_requires_a_live_meeting(client, agenda_context):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        item = add_item(agendas, meeting, admin, "Draft agenda")
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                item.id, AgendaCommand(expected_version=item.version), admin
+            )
+
+        assert error.value.code == "meeting_not_in_progress"
+        assert session.get(AgendaItem, item.id).status.value == "planned"
+
+
+def test_complete_and_advance_requires_an_in_progress_agenda(
+    client, agenda_context
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        session.refresh(meeting)
+        planned = add_item(agendas, meeting, admin, "Later")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                planned.id, AgendaCommand(expected_version=planned.version), admin
+            )
+
+        assert error.value.code == "invalid_agenda_transition"
+        assert session.get(AgendaItem, current.id).status.value == "in_progress"
+        assert session.get(AgendaItem, planned.id).status.value == "planned"
+
+
+def test_complete_and_advance_converts_stale_next_agenda_query_to_conflict(
+    client, agenda_context, monkeypatch
+):
+    admin, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        meetings = MeetingService(session)
+        agendas = AgendaService(session)
+        meeting = session.get(Meeting, meeting_id)
+        current = add_item(agendas, meeting, admin, "Current")
+        meetings.start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            admin,
+        )
+
+        def raise_stale_next_agenda_query(_meeting_id):
+            raise StaleDataError()
+
+        monkeypatch.setattr(agendas, "list", raise_stale_next_agenda_query)
+
+        with pytest.raises(AppError) as error:
+            agendas.complete_and_advance(
+                current.id, AgendaCommand(expected_version=current.version), admin
+            )
+
+        assert error.value.code == "version_conflict"
+        assert session.get(AgendaItem, current.id).status.value == "in_progress"
+
+
 def test_public_agenda_edit_reorder_transitions_and_parent_lock(client, agenda_context):
     admin, _, meeting_id = agenda_context
     with client.app.state.database.session() as session:

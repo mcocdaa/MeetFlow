@@ -66,7 +66,7 @@ def test_start_without_agenda_remains_valid(client, lifecycle_context):
 
 - [x] **Step 2: 运行失败测试，确认当前行为尚未开始首项**
 
-Run: `python -m pytest -q backend/tests/domain/test_meeting_lifecycle.py -k 'automatically_opens_first or without_agenda'`  
+Run: `python -m pytest -q backend/tests/domain/test_meeting_lifecycle.py -k 'automatically_opens_first or without_agenda'`
 Expected: 首项测试失败，首项仍为 `planned`；空队列测试通过或成为回归基线。
 
 - [x] **Step 3: 创建可复用、无提交的议题字段转换辅助函数**
@@ -136,7 +136,7 @@ Import `start_planned_item` at the top of `backend/app/meetings/service.py`; nev
 
 In `test_finish_skips_unresolved_agenda_and_records_duration`, remove the explicit `AgendaService(session).start(active.id, ...)` call after `service.start(...)`; preserve the fixed five-minute duration assertion because the automatically started first item must still produce `300` seconds.
 
-Run: `python -m pytest -q backend/tests/domain/test_meeting_lifecycle.py`  
+Run: `python -m pytest -q backend/tests/domain/test_meeting_lifecycle.py`
 Expected: PASS.
 
 - [x] **Step 6: 提交后端开始行为**
@@ -216,7 +216,7 @@ def test_complete_and_advance_rejects_a_stale_item_without_starting_next(client,
 
 - [x] **Step 2: 运行失败测试，确认命令尚不存在**
 
-Run: `python -m pytest -q backend/tests/domain/test_agendas.py -k 'complete_and_advance'`  
+Run: `python -m pytest -q backend/tests/domain/test_agendas.py -k 'complete_and_advance'`
 Expected: FAIL with `AttributeError: 'AgendaService' object has no attribute 'complete_and_advance'`.
 
 - [x] **Step 3: 实现单次提交的服务命令**
@@ -277,7 +277,7 @@ The response keeps the completed record consistent with existing commands and gi
 
 - [x] **Step 5: 运行领域测试并提交推进命令**
 
-Run: `python -m pytest -q backend/tests/domain/test_agendas.py backend/tests/domain/test_meeting_lifecycle.py`  
+Run: `python -m pytest -q backend/tests/domain/test_agendas.py backend/tests/domain/test_meeting_lifecycle.py`
 Expected: PASS.
 
 ```bash
@@ -333,7 +333,7 @@ Update the post-start `MeetingWorkspaceView` fixture to include its first agenda
 
 - [x] **Step 2: 运行失败测试，确认旧按钮和路由仍在使用**
 
-Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts`  
+Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts`
 Expected: FAIL because the old detail button is rendered and `/complete-and-advance` is not requested.
 
 - [x] **Step 3: 让工作台处理“打开并开始”**
@@ -404,7 +404,7 @@ Keep save and conflict handling unchanged. Replace the footer with one condition
 
 - [x] **Step 5: 运行组件测试并提交工作台交互**
 
-Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts meeting-workspace.test.ts`  
+Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts meeting-workspace.test.ts`
 Expected: PASS.
 
 ```bash
@@ -431,7 +431,7 @@ Add a completed fixture variant, select it, and assert it has `agenda-status-com
 
 - [x] **Step 2: 运行组件测试，确认状态边界存在**
 
-Run: `npm --prefix frontend test -- agenda-workbench.test.ts`  
+Run: `npm --prefix frontend test -- agenda-workbench.test.ts`
 Expected: PASS for the queue state-class assertions. The visual rule itself is verified in Steps 4 and 5 by build and browser evidence.
 
 - [x] **Step 3: 添加仅作用于当前进行中行的渐变流动**
@@ -459,7 +459,7 @@ Merge the last selector into the existing reduced-motion rule rather than creati
 
 - [x] **Step 4: 构建前端并在隔离浏览器验证完整体验**
 
-Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts && npm --prefix frontend run build`  
+Run: `npm --prefix frontend test -- agenda-workbench.test.ts meeting-lifecycle.test.ts && npm --prefix frontend run build`
 Expected: tests and production build PASS; the existing Vite chunk-size warning may remain.
 
 Use the `testing-isolated-web-ui` skill with a temporary image, container, port and data directory. In the browser: create a meeting with at least three topics; start it; verify the first row is selected and computed `animationName` is `agenda-current-wash`; click the third planned row and verify it starts without completing the first; complete the third row and verify the next planned row opens; select a completed row and verify computed `animationName` is `none`. Remove only the exact temporary container, image and temporary directory afterwards.
