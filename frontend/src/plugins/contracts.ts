@@ -6,6 +6,8 @@ export type PluginEditorContext = {
   metadata: Record<string, unknown>
 }
 
+export type PluginSlotContext = PluginEditorContext & { slot: string }
+
 export type PluginBusyState = {
   active: boolean
   label: string
@@ -19,6 +21,7 @@ export type PluginFrontendModule = {
 export type PluginFrontendApi = {
   registerEditorAssistant: (slot: string, component: Component) => void
   registerTaskExtension: (pluginId: string, component: Component) => void
+  registerPluginSlot: (slot: string, component: Component) => void
   api: typeof import('../api/client').api
   vue: Pick<typeof import('vue'), 'computed' | 'defineComponent' | 'h' | 'onBeforeUnmount' | 'onMounted' | 'reactive' | 'ref' | 'watch'>
 }

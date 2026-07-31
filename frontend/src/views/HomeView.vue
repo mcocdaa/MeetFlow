@@ -6,6 +6,7 @@ import { api } from '../api/client'
 import { streamPluginAction } from '../api/plugin-stream'
 import AttentionCard, { type AttentionItem } from '../components/AttentionCard.vue'
 import MarkdownView from '../components/MarkdownView.vue'
+import PluginSlot from '../components/PluginSlot.vue'
 
 type AttentionResponse = {
   items: AttentionItem[]
@@ -149,6 +150,7 @@ onBeforeUnmount(cancelWorkBrief)
           <MarkdownView v-else :source="displayedWorkBriefMarkdown" />
         </section>
       </section>
+      <PluginSlot slot="home.secondary-card" target-type="home" target-id="home" />
     </div>
   </main>
 </template>

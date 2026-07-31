@@ -13,6 +13,7 @@ import MarkdownEditor from '../components/MarkdownEditor.vue'
 import SaveStateIndicator from '../components/meeting/SaveStateIndicator.vue'
 import PageHeader from '../components/PageHeader.vue'
 import PluginEditorSlot from '../components/PluginEditorSlot.vue'
+import PluginSlot from '../components/PluginSlot.vue'
 import type { Attachment, Meeting } from '../domain/meetings'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
 
@@ -209,7 +210,7 @@ onBeforeUnmount(() => {
           <MarkdownEditor ref="rawNotesEditor" v-model="draft.raw_notes_markdown" label="整场会议原始笔记" placeholder="记录整场会议的原始讨论内容…" :disabled="busy" />
           <p v-if="conflict" class="notice notice-error" role="alert">保存版本已变化，请刷新会议后重新确认本地笔记。</p>
         </section>
-        <div class="meeting-tools workspace-section"><div><p class="eyebrow">Meeting tools</p><h2>材料与协作</h2><p class="muted">材料、评论都可以在会议进行中持续添加，不会离开当前议题。</p></div><div class="row-actions"><button class="button button-quiet" @click="materialsOpen = true">材料 ({{ materialItems.length }})</button><button class="button button-primary" @click="commentsOpen = true">评论</button></div></div>
+        <div class="meeting-tools workspace-section"><div><p class="eyebrow">Meeting tools</p><h2>材料与协作</h2><p class="muted">材料、评论都可以在会议进行中持续添加，不会离开当前议题。</p></div><div class="row-actions"><PluginSlot slot="meeting.toolbar.action" target-type="meeting" :target-id="meeting.id" :metadata="{ projectId: meeting.project.id }" /><button class="button button-quiet" @click="materialsOpen = true">材料 ({{ materialItems.length }})</button><button class="button button-primary" @click="commentsOpen = true">评论</button></div></div>
         <ContextDrawer :open="preparationOpen" title="准备信息" @close="preparationOpen = false"><section class="meeting-preparation"><header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>会议准备</h2></div><button class="button button-primary" :disabled="busy" @click="saveMeeting">保存会议信息</button></header><div class="meeting-prep-grid"><label>会议标题<input v-model="draft.title" /></label><label>开始时间<input v-model="draft.scheduled_start" type="datetime-local" /></label><label>结束时间<input v-model="draft.scheduled_end" type="datetime-local" /></label></div><label>会议目的<MarkdownEditor ref="purposeEditor" v-model="draft.purpose_markdown" label="会议目的" :disabled="busy" /></label><div class="participant-chips"><span v-for="participant in meeting.participants" :key="participant.user.id"><b>{{ participant.user.display_name }}</b> · {{ participant.participation_role }}</span><span v-if="!meeting.participants.length">尚未添加参与者</span></div></section></ContextDrawer>
         <ContextDrawer :open="materialsOpen" title="会议材料" @close="materialsOpen = false"><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="materialItems" @uploaded="addMaterial" @deleted="removeMaterial" /></ContextDrawer>
         <ContextDrawer :open="commentsOpen" title="评论" @close="commentsOpen = false"><MeetingCommentsPanel :meeting="meeting" /></ContextDrawer>
