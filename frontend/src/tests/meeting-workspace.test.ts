@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), editorBuffer: { value: '' } }))
 vi.mock('../api/client', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'm1' } }) }))
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ params: { id: 'm1' } }),
+  onBeforeRouteLeave: () => undefined,
+}))
 vi.mock('../components/MarkdownEditor.vue', () => ({
   default: defineComponent({
     props: ['modelValue', 'label', 'disabled', 'registerEditor'],
@@ -206,5 +209,16 @@ describe('meeting workspace', () => {
       '/api/meetings/m1/start',
     ])
     expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1/ready', expect.anything())
+  })
+
+  it('protects dirty meeting drafts from browser unload', async () => {
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+    await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
+    await fireEvent.update(screen.getByLabelText('会议标题'), '未保存标题')
+
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
   })
 })

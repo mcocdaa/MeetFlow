@@ -48,7 +48,9 @@ class PluginStreamingError(ValueError):
 
 
 class PluginManager:
+    # Kept for older integrations that introspect the v1 baseline.
     supported_api_version = 1
+    supported_api_versions = {1, 2}
 
     def __init__(
         self, plugins_dir: Path, database: Database, app_secret_key: str
@@ -191,7 +193,7 @@ class PluginManager:
                     )
                     if manifest.id != plugin_id:
                         raise ManifestError("manifest id must match registry id")
-                    if manifest.api_version != self.supported_api_version:
+                    if manifest.api_version not in self.supported_api_versions:
                         raise ManifestError("unsupported plugin API version")
                     entry_path = (plugin_dir / manifest.backend_entry).resolve()
                     if plugin_dir not in entry_path.parents:

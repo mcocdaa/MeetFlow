@@ -7,6 +7,7 @@ const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../api/client')>(), api: apiMock }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'm1' } }),
+  onBeforeRouteLeave: () => undefined,
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
 }))
 vi.mock('../components/MarkdownEditor.vue', () => ({

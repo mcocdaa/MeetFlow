@@ -166,6 +166,43 @@ def test_finish_rejects_invalid_outcome_source_chain_without_snapshot(
         assert session.get(Meeting, meeting_id).status == MeetingStatus.in_progress
 
 
+def test_finish_rolls_back_meeting_and_agenda_when_snapshot_build_fails(
+    client, lifecycle_context, monkeypatch
+):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = AgendaService(session).create(
+            meeting_id,
+            AgendaWrite(title="Rollback topic", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            actor,
+        )
+        service = MeetingService(session)
+
+        def fail_snapshot(_meeting):
+            raise RuntimeError("snapshot failed")
+
+        monkeypatch.setattr(service, "_snapshot_document", fail_snapshot)
+        with pytest.raises(RuntimeError, match="snapshot failed"):
+            service.finish(
+                meeting_id,
+                LifecycleCommand(expected_version=started.version),
+                actor,
+            )
+
+        session.expire_all()
+        assert session.get(Meeting, meeting_id).status == MeetingStatus.in_progress
+        assert session.get(AgendaItem, agenda.id).status == AgendaStatus.in_progress
+        assert session.scalar(select(func.count(MeetingSnapshot.id))) == 0
+
+
 def test_start_automatically_opens_first_planned_agenda(
     client, lifecycle_context, monkeypatch
 ):

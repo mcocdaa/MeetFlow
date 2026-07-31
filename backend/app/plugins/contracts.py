@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -18,6 +18,17 @@ class ConfigField(BaseModel):
     required: bool = False
 
 
+class PluginCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actions: list[str] = Field(default_factory=list)
+    exporters: list[str] = Field(default_factory=list)
+    event_subscriptions: list[str] = Field(default_factory=list)
+    ui_slots: list[str] = Field(default_factory=list)
+    context_scopes: list[str] = Field(default_factory=list)
+    external_network: bool = False
+
+
 class PluginManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     name: str
@@ -27,6 +38,7 @@ class PluginManifest(BaseModel):
     frontend_entry: str | None = Field(default=None, max_length=240)
     description: str = ""
     config_schema: dict[str, list[ConfigField]] = Field(default_factory=dict)
+    capabilities: PluginCapabilities = Field(default_factory=PluginCapabilities)
 
 
 class PluginLoadError(BaseModel):

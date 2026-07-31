@@ -32,6 +32,17 @@ from app.meetings.models import (
     StandingAgendaItem,
 )
 from app.meetings.recurrence import RecurrenceRule
+from app.domain.unit_of_work import UnitOfWork
+from app.meetings.lifecycle import MeetingLifecycleCommands
+from app.meetings.policies import LifecyclePolicy
+from app.meetings.projectors import (
+    project_ref as projector_project_ref,
+    serialize_amendment as projector_serialize_amendment,
+    serialize_attachment as projector_serialize_attachment,
+    serialize_snapshot as projector_serialize_snapshot,
+    user_ref as projector_user_ref,
+)
+from app.meetings.queries import MeetingQueries
 from app.outcomes.models import ActionItem, DecisionReviewer, OpenQuestion
 from app.meetings.schemas import (
     AmendmentWrite,
@@ -56,14 +67,8 @@ def utcnow() -> datetime:
 MAX_RECURRENCE_BACKFILL = timedelta(days=90)
 
 
-def user_ref(user: User | None) -> dict[str, str] | None:
-    if user is None:
-        return None
-    return {"id": user.id, "username": user.username, "display_name": user.display_name}
-
-
-def project_ref(project: Project) -> dict[str, str]:
-    return {"id": project.id, "name": project.name, "slug": project.slug}
+user_ref = projector_user_ref
+project_ref = projector_project_ref
 
 
 def dedupe_participants(values: Iterable[ParticipantWrite]) -> list[ParticipantWrite]:
@@ -550,14 +555,17 @@ class MeetingService:
         self.session.commit()
         return [self._reload_meeting(meeting_id) for meeting_id in created_ids]
 
-    def reconcile_series(self, series_id: str, *, now: datetime) -> list[Meeting]:
+    def reconcile_series(
+        self, series_id: str, *, now: datetime, commit: bool = True
+    ) -> list[Meeting]:
         series = self._reload_series(series_id)
         if series.status != SeriesStatus.active:
             return []
         created_ids = self._materialize_series(series, now=now)
         if not created_ids:
             return []
-        self.session.commit()
+        if commit:
+            self.session.commit()
         return [self._reload_meeting(meeting_id) for meeting_id in created_ids]
 
     def create_meeting(
@@ -682,10 +690,12 @@ class MeetingService:
         )
 
     def _commit_meeting_command(
-        self, meeting: Meeting, expected_version: int
+        self, meeting: Meeting, expected_version: int, *, commit: bool = True
     ) -> Meeting:
         meeting_id = meeting.id
         meeting.version += 1
+        if not commit:
+            return meeting
         try:
             self.session.commit()
         except (StaleDataError, IntegrityError) as exc:
@@ -719,17 +729,28 @@ class MeetingService:
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def start(self, meeting_id: str, payload: LifecycleCommand, actor: User) -> Meeting:
+        return MeetingLifecycleCommands(self, UnitOfWork(self.session)).start(
+            meeting_id, payload, actor
+        )
+
+    def _start_impl(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User, *, commit: bool = True
+    ) -> Meeting:
         self._require_active(actor)
         meeting = self.get_meeting(meeting_id)
+        require_version(payload.expected_version, meeting.version)
+        LifecyclePolicy.require(
+            meeting.status,
+            MeetingStatus.in_progress,
+            LifecyclePolicy.can_start(meeting.status),
+        )
         if (
             meeting.occurrence_kind == OccurrenceKind.scheduled
             and meeting.series_id is not None
         ):
-            self.reconcile_series(meeting.series_id, now=utcnow())
+            self.reconcile_series(meeting.series_id, now=utcnow(), commit=False)
             meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
-        if meeting.status not in {MeetingStatus.draft, MeetingStatus.ready}:
-            self._invalid_transition(meeting, MeetingStatus.in_progress)
         now = utcnow()
         if (
             meeting.occurrence_kind == OccurrenceKind.scheduled
@@ -780,7 +801,9 @@ class MeetingService:
                 payload={"title": first_planned.title},
             )
         self._record_meeting(meeting, actor, "meeting.started")
-        return self._commit_meeting_command(meeting, payload.expected_version)
+        return self._commit_meeting_command(
+            meeting, payload.expected_version, commit=commit
+        )
 
     def cancel(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
@@ -1084,13 +1107,25 @@ class MeetingService:
     def finish(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
+        return MeetingLifecycleCommands(self, UnitOfWork(self.session)).finish(
+            meeting_id, payload, actor
+        )
+
+    def _finish_impl(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User, *, commit: bool = True
+    ) -> Meeting:
         self._require_active(actor)
         meeting = self._meeting_for_snapshot(meeting_id)
         require_version(payload.expected_version, meeting.version)
-        if meeting.status != MeetingStatus.in_progress:
-            self._invalid_transition(meeting, MeetingStatus.completed)
+        LifecyclePolicy.require(
+            meeting.status,
+            MeetingStatus.completed,
+            LifecyclePolicy.can_finish(meeting.status),
+        )
         self._finish_in_session(meeting, actor=actor, now=utcnow())
         meeting_id = meeting.id
+        if not commit:
+            return meeting
         try:
             self.session.commit()
         except (StaleDataError, IntegrityError) as exc:
@@ -1178,27 +1213,11 @@ class MeetingService:
 
     @staticmethod
     def serialize_snapshot(item: MeetingSnapshot) -> dict[str, Any]:
-        return {
-            "id": item.id,
-            "meeting_id": item.meeting_id,
-            "completion_number": item.completion_number,
-            "snapshot": item.snapshot_json,
-            "created_by_user_id": item.created_by,
-            "created_by": user_ref(item.creator),
-            "created_at": item.created_at,
-        }
+        return projector_serialize_snapshot(item)
 
     @staticmethod
     def serialize_amendment(item: MeetingAmendment) -> dict[str, Any]:
-        return {
-            "id": item.id,
-            "meeting_id": item.meeting_id,
-            "reason": item.reason,
-            "content_markdown": item.content_markdown,
-            "created_by_user_id": item.created_by,
-            "created_by": user_ref(item.creator),
-            "created_at": item.created_at,
-        }
+        return projector_serialize_amendment(item)
 
     def serialize_series(self, series: MeetingSeries) -> dict[str, Any]:
         return {
@@ -1413,6 +1432,9 @@ class MeetingService:
         }
 
     def list_series(self, project_id: str) -> list[dict[str, Any]]:
+        return MeetingQueries(self).list_series(project_id)
+
+    def _list_series_impl(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
         self.materialize_due_occurrences(now=utcnow(), project_id=project_id)
         statement = (
@@ -1428,6 +1450,9 @@ class MeetingService:
         return [self.serialize_series(item) for item in self.session.scalars(statement)]
 
     def list_meetings(self, project_id: str) -> list[dict[str, Any]]:
+        return MeetingQueries(self).list_meetings(project_id)
+
+    def _list_meetings_impl(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
         self.materialize_due_occurrences(now=utcnow(), project_id=project_id)
         agenda_count = (
@@ -1494,6 +1519,9 @@ class MeetingService:
         ]
 
     def series_detail(self, series_id: str) -> dict[str, Any]:
+        return MeetingQueries(self).series_detail(series_id)
+
+    def _series_detail_impl(self, series_id: str) -> dict[str, Any]:
         self.reconcile_series(series_id, now=utcnow())
         series = self.session.scalar(
             select(MeetingSeries)
@@ -1505,6 +1533,9 @@ class MeetingService:
         return self.serialize_series(series)
 
     def meeting_detail(self, meeting_id: str) -> dict[str, Any]:
+        return MeetingQueries(self).meeting_detail(meeting_id)
+
+    def _meeting_detail_impl(self, meeting_id: str) -> dict[str, Any]:
         meeting = self.session.scalar(
             select(Meeting)
             .where(Meeting.id == meeting_id)
@@ -1550,18 +1581,7 @@ class MeetingService:
         return user_ref(user)
 
     def serialize_attachment(self, item: Attachment) -> dict[str, Any]:
-        return {
-            "id": item.id,
-            "target_type": item.target_type,
-            "target_id": item.target_id,
-            "original_name": item.original_name,
-            "mime_type": item.mime_type,
-            "size": item.size,
-            "attachment_type": item.attachment_type,
-            "created_by": user_ref(item.creator),
-            "created_at": item.created_at,
-            "download_url": f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}",
-        }
+        return projector_serialize_attachment(item)
 
     def serialize_action(self, item: ActionItem) -> dict[str, Any]:
         meeting = self.get_meeting(item.meeting_id)
@@ -1583,6 +1603,9 @@ class MeetingService:
         }
 
     def package(self, meeting_id: str) -> dict[str, Any]:
+        return MeetingQueries(self).package(meeting_id)
+
+    def _package_impl(self, meeting_id: str) -> dict[str, Any]:
         result = self.meeting_detail(meeting_id)
         actions = self.session.scalars(
             select(ActionItem)
@@ -1606,6 +1629,9 @@ class MeetingService:
         return result
 
     def plugin_context(self, meeting_id: str, user: User) -> dict[str, Any]:
+        return MeetingQueries(self).plugin_context(meeting_id, user)
+
+    def _plugin_context_impl(self, meeting_id: str, user: User) -> dict[str, Any]:
         package = self.package(meeting_id)
         # api_version=1 plugins consume the former flat meeting contract. New
         # standalone meetings have no free-form type, so expose a deterministic

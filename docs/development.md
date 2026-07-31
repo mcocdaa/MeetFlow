@@ -9,6 +9,7 @@
 - SQLite 保存结构化数据，附件和备份保存在数据目录。容器运行时的持久化目录是 `/app/data`，部署时对应宿主机的 `./data/`。
 - 生产镜像只有一个应用容器。Vue 资源在构建阶段生成，运行阶段启动 Uvicorn 和内置的插件任务 worker。
 - 会议系列的固定周期实例由应用进程内的低频 worker 创建；读取系列、会议列表和开始固定实例也会补算，因而不依赖外部 Cron。
+- 会议生命周期由 `MeetingService` 兼容 facade 转交 `MeetingLifecycleCommands`；命令通过 `UnitOfWork` 在一次会话事务中提交，`LifecyclePolicy` 只负责纯状态迁移判断。会议读取、package 和 plugin context 通过 `MeetingQueries` 读侧边界委托，`projectors.py` 承担快照、附件和用户/项目引用的纯投影。
 - 外部插件目录固定为 `/app/plugins`。生产部署可将宿主机目录以只读方式挂载到这里；插件代码仅应来自可信的服务器管理员。
 
 ## 本地开发
@@ -69,3 +70,5 @@ docker compose down
 `MeetingSeries` 的周期规则使用 IANA 时区和结构化频率字段，而不是展示用文字。`Meeting.occurrence_kind` 区分固定周期与临时实例，`series_slot_at` 唯一标识固定周期槽位；临时实例不得占用该槽位。修改这些字段或 `AgendaItem.actual_duration_seconds`、自动产出来源字段时，必须提供 Alembic 迁移。
 
 开始固定周期实例会收尾同一系列上一个未结束的固定实例。结束会议会在同一事务内跳过未结束议题、保存会议及议题实际时长并创建快照。会后 UI 必须读取快照中的纪要、议题记录、状态、时长和产出，而不是读取可重新打开后改变的当前记录；会议 API 会将 SQLite 读回的无偏移时间规范为带 `Z` 的 UTC，前端仍需将历史快照中的无后缀时间按 UTC 兼容解析，不能按浏览器本地时区解释。
+
+工作台的会议级草稿集中在 `useMeetingWorkspace`：它维护服务器版本、dirty 状态、保存状态和 409 冲突，并在生命周期命令前 flush 会议纪要、目的和原始笔记。当前页面仍保留显式保存按钮以兼容既有用户流程；离开有未保存草稿的页面会触发路由和浏览器 unload 保护。议题编辑继续由 `AgendaWorkbench` 显式保存，避免与会议级 PUT 并发写同一条记录。
