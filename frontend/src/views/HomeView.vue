@@ -32,23 +32,46 @@ const displayedWorkBriefMarkdown = computed(() => (
   workBriefRunning.value ? workBriefStreamMarkdown.value : workBrief.value?.content_markdown ?? ''
 ))
 
+async function loadAttention() {
+  response.value = await api<AttentionResponse>('/api/attention')
+}
+
+async function loadWorkBriefCapability() {
+  try {
+    const actions = await api<PluginAction[]>('/api/plugins/actions')
+    workBriefEnabled.value = actions.some((action) => action.action_id === 'ai-work-assistant.user_work_brief')
+  } catch (reason) {
+    workBriefEnabled.value = false
+    workBriefError.value = reason instanceof Error ? reason.message : 'AI 插件状态读取失败'
+  }
+}
+
+async function loadWorkBrief() {
+  try {
+    workBrief.value = await api<WorkBriefResponse>('/api/work-brief')
+  } catch (reason) {
+    if (!workBriefError.value) {
+      workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报读取失败'
+    }
+  }
+}
+
+async function loadOptionalResources() {
+  workBriefError.value = ''
+  await Promise.all([loadWorkBriefCapability(), loadWorkBrief()])
+}
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [attention, actions, brief] = await Promise.all([
-      api<AttentionResponse>('/api/attention'),
-      api<PluginAction[]>('/api/plugins/actions'),
-      api<WorkBriefResponse>('/api/work-brief'),
-    ])
-    response.value = attention
-    workBriefEnabled.value = actions.some((action) => action.action_id === 'ai-work-assistant.user_work_brief')
-    workBrief.value = brief
+    await loadAttention()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '工作区加载失败'
   } finally {
     loading.value = false
   }
+  if (!error.value) void loadOptionalResources()
 }
 
 async function generateWorkBrief() {
