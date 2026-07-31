@@ -815,7 +815,10 @@ class OutcomeService:
         )
         for model, outcome_type in model_types:
             for outcome in self.session.scalars(
-                select(model).where(model.agenda_item_id == source.id)
+                select(model).where(
+                    model.agenda_item_id == source.id,
+                    model.source_agenda_item_id.is_(None),
+                )
             ):
                 moved_rows.append(
                     {

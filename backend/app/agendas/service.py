@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.agendas.lifecycle import complete_item, start_planned_item
+from app.agendas.lifecycle import actual_duration_seconds, complete_item, start_planned_item
 from app.agendas.models import AgendaItem
 from app.agendas.outcome_tags import TaggedOutcome, parse_outcome_tags
 from app.agendas.schemas import (
@@ -33,12 +33,6 @@ def utcnow() -> datetime:
 
 def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-
-
-def _actual_duration_seconds(item: AgendaItem, finished_at: datetime) -> int:
-    if item.started_at is None:
-        return 0
-    return max(0, int((_aware(finished_at) - _aware(item.started_at)).total_seconds()))
 
 
 class AgendaService:
@@ -453,7 +447,7 @@ class AgendaService:
             item.started_at = now
         item.status = target
         item.completed_at = now
-        item.actual_duration_seconds = _actual_duration_seconds(item, now)
+        item.actual_duration_seconds = actual_duration_seconds(item, now)
         item.updated_by = actor.id
         item.version += 1
         meeting.updated_by = actor.id

@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
-from app.agendas.schemas import AgendaCommand, AgendaWrite
+from app.agendas.schemas import AgendaCommand, AgendaEdit, AgendaWrite
 from app.agendas.service import AgendaService
 from app.auth.models import User, UserRole, UserStatus
 from app.errors import AppError
@@ -454,6 +454,56 @@ def test_agenda_delete_guard_and_explicit_migration(client, outcome_context):
             expected_meeting_version=meeting.version,
         )
         assert session.get(AgendaItem, agenda_id) is None
+
+
+def test_migrating_manual_outcomes_keeps_tag_derived_rows_owned_by_the_source(
+    client, outcome_context
+):
+    admin_id, _, _, project_id, meeting_id, _, source_id, target_id = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        agendas = AgendaService(session)
+        source = session.get(AgendaItem, source_id)
+        agendas.update(
+            source.id,
+            AgendaEdit(
+                expected_version=source.version,
+                notes_markdown="@决策: 采用灰度发布",
+            ),
+            actor,
+        )
+        derived = session.scalar(
+            select(Decision).where(Decision.source_agenda_item_id == source_id)
+        )
+        manual = OutcomeService(session).create_decision(
+            project_id,
+            DecisionWrite(
+                meeting_id=meeting_id,
+                agenda_item_id=source_id,
+                title="Manual decision",
+                decision_markdown="Manual decision",
+            ),
+            actor,
+        )
+        source = session.get(AgendaItem, source_id)
+        target = session.get(AgendaItem, target_id)
+        meeting = session.get(Meeting, meeting_id)
+
+        OutcomeService(session).migrate_agenda_outcomes(
+            source_id,
+            AgendaOutcomeMigrationWrite(
+                target_agenda_item_id=target_id,
+                expected_source_version=source.version,
+                expected_target_version=target.version,
+                expected_source_meeting_version=meeting.version,
+                expected_target_meeting_version=meeting.version,
+            ),
+            actor,
+        )
+
+        assert session.get(Decision, derived.id).agenda_item_id == source_id
+        assert session.get(Decision, derived.id).source_agenda_item_id == source_id
+        assert session.get(Decision, manual.id).agenda_item_id == target_id
 
 
 def test_convert_stale_write_maps_exact_version_conflict_and_recovers_session(

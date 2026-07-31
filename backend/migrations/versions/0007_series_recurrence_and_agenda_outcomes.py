@@ -10,6 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+from app.domain.enums import OccurrenceKind, RecurrenceFrequency
+
 
 revision: str = "0007"
 down_revision: Union[str, Sequence[str], None] = "0006"
@@ -19,7 +21,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     with op.batch_alter_table("meeting_series") as batch_op:
-        batch_op.add_column(sa.Column("recurrence_frequency", sa.String(length=16), nullable=True))
+        batch_op.add_column(
+            sa.Column(
+                "recurrence_frequency",
+                sa.Enum(RecurrenceFrequency, name="recurrencefrequency"),
+                nullable=True,
+            )
+        )
         batch_op.add_column(sa.Column("recurrence_interval", sa.Integer(), nullable=False, server_default="1"))
         batch_op.add_column(sa.Column("recurrence_weekday", sa.Integer(), nullable=True))
         batch_op.add_column(sa.Column("recurrence_month_day", sa.Integer(), nullable=True))
@@ -27,13 +35,20 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("recurrence_local_time", sa.Time(), nullable=True))
         batch_op.add_column(sa.Column("recurrence_timezone", sa.String(length=64), nullable=True))
         batch_op.add_column(sa.Column("recurrence_anchor_date", sa.Date(), nullable=True))
+        batch_op.alter_column("recurrence_interval", server_default=None)
 
     with op.batch_alter_table("meetings") as batch_op:
         batch_op.add_column(
-            sa.Column("occurrence_kind", sa.String(length=16), nullable=False, server_default="manual")
+            sa.Column(
+                "occurrence_kind",
+                sa.Enum(OccurrenceKind, name="occurrencekind"),
+                nullable=False,
+                server_default="manual",
+            )
         )
         batch_op.add_column(sa.Column("series_slot_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.create_unique_constraint("uq_meeting_series_slot", ["series_id", "series_slot_at"])
+        batch_op.alter_column("occurrence_kind", server_default=None)
 
     with op.batch_alter_table("agenda_items") as batch_op:
         batch_op.add_column(sa.Column("actual_duration_seconds", sa.Integer(), nullable=True))

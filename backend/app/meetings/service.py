@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.agendas.lifecycle import start_planned_item
+from app.agendas.lifecycle import actual_duration_seconds, start_planned_item
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
@@ -1097,12 +1097,6 @@ class MeetingService:
             self._raise_meeting_stale(meeting_id, payload.expected_version, exc)
         return self._reload_meeting(meeting_id)
 
-    @staticmethod
-    def _agenda_actual_duration_seconds(item: AgendaItem, now: datetime) -> int:
-        if item.started_at is None:
-            return 0
-        return max(0, int((as_utc(now) - as_utc(item.started_at)).total_seconds()))
-
     def _finish_in_session(
         self, meeting: Meeting, *, actor: User, now: datetime
     ) -> None:
@@ -1112,9 +1106,7 @@ class MeetingService:
                 continue
             item.status = AgendaStatus.skipped
             item.completed_at = now
-            item.actual_duration_seconds = self._agenda_actual_duration_seconds(
-                item, now
-            )
+            item.actual_duration_seconds = actual_duration_seconds(item, now)
             item.updated_by = actor.id
             item.version += 1
         completion_number = (

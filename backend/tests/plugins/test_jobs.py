@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import func, select
 
+from app.agendas.lifecycle import complete_item, start_planned_item
 from app.agendas.schemas import AgendaWrite
 from app.agendas.service import AgendaService
 from app.meetings.models import utcnow
@@ -121,7 +124,13 @@ def test_meeting_plugin_context_contains_tag_rules_and_agenda_timing(
             actor,
             expected_meeting_version=meeting.version,
         )
-        agenda.actual_duration_seconds = 300
+        finished_at = datetime(2026, 7, 17, 13, 35, tzinfo=timezone.utc)
+        start_planned_item(
+            agenda,
+            actor_id=actor.id,
+            at=finished_at - timedelta(minutes=5),
+        )
+        complete_item(agenda, actor_id=actor.id, at=finished_at)
         session.commit()
 
         from app.plugins.context import PluginContextBuilder
