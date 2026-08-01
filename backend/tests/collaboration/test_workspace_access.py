@@ -29,6 +29,7 @@ class AccessRows:
     stakeholder: User
     outsider: User
     invited: User
+    inactive_invited: User
     project_id: str
     meeting_id: str
 
@@ -127,14 +128,18 @@ def test_workspace_access_distinguishes_roles(client):
     with database.session() as session:
         admin = session.scalar(select(User).where(User.username == "admin"))
         assert admin is not None
-        lead, member, stakeholder, outsider, invited = (
+        lead, member, stakeholder, outsider, invited, inactive_invited = (
             _active_user("access-lead"),
             _active_user("access-member"),
             _active_user("access-stakeholder"),
             _active_user("access-outsider"),
             _active_user("access-invited"),
+            _active_user("access-inactive-invited"),
         )
-        session.add_all([lead, member, stakeholder, outsider, invited])
+        inactive_invited.status = UserStatus.DISABLED
+        session.add_all(
+            [lead, member, stakeholder, outsider, invited, inactive_invited]
+        )
         session.commit()
 
         project = ProjectService(session).create(
@@ -164,7 +169,12 @@ def test_workspace_access_distinguishes_roles(client):
                     user_id=invited.id,
                     participation_role=ParticipationRole.attendee,
                     position=0,
-                )
+                ),
+                MeetingParticipant(
+                    user_id=inactive_invited.id,
+                    participation_role=ParticipationRole.attendee,
+                    position=1,
+                ),
             ],
         )
         session.add(meeting)
@@ -177,6 +187,7 @@ def test_workspace_access_distinguishes_roles(client):
             stakeholder=stakeholder,
             outsider=outsider,
             invited=invited,
+            inactive_invited=inactive_invited,
             project_id=project.id,
             meeting_id=meeting.id,
         )
@@ -198,6 +209,13 @@ def test_workspace_access_distinguishes_roles(client):
         assert not access.meeting_capabilities(
             loaded_meeting, rows.invited
         ).can_contribute
+        assert not any(
+            vars(
+                access.meeting_capabilities(
+                    loaded_meeting, rows.inactive_invited
+                )
+            ).values()
+        )
 
 
 def test_project_routes_filter_visibility_and_require_management(client):
@@ -296,6 +314,10 @@ def test_invited_nonmember_can_comment_but_cannot_upload_to_own_meeting(client):
     )
 
     assert comment.status_code == 201
+    assert {
+        key: comment.json()[key]
+        for key in ("can_edit", "can_delete", "can_resolve")
+    } == {"can_edit": True, "can_delete": True, "can_resolve": True}
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()["items"]] == [comment.json()["id"]]
     assert upload.status_code == 403

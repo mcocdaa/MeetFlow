@@ -62,6 +62,8 @@ class WorkspaceAccess:
     def meeting_capabilities(
         self, meeting: Meeting, actor: User
     ) -> WorkspaceCapabilities:
+        if actor.status != UserStatus.ACTIVE:
+            return WorkspaceCapabilities()
         project_capabilities = self.project_capabilities(
             self._project(meeting.project_id), actor
         )
