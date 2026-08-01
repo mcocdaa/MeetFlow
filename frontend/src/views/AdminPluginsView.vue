@@ -54,7 +54,7 @@ async function load() {
       const events = await api<{ items: NonNullable<PluginListResponse['events']> }>('/api/admin/plugins/events?status=failed')
       failedEvents.value = events.items ?? []
     } catch {
-      failedEvents.value = []
+      // Keep failedEvents from /api/admin/plugins as the fallback.
     }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '插件列表加载失败'

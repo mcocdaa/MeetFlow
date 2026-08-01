@@ -65,6 +65,22 @@ it('shows failed outbox events without exposing event payloads', async () => {
   expect(screen.getByText(/timeout/)).toBeInTheDocument()
 })
 
+
+it('keeps primary failed events visible when diagnostics refresh fails', async () => {
+  apiMock
+    .mockResolvedValueOnce({
+      plugins: [],
+      errors: [],
+      events: [{ event_id: 'evt-primary', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }],
+    })
+    .mockRejectedValueOnce(new Error('诊断接口不可用'))
+
+  render(AdminPluginsView)
+
+  expect(await screen.findByText(/meeting\.completed · 已重试 5 次/)).toBeInTheDocument()
+})
+
+
 it('retries one failed event and refreshes the diagnostic list', async () => {
   let resolveRetry!: (value: unknown) => void
   const retryResponse = new Promise((resolve) => { resolveRetry = resolve })
