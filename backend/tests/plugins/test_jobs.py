@@ -7,8 +7,9 @@ from app.agendas.lifecycle import complete_item, start_planned_item
 from app.agendas.schemas import AgendaWrite
 from app.agendas.service import AgendaService
 from app.meetings.models import utcnow
-from app.meetings.models import Meeting
-from app.auth.models import User
+from app.auth.models import User, UserRole, UserStatus
+from app.domain.enums import ParticipationRole
+from app.meetings.models import Meeting, MeetingParticipant
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
 from app.plugins.worker import PluginJobWorker
@@ -210,6 +211,47 @@ def test_submit_endpoint_returns_active_duplicate_job(
     assert second.status_code == 200
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["status"] == "queued"
+
+
+def test_invited_nonmember_cannot_submit_a_meeting_plugin_job(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    with database.session() as session:
+        invited = User(
+            username="job-invited",
+            display_name="Job Invited",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(invited)
+        session.flush()
+        session.add(
+            MeetingParticipant(
+                meeting_id=plugin_meeting_id,
+                user_id=invited.id,
+                participation_role=ParticipationRole.attendee,
+                position=1,
+            )
+        )
+        session.commit()
+        cookie_name = plugin_client.app.state.auth_service.cookie_name
+        cookie_value = plugin_client.app.state.auth_service.issue_cookie(invited)
+
+    plugin_client.cookies.clear()
+    plugin_client.cookies.set(cookie_name, cookie_value)
+    response = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "meeting",
+            "target_id": plugin_meeting_id,
+            "input": {},
+        },
+    )
+
+    assert response.status_code == 403
 
 
 def test_creator_can_cancel_queued_job_and_rerun_terminal_job(

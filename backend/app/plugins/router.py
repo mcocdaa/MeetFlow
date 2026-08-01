@@ -24,6 +24,7 @@ from app.auth.models import User
 from app.database import get_session
 from app.errors import AppError
 from app.meetings.service import MeetingService
+from app.projects.access import WorkspaceAccess
 from app.plugins.events import retry_plugin_event as retry_plugin_event_command
 from app.plugins.manager import (
     PluginConfigurationError,
@@ -450,6 +451,9 @@ async def run_action(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict:
+    access = WorkspaceAccess(session)
+    meeting = access.require_meeting_view(meeting_id, user)
+    access.require_project_contribute(meeting.project_id, user)
     manager = request.app.state.plugin_manager
     action = next(
         (
@@ -507,6 +511,9 @@ async def export_meeting(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> Response:
+    access = WorkspaceAccess(session)
+    meeting = access.require_meeting_view(meeting_id, user)
+    access.require_project_contribute(meeting.project_id, user)
     manager = request.app.state.plugin_manager
     if exporter_id not in manager.loaded_exporters():
         raise AppError(404, "plugin_export_not_found", "会议导出器不存在")

@@ -27,10 +27,12 @@ class AccessRows:
 @dataclass
 class AccessHttpContext:
     project_id: str
+    meeting_id: str
     admin_cookie: dict[str, str]
     lead_cookie: dict[str, str]
     member_cookie: dict[str, str]
     outsider_cookie: dict[str, str]
+    invited_cookie: dict[str, str]
 
 
 def _active_user(username: str) -> User:
@@ -51,7 +53,8 @@ def _create_http_context(client: TestClient) -> AccessHttpContext:
         lead = _active_user("http-lead")
         member = _active_user("http-member")
         outsider = _active_user("http-outsider")
-        session.add_all([lead, member, outsider])
+        invited = _active_user("http-invited")
+        session.add_all([lead, member, outsider, invited])
         session.commit()
         project = ProjectService(session).create(
             ProjectWrite(
@@ -62,14 +65,33 @@ def _create_http_context(client: TestClient) -> AccessHttpContext:
             ),
             admin,
         )
+        meeting = Meeting(
+            project_id=project.id,
+            title="HTTP access meeting",
+            scheduled_start=datetime(2026, 8, 1, 9, tzinfo=timezone.utc),
+            scheduled_end=datetime(2026, 8, 1, 10, tzinfo=timezone.utc),
+            created_by=lead.id,
+            updated_by=lead.id,
+            participants=[
+                MeetingParticipant(
+                    user_id=invited.id,
+                    participation_role=ParticipationRole.attendee,
+                    position=0,
+                )
+            ],
+        )
+        session.add(meeting)
+        session.commit()
         cookie_name = client.app.state.auth_service.cookie_name
         issue_cookie = client.app.state.auth_service.issue_cookie
         return AccessHttpContext(
             project_id=project.id,
+            meeting_id=meeting.id,
             admin_cookie={cookie_name: issue_cookie(admin)},
             lead_cookie={cookie_name: issue_cookie(lead)},
             member_cookie={cookie_name: issue_cookie(member)},
             outsider_cookie={cookie_name: issue_cookie(outsider)},
+            invited_cookie={cookie_name: issue_cookie(invited)},
         )
 
 
@@ -183,3 +205,27 @@ def test_project_routes_filter_visibility_and_require_management(client):
     assert member_update.status_code == 403
     assert member_update.json()["error"]["code"] == "project_management_forbidden"
     assert lead_update.status_code == 200
+
+
+def test_meeting_routes_allow_invited_view_but_filter_outsiders(client):
+    context = _create_http_context(client)
+
+    invited_detail = _as_user(client, context.invited_cookie).get(
+        f"/api/meetings/{context.meeting_id}"
+    )
+    invited_update = _as_user(client, context.invited_cookie).put(
+        f"/api/meetings/{context.meeting_id}",
+        json={"expected_version": 1, "title": "Invited cannot update"},
+    )
+    outsider_detail = _as_user(client, context.outsider_cookie).get(
+        f"/api/meetings/{context.meeting_id}"
+    )
+    outsider_global = _as_user(client, context.outsider_cookie).get(
+        "/api/meetings"
+    )
+
+    assert invited_detail.status_code == 200
+    assert invited_update.status_code == 403
+    assert outsider_detail.status_code == 403
+    assert outsider_global.status_code == 200
+    assert outsider_global.json()["items"] == []

@@ -9,6 +9,7 @@ from app.auth.models import User
 from app.plugins.context import PluginContextBuilder
 from app.plugins.manager import PluginManager
 from app.plugins.models import PluginJob, PluginJobStatus
+from app.projects.access import WorkspaceAccess
 
 
 class PluginJobService:
@@ -35,14 +36,20 @@ class PluginJobService:
         actor = self.session.get(User, actor_id)
         if actor is None:
             raise KeyError(actor_id)
+        access = WorkspaceAccess(self.session)
+        if target_type == "meeting":
+            meeting = access.require_meeting_view(target_id, actor)
+            access.require_project_contribute(meeting.project_id, actor)
+        elif target_type == "project":
+            access.require_project_contribute(target_id, actor)
+        else:
+            raise ValueError("unsupported plugin target")
         dedupe_key = f"{action_id}:{target_type}:{target_id}"
         context_builder = PluginContextBuilder(self.session)
         if target_type == "meeting":
             context = context_builder.meeting(target_id, actor)
-        elif target_type == "project":
-            context = context_builder.project(target_id, actor)
         else:
-            raise ValueError("unsupported plugin target")
+            context = context_builder.project(target_id, actor)
         context = self._json_snapshot(context)
         job = PluginJob(
             plugin_id=action_id.split(".", 1)[0],

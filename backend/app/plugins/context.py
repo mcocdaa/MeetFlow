@@ -12,6 +12,7 @@ from app.attention.service import AttentionService
 from app.auth.models import User
 from app.meetings.service import MeetingService
 from app.projects.models import Project, ProjectMember, ProjectUpdate
+from app.projects.access import WorkspaceAccess
 from app.projects.service import ProjectService
 
 
@@ -23,10 +24,11 @@ class PluginContextBuilder:
         self.session = session
 
     def meeting(self, meeting_id: str, user: User) -> dict[str, Any]:
+        WorkspaceAccess(self.session).require_meeting_view(meeting_id, user)
         return self._bounded(MeetingService(self.session).plugin_context(meeting_id, user))
 
-    def project(self, project_id: str, _user: User) -> dict[str, Any]:
-        return self._bounded(ProjectService(self.session).detail(project_id))
+    def project(self, project_id: str, user: User) -> dict[str, Any]:
+        return self._bounded(ProjectService(self.session).detail(project_id, user))
 
     def user_work_brief(self, user: User) -> dict[str, Any]:
         member_of_project = exists(
