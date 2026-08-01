@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/vue'
+import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import AdminPluginsView from '../views/AdminPluginsView.vue'
@@ -18,14 +18,17 @@ const plugin = {
     secrets: [{ key: 'api_key', required: true, label: 'API Key' }],
   },
   config: { base_url: 'https://api.example.com', limit: 5, include_done: false, api_key: { configured: true } },
+  api_version: 2, loaded: true,
+  capabilities: { exporters: ['ai-summary.markdown'], event_subscriptions: [], ui_slots: ['home.secondary-card'] },
 }
 
 beforeEach(() => apiMock.mockReset())
 
 it('renders manifest-driven fields and saves replacement secret values', async () => {
-  apiMock.mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce(plugin).mockResolvedValueOnce({ plugins: [plugin], errors: [] })
+  apiMock.mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce(plugin).mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] })
   render(AdminPluginsView)
   expect(await screen.findByText('AI Meeting Summary')).toBeInTheDocument()
+  expect(screen.getByText('ai-summary.markdown')).toBeInTheDocument()
   expect(screen.getByText('已配置')).toBeInTheDocument()
   await fireEvent.update(screen.getByLabelText('API Key'), 'new-secret')
   await fireEvent.update(screen.getByLabelText('数量'), '10')
@@ -45,10 +48,71 @@ it('shows discovery errors that do not have a valid plugin descriptor', async ()
 })
 
 it('shows that enabled state changes take effect after restart', async () => {
-  apiMock.mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce(plugin).mockResolvedValueOnce({ plugins: [plugin], errors: [] })
+  apiMock.mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce(plugin).mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] })
   render(AdminPluginsView)
   await screen.findByText('AI Meeting Summary')
   await fireEvent.click(screen.getByRole('checkbox', { name: '启用 AI Meeting Summary' }))
   expect(apiMock).toHaveBeenCalledWith('/api/admin/plugins/ai-summary/enabled', expect.objectContaining({ method: 'PUT' }))
   expect(screen.getByText('重启后生效')).toBeInTheDocument()
+})
+
+it('shows failed outbox events without exposing event payloads', async () => {
+  apiMock.mockResolvedValueOnce({ plugins: [], errors: [] }).mockResolvedValueOnce({
+    items: [{ event_id: 'evt-1', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }],
+  })
+  render(AdminPluginsView)
+  expect(await screen.findByText(/meeting\.completed · 已重试 5 次/)).toBeInTheDocument()
+  expect(screen.getByText(/timeout/)).toBeInTheDocument()
+})
+
+
+it('keeps primary failed events visible when diagnostics refresh fails', async () => {
+  apiMock
+    .mockResolvedValueOnce({
+      plugins: [],
+      errors: [],
+      events: [{ event_id: 'evt-primary', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }],
+    })
+    .mockRejectedValueOnce(new Error('诊断接口不可用'))
+
+  render(AdminPluginsView)
+
+  expect(await screen.findByText(/meeting\.completed · 已重试 5 次/)).toBeInTheDocument()
+})
+
+
+it('retries one failed event and refreshes the diagnostic list', async () => {
+  let resolveRetry!: (value: unknown) => void
+  const retryResponse = new Promise((resolve) => { resolveRetry = resolve })
+  const failedEvent = { event_id: 'evt-retry', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }
+  apiMock
+    .mockResolvedValueOnce({ plugins: [], errors: [] })
+    .mockResolvedValueOnce({ items: [failedEvent] })
+    .mockReturnValueOnce(retryResponse)
+    .mockResolvedValueOnce({ plugins: [], errors: [] })
+    .mockResolvedValueOnce({ items: [] })
+  render(AdminPluginsView)
+  await screen.findByText(/meeting\.completed · 已重试 5 次/)
+
+  await fireEvent.click(screen.getByRole('button', { name: '重试' }))
+  expect(screen.getByRole('button', { name: '重试中…' })).toBeDisabled()
+  resolveRetry({ status: 'queued' })
+
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/admin/plugins/events/evt-retry/retry', { method: 'POST' }))
+  await waitFor(() => expect(screen.queryByText(/meeting\.completed · 已重试 5 次/)).not.toBeInTheDocument())
+})
+
+it('keeps a failed event visible when retry fails', async () => {
+  const failedEvent = { event_id: 'evt-error', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }
+  apiMock
+    .mockResolvedValueOnce({ plugins: [], errors: [] })
+    .mockResolvedValueOnce({ items: [failedEvent] })
+    .mockRejectedValueOnce(new Error('重试接口不可用'))
+  render(AdminPluginsView)
+  await screen.findByText(/meeting\.completed · 已重试 5 次/)
+
+  await fireEvent.click(screen.getByRole('button', { name: '重试' }))
+
+  expect(await screen.findByText('重试接口不可用')).toBeInTheDocument()
+  expect(screen.getByText(/meeting\.completed · 已重试 5 次/)).toBeInTheDocument()
 })

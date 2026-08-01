@@ -2,11 +2,12 @@ import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref
 
 import { api } from '../api/client'
 import type { PluginFrontendApi, PluginFrontendModule, PluginFrontendRegistration } from './contracts'
-import { claimPluginModuleUrl, registerEditorAssistant, registerTaskExtension } from './registry'
+import { claimPluginModuleUrl, registerEditorAssistant, registerPluginSlot, registerTaskExtension } from './registry'
 
 const pluginApi: PluginFrontendApi = {
   registerEditorAssistant,
   registerTaskExtension,
+  registerPluginSlot,
   api,
   vue: { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch },
 }

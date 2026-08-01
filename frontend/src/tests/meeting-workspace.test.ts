@@ -2,9 +2,12 @@ import { defineComponent, onBeforeUnmount, onMounted } from 'vue'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { apiMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), editorBuffer: { value: '' } }))
-vi.mock('../api/client', () => ({ api: apiMock, ApiError: class ApiError extends Error {} }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'm1' } }) }))
+const { apiMock, apiDownloadMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), apiDownloadMock: vi.fn(), editorBuffer: { value: '' } }))
+vi.mock('../api/client', () => ({ api: apiMock, apiDownload: apiDownloadMock, ApiError: class ApiError extends Error {} }))
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ params: { id: 'm1' } }),
+  onBeforeRouteLeave: () => undefined,
+}))
 vi.mock('../components/MarkdownEditor.vue', () => ({
   default: defineComponent({
     props: ['modelValue', 'label', 'disabled', 'registerEditor'],
@@ -52,7 +55,7 @@ function meetingFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('meeting workspace', () => {
-  beforeEach(() => { apiMock.mockReset(); apiMock.mockResolvedValue(meeting); editorBuffer.value = '' })
+  beforeEach(() => { apiMock.mockReset(); apiDownloadMock.mockReset(); apiMock.mockResolvedValue(meeting); editorBuffer.value = '' })
 
   it('keeps preparation fields on demand instead of above the active agenda', async () => {
     render(MeetingWorkspaceView)
@@ -98,6 +101,13 @@ describe('meeting workspace', () => {
       method: 'PUT', body: expect.stringContaining(`"summary_markdown":"${summary}"`),
     })))
     expect(screen.getByRole('status')).toHaveTextContent('纪要已保存')
+  })
+
+  it('exposes the meeting raw notes as an accessible editor', async () => {
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    expect(screen.getByRole('textbox', { name: '整场会议原始笔记' })).toBeInTheDocument()
   })
 
   it('treats a timezone-less meeting start timestamp as UTC for the live clock', async () => {
@@ -182,5 +192,48 @@ describe('meeting workspace', () => {
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
     expect(apiMock.mock.calls.map(([path]) => path)).toEqual(['/api/meetings/m1', '/api/meetings/m1/start'])
     expect(apiMock.mock.calls[1][1]).toEqual({ method: 'POST', body: JSON.stringify({ expected_version: 2 }) })
+  })
+
+  it('starts a draft meeting directly without posting a ready transition', async () => {
+    const draftMeeting = meetingFixture({ status: 'draft', version: 2 })
+    const started = meetingFixture({ status: 'in_progress', version: 3 })
+    apiMock.mockResolvedValueOnce(draftMeeting).mockResolvedValueOnce(started)
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
+    expect(apiMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/meetings/m1',
+      '/api/meetings/m1/start',
+    ])
+    expect(apiMock).not.toHaveBeenCalledWith('/api/meetings/m1/ready', expect.anything())
+  })
+
+  it('offers bounded exports after a meeting is completed', async () => {
+    apiMock.mockResolvedValueOnce(meetingFixture({ status: 'completed' }))
+    apiDownloadMock.mockResolvedValue({ blob: new Blob(['# meeting']), filename: 'meeting.md' })
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:meeting') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    render(MeetingWorkspaceView)
+    await screen.findByText('迭代评审')
+
+    await fireEvent.click(screen.getByRole('button', { name: '导出 Markdown' }))
+
+    await waitFor(() => expect(apiDownloadMock).toHaveBeenCalledWith('/api/meetings/m1/plugin-exports/meeting-export.markdown', { method: 'POST' }))
+    anchorClick.mockRestore()
+  })
+
+  it('protects dirty meeting drafts from browser unload', async () => {
+    render(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+    await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
+    await fireEvent.update(screen.getByLabelText('会议标题'), '未保存标题')
+
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
   })
 })

@@ -16,6 +16,7 @@ from app.meetings.models import (
     MeetingParticipant,
     MeetingSnapshot,
 )
+from app.plugins.models import PluginEvent, PluginEventStatus
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -166,6 +167,43 @@ def test_finish_rejects_invalid_outcome_source_chain_without_snapshot(
         assert session.get(Meeting, meeting_id).status == MeetingStatus.in_progress
 
 
+def test_finish_rolls_back_meeting_and_agenda_when_snapshot_build_fails(
+    client, lifecycle_context, monkeypatch
+):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        meeting = session.get(Meeting, meeting_id)
+        agenda = AgendaService(session).create(
+            meeting_id,
+            AgendaWrite(title="Rollback topic", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        started = MeetingService(session).start(
+            meeting_id,
+            LifecycleCommand(expected_version=session.get(Meeting, meeting_id).version),
+            actor,
+        )
+        service = MeetingService(session)
+
+        def fail_snapshot(_meeting):
+            raise RuntimeError("snapshot failed")
+
+        monkeypatch.setattr(service, "_snapshot_document", fail_snapshot)
+        with pytest.raises(RuntimeError, match="snapshot failed"):
+            service.finish(
+                meeting_id,
+                LifecycleCommand(expected_version=started.version),
+                actor,
+            )
+
+        session.expire_all()
+        assert session.get(Meeting, meeting_id).status == MeetingStatus.in_progress
+        assert session.get(AgendaItem, agenda.id).status == AgendaStatus.in_progress
+        assert session.scalar(select(func.count(MeetingSnapshot.id))) == 0
+
+
 def test_start_automatically_opens_first_planned_agenda(
     client, lifecycle_context, monkeypatch
 ):
@@ -269,6 +307,33 @@ def test_finish_skips_unresolved_agenda_and_records_duration(
         assert snapshot_agenda[waiting.id]["actual_duration_seconds"] == 0
         assert snapshot_meeting["started_at"] == started_at.isoformat().replace("+00:00", "Z")
         assert snapshot_meeting["completed_at"] == finished_at.isoformat().replace("+00:00", "Z")
+
+
+def test_snapshot_keeps_raw_notes_and_start_accepts_draft(client, lifecycle_context):
+    admin_id, _, meeting_id = lifecycle_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        draft = session.get(Meeting, meeting_id)
+
+        started = MeetingService(session).start(
+            meeting_id, LifecycleCommand(expected_version=draft.version), actor
+        )
+        completed = MeetingService(session).finish(
+            meeting_id, LifecycleCommand(expected_version=started.version), actor
+        )
+
+        assert completed.status == MeetingStatus.completed
+        assert (
+            completed.current_snapshot.snapshot_json["meeting"]["raw_notes_markdown"]
+            == "  raw notes\n"
+        )
+        event = session.get(
+            PluginEvent,
+            f"meeting.completed:meeting:{meeting_id}:1",
+        )
+        assert event is not None
+        assert event.status == PluginEventStatus.queued
+        assert event.payload_json["snapshot_id"] == completed.current_snapshot_id
 
 
 def test_snapshot_includes_derived_outcome_source_metadata(client, lifecycle_context):

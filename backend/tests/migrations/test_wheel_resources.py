@@ -130,6 +130,7 @@ with database.engine.connect() as connection:
             "open_questions",
             "outcome_migration_records",
             "plugin_configs",
+            "plugin_events",
             "plugin_jobs",
             "plugin_states",
             "project_members",

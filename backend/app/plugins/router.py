@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 from fastapi import (
@@ -23,6 +24,7 @@ from app.auth.models import User
 from app.database import get_session
 from app.errors import AppError
 from app.meetings.service import MeetingService
+from app.plugins.events import retry_plugin_event as retry_plugin_event_command
 from app.plugins.manager import (
     PluginConfigurationError,
     PluginInputError,
@@ -30,7 +32,7 @@ from app.plugins.manager import (
     PluginStreamingError,
 )
 from app.plugins.context import PluginContextBuilder
-from app.plugins.models import PluginState
+from app.plugins.models import PluginEvent, PluginEventStatus, PluginState
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
 from app.workspace.work_briefs import replace_work_brief
@@ -81,6 +83,21 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
     }
 
 
+def serialize_event(event: PluginEvent) -> dict[str, Any]:
+    return {
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "target_type": event.target_type,
+        "target_id": event.target_id,
+        "status": event.status,
+        "attempts": event.attempts,
+        "last_error": event.last_error,
+        "created_at": event.created_at,
+        "claimed_at": event.claimed_at,
+        "finished_at": event.finished_at,
+    }
+
+
 @admin_router.get("")
 def list_plugins(
     request: Request,
@@ -96,8 +113,11 @@ def list_plugins(
                 "id": descriptor.plugin_id,
                 "name": descriptor.manifest.name,
                 "version": descriptor.manifest.version,
+                "api_version": descriptor.manifest.api_version,
                 "description": descriptor.manifest.description,
                 "enabled": descriptor.enabled,
+                "loaded": manager.is_loaded(descriptor.plugin_id),
+                "capabilities": descriptor.manifest.capabilities.model_dump(),
                 "config_schema": {
                     key: [field.model_dump() for field in fields]
                     for key, fields in descriptor.manifest.config_schema.items()
@@ -159,6 +179,36 @@ def update_plugin_enabled(
         )
     session.commit()
     return {"enabled": payload.enabled, "restart_required": True}
+
+
+@admin_router.get("/events")
+def list_plugin_events(
+    status: PluginEventStatus | None = None,
+    limit: int = 50,
+    _admin: User = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    statement = select(PluginEvent).order_by(
+        PluginEvent.created_at.desc(), PluginEvent.event_id.desc()
+    ).limit(min(max(limit, 1), 200))
+    if status is not None:
+        statement = statement.where(PluginEvent.status == status)
+    return {"items": [serialize_event(event) for event in session.scalars(statement)]}
+
+
+@admin_router.post("/events/{event_id}/retry")
+def retry_plugin_event_endpoint(
+    event_id: str,
+    _admin: User = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    try:
+        event = retry_plugin_event_command(session, event_id)
+    except KeyError as exc:
+        raise AppError(404, "plugin_event_not_found", "插件事件不存在") from exc
+    except ValueError as exc:
+        raise AppError(409, "plugin_event_not_retryable", "只有失败事件可以重试") from exc
+    return serialize_event(event)
 
 
 @actions_router.get("/actions")
@@ -447,3 +497,45 @@ async def run_action(
             type(exc).__name__,
         )
         raise AppError(502, "plugin_failed", "插件执行失败") from exc
+
+
+@meeting_actions_router.post("/{meeting_id}/plugin-exports/{exporter_id}")
+async def export_meeting(
+    meeting_id: str,
+    exporter_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> Response:
+    manager = request.app.state.plugin_manager
+    if exporter_id not in manager.loaded_exporters():
+        raise AppError(404, "plugin_export_not_found", "会议导出器不存在")
+    context = MeetingService(session).plugin_context(meeting_id, user)
+    try:
+        result = await asyncio.wait_for(
+            manager.export(exporter_id, context, session),
+            timeout=request.app.state.settings.plugin_timeout_seconds,
+        )
+    except PluginConfigurationError as exc:
+        raise AppError(409, "plugin_not_configured", "插件配置不完整") from exc
+    except PluginOutputError as exc:
+        raise AppError(502, "plugin_invalid_output", "插件导出结果无效") from exc
+    except TimeoutError as exc:
+        raise AppError(504, "plugin_timeout", "插件执行超时") from exc
+    except Exception as exc:
+        logger.error(
+            "Plugin export failed plugin_id=%s exporter_id=%s error_type=%s",
+            exporter_id.split(".", 1)[0],
+            exporter_id,
+            type(exc).__name__,
+        )
+        raise AppError(502, "plugin_failed", "插件导出失败") from exc
+    return Response(
+        content=result.content,
+        media_type=result.media_type,
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{quote(result.filename)}"
+            )
+        },
+    )

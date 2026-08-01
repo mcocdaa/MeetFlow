@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { api, ApiError } from '../api/client'
+import { api, apiDownload, ApiError } from '../api/client'
 
 describe('api client', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -55,5 +55,17 @@ describe('api client', () => {
       code: 'version_conflict',
       details: { actual_version: 4 },
     })
+  })
+
+  it('returns a bounded download and decodes its server filename', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('hello', {
+      status: 200,
+      headers: { 'Content-Disposition': "attachment; filename*=UTF-8''meeting%20notes.md" },
+    })))
+
+    const result = await apiDownload('/api/meetings/m1/plugin-exports/meeting-export.markdown', { method: 'POST' })
+
+    expect(result.filename).toBe('meeting notes.md')
+    expect(result.blob.size).toBe(5)
   })
 })

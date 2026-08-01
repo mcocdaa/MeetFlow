@@ -6,6 +6,7 @@ import { api } from '../api/client'
 import { streamPluginAction } from '../api/plugin-stream'
 import AttentionCard, { type AttentionItem } from '../components/AttentionCard.vue'
 import MarkdownView from '../components/MarkdownView.vue'
+import PluginSlot from '../components/PluginSlot.vue'
 
 type AttentionResponse = {
   items: AttentionItem[]
@@ -25,6 +26,7 @@ const workBriefStreamMarkdown = ref('')
 const workBriefError = ref('')
 const workBriefRunning = ref(false)
 const workBriefController = ref<AbortController | null>(null)
+let workBriefRevision = 0
 
 const meetings = computed(() => response.value?.items.filter((item) => item.subject_type === 'meeting').slice(0, 5) ?? [])
 const priorities = computed(() => response.value?.items.filter((item) => item.subject_type !== 'meeting') ?? [])
@@ -32,27 +34,63 @@ const displayedWorkBriefMarkdown = computed(() => (
   workBriefRunning.value ? workBriefStreamMarkdown.value : workBrief.value?.content_markdown ?? ''
 ))
 
+async function loadAttention() {
+  response.value = await api<AttentionResponse>('/api/attention')
+}
+
+function isCurrentWorkBriefRevision(revision: number) {
+  return revision === workBriefRevision
+}
+
+async function loadWorkBriefCapability(revision: number) {
+  try {
+    const actions = await api<PluginAction[]>('/api/plugins/actions')
+    if (!isCurrentWorkBriefRevision(revision)) return
+    workBriefEnabled.value = actions.some((action) => action.action_id === 'ai-work-assistant.user_work_brief')
+  } catch (reason) {
+    if (!isCurrentWorkBriefRevision(revision)) return
+    workBriefEnabled.value = false
+    workBriefError.value = reason instanceof Error ? reason.message : 'AI 插件状态读取失败'
+  }
+}
+
+async function loadWorkBrief(revision: number) {
+  try {
+    const brief = await api<WorkBriefResponse>('/api/work-brief')
+    if (!isCurrentWorkBriefRevision(revision)) return
+    workBrief.value = brief
+  } catch (reason) {
+    if (!isCurrentWorkBriefRevision(revision)) return
+    if (!workBriefError.value) {
+      workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报读取失败'
+    }
+  }
+}
+
+async function loadOptionalResources(revision: number) {
+  if (!isCurrentWorkBriefRevision(revision)) return
+  workBriefError.value = ''
+  await Promise.all([loadWorkBriefCapability(revision), loadWorkBrief(revision)])
+}
+
 async function load() {
+  const revision = ++workBriefRevision
+  cancelWorkBrief()
   loading.value = true
   error.value = ''
   try {
-    const [attention, actions, brief] = await Promise.all([
-      api<AttentionResponse>('/api/attention'),
-      api<PluginAction[]>('/api/plugins/actions'),
-      api<WorkBriefResponse>('/api/work-brief'),
-    ])
-    response.value = attention
-    workBriefEnabled.value = actions.some((action) => action.action_id === 'ai-work-assistant.user_work_brief')
-    workBrief.value = brief
+    await loadAttention()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '工作区加载失败'
   } finally {
     loading.value = false
   }
+  if (!error.value) void loadOptionalResources(revision)
 }
 
 async function generateWorkBrief() {
   if (!workBriefEnabled.value || workBriefRunning.value) return
+  const revision = ++workBriefRevision
   const controller = new AbortController()
   workBriefController.value = controller
   workBriefStreamMarkdown.value = ''
@@ -61,14 +99,21 @@ async function generateWorkBrief() {
   try {
     await streamPluginAction(
       'ai-work-assistant.user_work_brief',
-      (text) => { workBriefStreamMarkdown.value += text },
+      (text) => {
+        if (isCurrentWorkBriefRevision(revision) && workBriefController.value === controller) {
+          workBriefStreamMarkdown.value += text
+        }
+      },
       controller.signal,
     )
     if (!controller.signal.aborted) {
-      workBrief.value = await api<WorkBriefResponse>('/api/work-brief')
+      const brief = await api<WorkBriefResponse>('/api/work-brief')
+      if (isCurrentWorkBriefRevision(revision) && workBriefController.value === controller) {
+        workBrief.value = brief
+      }
     }
   } catch (reason) {
-    if (!controller.signal.aborted) {
+    if (!controller.signal.aborted && isCurrentWorkBriefRevision(revision) && workBriefController.value === controller) {
       workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报生成失败，请稍后重试'
     }
   } finally {
@@ -126,6 +171,7 @@ onBeforeUnmount(cancelWorkBrief)
           <MarkdownView v-else :source="displayedWorkBriefMarkdown" />
         </section>
       </section>
+      <PluginSlot slot="home.secondary-card" target-type="home" target-id="home" />
     </div>
   </main>
 </template>

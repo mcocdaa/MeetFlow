@@ -1,9 +1,10 @@
 import asyncio
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from app.database import Database
 from app.meetings.models import utcnow
@@ -13,7 +14,12 @@ from app.plugins.manager import (
     PluginManager,
     PluginOutputError,
 )
-from app.plugins.models import PluginJob, PluginJobStatus
+from app.plugins.models import (
+    PluginEvent,
+    PluginEventStatus,
+    PluginJob,
+    PluginJobStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -117,10 +123,17 @@ def classify_execution_error(exc: Exception) -> ExecutionDiagnostic:
 
 
 class PluginJobWorker:
+    max_event_attempts = 5
+
     def __init__(self, database: Database, manager: PluginManager):
         self.database = database
         self.manager = manager
         self._stop = asyncio.Event()
+        self._running = False
+
+    @property
+    def running(self) -> bool:
+        return self._running
 
     def recover(self) -> None:
         with self.database.session() as session:
@@ -134,7 +147,70 @@ class PluginJobWorker:
                     finished_at=utcnow(),
                 )
             )
+            session.execute(
+                update(PluginEvent)
+                .where(PluginEvent.status == PluginEventStatus.processing)
+                .values(
+                    status=PluginEventStatus.queued,
+                    claimed_at=None,
+                    next_attempt_at=utcnow(),
+                    last_error="服务重启，事件重新排队",
+                )
+            )
             session.commit()
+
+    async def run_event_once(self) -> bool:
+        now = utcnow()
+        with self.database.session() as session:
+            event = session.scalar(
+                select(PluginEvent)
+                .where(
+                    PluginEvent.status == PluginEventStatus.queued,
+                    or_(
+                        PluginEvent.next_attempt_at.is_(None),
+                        PluginEvent.next_attempt_at <= now,
+                    ),
+                )
+                .order_by(PluginEvent.created_at, PluginEvent.event_id)
+                .limit(1)
+            )
+            if event is None:
+                return False
+            event.status = PluginEventStatus.processing
+            event.claimed_at = now
+            event.attempts += 1
+            session.commit()
+            event_id = event.event_id
+            event_type = event.event_type
+            payload = event.payload_json
+
+        try:
+            with self.database.session() as session:
+                await self.manager.invoke_event(event_type, payload, session)
+                event = session.get(PluginEvent, event_id)
+                if event is not None and event.status == PluginEventStatus.processing:
+                    event.status = PluginEventStatus.succeeded
+                    event.finished_at = utcnow()
+                    event.last_error = None
+                    session.commit()
+        except Exception as exc:
+            diagnostic = classify_execution_error(exc)
+            with self.database.session() as session:
+                event = session.get(PluginEvent, event_id)
+                if event is not None and event.status == PluginEventStatus.processing:
+                    if event.attempts >= self.max_event_attempts:
+                        event.status = PluginEventStatus.failed
+                        event.finished_at = utcnow()
+                    else:
+                        event.status = PluginEventStatus.queued
+                        event.next_attempt_at = utcnow() + timedelta(
+                            seconds=min(2 ** (event.attempts - 1) * 5, 300)
+                        )
+                    event.last_error = _redact_detail(
+                        diagnostic.detail or diagnostic.message
+                    )
+                    session.commit()
+        return True
 
     async def run_once(self) -> bool:
         with self.database.session() as session:
@@ -176,12 +252,19 @@ class PluginJobWorker:
         return True
 
     async def serve(self) -> None:
-        while not self._stop.is_set():
-            if not await self.run_once():
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=1)
-                except TimeoutError:
-                    pass
+        self._running = True
+        try:
+            while not self._stop.is_set():
+                did_work = await self.run_event_once()
+                if not did_work:
+                    did_work = await self.run_once()
+                if not did_work:
+                    try:
+                        await asyncio.wait_for(self._stop.wait(), timeout=1)
+                    except TimeoutError:
+                        pass
+        finally:
+            self._running = False
 
     def stop(self) -> None:
         self._stop.set()

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import HomeView from '../views/HomeView.vue'
@@ -77,6 +77,93 @@ describe('personal workspace home', () => {
     expect(await screen.findByText('跨项目工作摘要')).toBeInTheDocument()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '生成项目简报' })).not.toBeInTheDocument()
+  })
+
+  it('keeps attention visible when optional plugin actions fail', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/attention') return Promise.resolve({
+        items: [{
+          subject_type: 'action', subject_id: 'a1', title: '仍需处理的待办',
+          project: { id: 'p1', name: 'MeetFlow', slug: 'meetflow' },
+          reasons: ['action_overdue'], due_date: null, status: 'open',
+        }],
+        notifications: [], mentions: [], unread_count: 0, truncated: false,
+      })
+      if (path === '/api/plugins/actions') return Promise.reject(new Error('插件 action 不可用'))
+      if (path === '/api/work-brief') return Promise.resolve({ content_markdown: '', generated_at: null })
+      return Promise.resolve([])
+    })
+
+    render(HomeView, { global: { stubs: { RouterLink } } })
+
+    expect(await screen.findByText('仍需处理的待办')).toBeInTheDocument()
+    const aiPanel = screen.getByText('AI 工作简报').closest('section')
+    expect(aiPanel).not.toBeNull()
+    expect(within(aiPanel as HTMLElement).getByRole('alert')).toHaveTextContent('插件 action 不可用')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+  })
+
+  it('ignores a superseded optional work-brief response', async () => {
+    let resolveFirst!: (value: { content_markdown: string; generated_at: null }) => void
+    const first = new Promise<{ content_markdown: string; generated_at: null }>((resolve) => {
+      resolveFirst = resolve
+    })
+    let workBriefCalls = 0
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/attention') return Promise.resolve({ items: [], unread_count: 0, truncated: false })
+      if (path === '/api/plugins/actions') return Promise.resolve([{ action_id: 'ai-work-assistant.user_work_brief' }])
+      if (path === '/api/work-brief') {
+        workBriefCalls += 1
+        return workBriefCalls === 1
+          ? first
+          : Promise.resolve({ content_markdown: '最新工作简报', generated_at: null })
+      }
+      return Promise.resolve([])
+    })
+
+    render(HomeView, { global: { stubs: { RouterLink } } })
+    await waitFor(() => expect(workBriefCalls).toBe(1))
+
+    await fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+    expect(await screen.findByText('最新工作简报')).toBeInTheDocument()
+
+    resolveFirst({ content_markdown: '过期工作简报', generated_at: null })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(screen.queryByText('过期工作简报')).not.toBeInTheDocument()
+  })
+
+  it('keeps a generated work brief when an older optional response settles', async () => {
+    let resolveInitial!: (value: { content_markdown: string; generated_at: null }) => void
+    const initial = new Promise<{ content_markdown: string; generated_at: null }>((resolve) => {
+      resolveInitial = resolve
+    })
+    let workBriefCalls = 0
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/attention') return Promise.resolve({ items: [], unread_count: 0, truncated: false })
+      if (path === '/api/plugins/actions') return Promise.resolve([{ action_id: 'ai-work-assistant.user_work_brief' }])
+      if (path === '/api/work-brief') {
+        workBriefCalls += 1
+        return workBriefCalls === 1
+          ? initial
+          : Promise.resolve({ content_markdown: '生成后的工作简报', generated_at: null })
+      }
+      return Promise.resolve([])
+    })
+    fetchMock.mockResolvedValue(new Response(
+      'event: delta\ndata: {"text":"流式内容"}\n\nevent: done\ndata: {}\n\n',
+      { headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+
+    render(HomeView, { global: { stubs: { RouterLink } } })
+    await waitFor(() => expect(workBriefCalls).toBe(1))
+    await fireEvent.click(await screen.findByRole('button', { name: '生成工作简报' }))
+    expect(await screen.findByText('生成后的工作简报')).toBeInTheDocument()
+
+    resolveInitial({ content_markdown: '初始工作简报', generated_at: null })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(screen.queryByText('初始工作简报')).not.toBeInTheDocument()
   })
 
   it('filters the project list without hiding project context', async () => {

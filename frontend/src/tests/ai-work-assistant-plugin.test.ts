@@ -14,6 +14,7 @@ function registerAssistant() {
   register({
     registerEditorAssistant: (slot: string, component: unknown) => assistants.set(slot, component),
     registerTaskExtension: (pluginId: string, component: unknown) => taskExtensions.set(pluginId, component),
+    registerPluginSlot: () => undefined,
     api: apiMock,
     vue: { h, ref, nextTick },
   })

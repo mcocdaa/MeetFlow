@@ -3,7 +3,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.plugins.exporters import PluginExport
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -18,6 +20,17 @@ class ConfigField(BaseModel):
     required: bool = False
 
 
+class PluginCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actions: list[str] = Field(default_factory=list)
+    exporters: list[str] = Field(default_factory=list)
+    event_subscriptions: list[str] = Field(default_factory=list)
+    ui_slots: list[str] = Field(default_factory=list)
+    context_scopes: list[str] = Field(default_factory=list)
+    external_network: bool = False
+
+
 class PluginManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     name: str
@@ -27,6 +40,7 @@ class PluginManifest(BaseModel):
     frontend_entry: str | None = Field(default=None, max_length=240)
     description: str = ""
     config_schema: dict[str, list[ConfigField]] = Field(default_factory=dict)
+    capabilities: PluginCapabilities = Field(default_factory=PluginCapabilities)
 
 
 class PluginLoadError(BaseModel):
@@ -47,6 +61,8 @@ Handler = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]],
     Awaitable[dict[str, Any]],
 ]
+EventHandler = Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]]
+ExporterHandler = Callable[[dict[str, Any], dict[str, Any]], Awaitable[PluginExport]]
 StreamHandler = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]],
     AsyncIterator[str],
@@ -74,6 +90,8 @@ class MeetingAction:
 class PluginRegistry:
     plugin_id: str
     actions: dict[str, MeetingAction] = field(default_factory=dict)
+    event_subscribers: dict[str, EventHandler] = field(default_factory=dict)
+    exporters: dict[str, ExporterHandler] = field(default_factory=dict)
 
     def register_meeting_action(self, action: MeetingAction) -> None:
         if not action.action_id.startswith(f"{self.plugin_id}."):
@@ -81,3 +99,17 @@ class PluginRegistry:
         if action.action_id in self.actions:
             raise ValueError("duplicate action_id")
         self.actions[action.action_id] = action
+
+    def register_event_subscriber(self, event_type: str, handler: EventHandler) -> None:
+        if not event_type or not callable(handler):
+            raise ValueError("event subscriber requires an event type and handler")
+        if event_type in self.event_subscribers:
+            raise ValueError("duplicate event subscriber")
+        self.event_subscribers[event_type] = handler
+
+    def register_exporter(self, exporter_id: str, handler: ExporterHandler) -> None:
+        if not exporter_id.startswith(f"{self.plugin_id}.") or not callable(handler):
+            raise ValueError("exporter id must be prefixed by plugin id")
+        if exporter_id in self.exporters:
+            raise ValueError("duplicate exporter id")
+        self.exporters[exporter_id] = handler

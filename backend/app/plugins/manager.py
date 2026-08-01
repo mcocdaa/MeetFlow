@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import json
 import sys
@@ -23,6 +24,7 @@ from app.plugins.contracts import (
     PluginManifest,
     PluginRegistry,
 )
+from app.plugins.exporters import PluginExport, validate_export
 from app.plugins.models import PluginConfig, PluginJob, PluginJobStatus, PluginState
 from app.plugins.secrets import SecretBox
 
@@ -48,17 +50,26 @@ class PluginStreamingError(ValueError):
 
 
 class PluginManager:
+    # Kept for older integrations that introspect the v1 baseline.
     supported_api_version = 1
+    supported_api_versions = {1, 2}
 
     def __init__(
-        self, plugins_dir: Path, database: Database, app_secret_key: str
+        self,
+        plugins_dir: Path,
+        database: Database,
+        app_secret_key: str,
+        plugin_timeout_seconds: float = 60.0,
     ):
         self.plugins_dir = plugins_dir.resolve()
         self.database = database
         self.secret_box = SecretBox(app_secret_key)
+        self.plugin_timeout_seconds = plugin_timeout_seconds
         self._descriptors: dict[str, PluginDescriptor] = {}
         self._loaded_descriptors: dict[str, PluginDescriptor] = {}
         self._actions: dict[str, MeetingAction] = {}
+        self._event_subscribers: dict[str, list[tuple[str, Any]]] = {}
+        self._exporters: dict[str, tuple[str, Any]] = {}
         self._errors: list[PluginLoadError] = []
         self._modules: dict[str, ModuleType] = {}
 
@@ -191,7 +202,7 @@ class PluginManager:
                     )
                     if manifest.id != plugin_id:
                         raise ManifestError("manifest id must match registry id")
-                    if manifest.api_version != self.supported_api_version:
+                    if manifest.api_version not in self.supported_api_versions:
                         raise ManifestError("unsupported plugin API version")
                     entry_path = (plugin_dir / manifest.backend_entry).resolve()
                     if plugin_dir not in entry_path.parents:
@@ -232,6 +243,8 @@ class PluginManager:
     def load_enabled(self) -> None:
         self._errors = []
         self._actions = {}
+        self._event_subscribers = {}
+        self._exporters = {}
         self._modules = {}
         self._loaded_descriptors = {}
         for descriptor in self.discover():
@@ -244,10 +257,45 @@ class PluginManager:
                     raise AttributeError("plugin must export register(registry)")
                 registry = PluginRegistry(descriptor.plugin_id)
                 register(registry)
-                for action_id, action in registry.actions.items():
+
+                staged_actions = list(registry.actions.items())
+                staged_subscribers = list(registry.event_subscribers.items())
+                staged_exporters = list(registry.exporters.items())
+                for action_id, _action in staged_actions:
+                    if (
+                        descriptor.manifest.api_version >= 2
+                        and action_id
+                        not in descriptor.manifest.capabilities.actions
+                    ):
+                        raise ValueError(f"action {action_id} is not declared")
                     if action_id in self._actions:
                         raise ValueError("duplicate global action id")
+                for event_type, _handler in staged_subscribers:
+                    if (
+                        descriptor.manifest.api_version >= 2
+                        and event_type
+                        not in descriptor.manifest.capabilities.event_subscriptions
+                    ):
+                        raise ValueError(
+                            f"event subscriber {event_type} is not declared"
+                        )
+                for exporter_id, _handler in staged_exporters:
+                    if (
+                        descriptor.manifest.api_version >= 2
+                        and exporter_id not in descriptor.manifest.capabilities.exporters
+                    ):
+                        raise ValueError(f"exporter {exporter_id} is not declared")
+                    if exporter_id in self._exporters:
+                        raise ValueError("duplicate global exporter id")
+
+                for action_id, action in staged_actions:
                     self._actions[action_id] = action
+                for event_type, handler in staged_subscribers:
+                    self._event_subscribers.setdefault(event_type, []).append(
+                        (descriptor.plugin_id, handler)
+                    )
+                for exporter_id, handler in staged_exporters:
+                    self._exporters[exporter_id] = (descriptor.plugin_id, handler)
                 self._modules[descriptor.plugin_id] = module
                 self._loaded_descriptors[descriptor.plugin_id] = descriptor
             except Exception as exc:
@@ -392,6 +440,45 @@ class PluginManager:
             for action in self._actions.values()
             if not action.admin_only or role == UserRole.ADMIN
         ]
+
+    def event_subscribers(self, event_type: str) -> list[str]:
+        return [plugin_id for plugin_id, _handler in self._event_subscribers.get(event_type, [])]
+
+    def is_loaded(self, plugin_id: str) -> bool:
+        return plugin_id in self._loaded_descriptors
+
+    async def invoke_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        session: Session,
+    ) -> None:
+        for plugin_id, handler in self._event_subscribers.get(event_type, []):
+            config = self.runtime_config(plugin_id, session)
+            await asyncio.wait_for(
+                handler(payload, config), timeout=self.plugin_timeout_seconds
+            )
+
+    def loaded_exporters(self) -> list[str]:
+        return list(self._exporters)
+
+    async def export(
+        self,
+        exporter_id: str,
+        context: dict[str, Any],
+        session: Session,
+    ) -> PluginExport:
+        registered = self._exporters.get(exporter_id)
+        if registered is None:
+            raise KeyError(exporter_id)
+        plugin_id, handler = registered
+        result = await handler(context, self.runtime_config(plugin_id, session))
+        if not isinstance(result, PluginExport):
+            raise PluginOutputError("plugin exporter returned an invalid result")
+        try:
+            return validate_export(result)
+        except ValueError as exc:
+            raise PluginOutputError("plugin exporter result failed validation") from exc
 
     async def invoke(
         self,
