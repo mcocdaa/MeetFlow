@@ -65,6 +65,12 @@ docker compose down
 
 测试环境使用独立的 schema 创建路径以保持测试隔离。不要把这种测试便利性当作生产数据库升级策略。
 
+## 多用户工作区访问
+
+项目是工作区访问边界。完整的角色和 API 契约见[协同加固设计](superpowers/specs/2026-08-01-collaboration-hardening-design.md)：`admin` 与项目负责人（lead）可管理工作区，`member` 可贡献会议、议题、产出、附件和项目进展，`stakeholder` 只能查看。非项目成员若被邀请为某场会议参与人，仅能查看该场会议及其材料，并可在该会议评论；这不授予项目级访问或写入权。
+
+项目和会议详情的 `capabilities` 由服务端计算，前端只能据此渲染操作入口，不能从登录角色或成员列表自行推导权限。编辑项目进展必须提交 `expected_version`；过期写入返回 `409 version_conflict`，客户端应刷新后重试。该版本字段和 `project_members.user_id` 索引由 Alembic 迁移 `0009` 交付，不能用测试建表逻辑替代生产迁移。
+
 ## 会议系列与完成快照
 
 `MeetingSeries` 的周期规则使用 IANA 时区和结构化频率字段，而不是展示用文字。`Meeting.occurrence_kind` 区分固定周期与临时实例，`series_slot_at` 唯一标识固定周期槽位；临时实例不得占用该槽位。修改这些字段或 `AgendaItem.actual_duration_seconds`、自动产出来源字段时，必须提供 Alembic 迁移。

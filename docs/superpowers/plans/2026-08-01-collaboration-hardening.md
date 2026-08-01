@@ -42,7 +42,7 @@
 - Create: `backend/tests/collaboration/test_workspace_access.py`
 - Modify: `backend/app/projects/models.py`
 
-- [ ] **Step 1: Write the failing policy matrix test.**
+- [x] **Step 1: Write the failing policy matrix test.**
 
   Create reusable users in one project: admin, lead, `member`, `stakeholder`, outsider, and an outsider who is a participant of `meeting`. Assert the policy’s exact decisions instead of testing router implementation:
 
@@ -62,7 +62,7 @@
       assert not access.meeting_capabilities(rows.meeting, rows.invited).can_contribute
   ```
 
-- [ ] **Step 2: Run the focused test and verify it fails because the policy module does not exist.**
+- [x] **Step 2: Run the focused test and verify it fails because the policy module does not exist.**
 
   Run from this worktree:
 
@@ -72,7 +72,7 @@
 
   Expected: import failure for `app.projects.access.WorkspaceAccess`.
 
-- [ ] **Step 3: Implement the policy as the single source of truth.**
+- [x] **Step 3: Implement the policy as the single source of truth.**
 
   Add immutable capability values and guard methods. `admin` and `lead_user_id` manage; `ProjectMemberRole.member` contributes; any member views; a `MeetingParticipant` only views/comments that meeting.
 
@@ -135,7 +135,7 @@
 
   Add `index=True` to `ProjectMember.user_id` in the model so SQLAlchemy metadata matches the migration in Task 5.
 
-- [ ] **Step 4: Run the focused policy tests and verify they pass.**
+- [x] **Step 4: Run the focused policy tests and verify they pass.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/collaboration/test_workspace_access.py -k access
@@ -143,7 +143,7 @@
 
   Expected: policy matrix passes for all six actor types.
 
-- [ ] **Step 5: Commit the isolated policy foundation.**
+- [x] **Step 5: Commit the isolated policy foundation.**
 
   ```bash
   git add backend/app/projects/access.py backend/app/projects/models.py backend/tests/collaboration/test_workspace_access.py
@@ -157,7 +157,7 @@
 - Modify: `backend/app/projects/router.py`
 - Modify: `backend/tests/collaboration/test_workspace_access.py`
 
-- [ ] **Step 1: Write failing project-route tests.**
+- [x] **Step 1: Write failing project-route tests.**
 
   Verify that the outsider sees no row from `GET /api/projects`, receives `403 project_view_forbidden` from `GET /api/projects/{id}`, and cannot `PUT` the project. Verify a `member` receives `403 project_management_forbidden` for `PUT`, while the lead succeeds. Verify a project created with `member_ids=[]` is still visible to its creator.
 
@@ -170,7 +170,7 @@
       assert admin.put(f"/api/projects/{project['id']}", json={"expected_version": 1, "summary": "x"}).status_code == 200
   ```
 
-- [ ] **Step 2: Run the test and verify the current API leaks or permits the access.**
+- [x] **Step 2: Run the test and verify the current API leaks or permits the access.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/collaboration/test_workspace_access.py -k project_routes
@@ -178,7 +178,7 @@
 
   Expected: failure because the outsider currently receives a project and the member can update it.
 
-- [ ] **Step 3: Implement guarded project operations and serialised capabilities.**
+- [x] **Step 3: Implement guarded project operations and serialised capabilities.**
 
   Change `ProjectService.list(actor)` to filter with `WorkspaceAccess.visible_project_ids(actor)`. Change `detail(project_id, actor)` and `update(project_id, payload, actor)` to call the policy; update requires `require_project_manage`. In `create`, append the actor ID to `member_ids` before validation/deduplication. Add a small `serialize_capabilities()` helper and include:
 
@@ -192,7 +192,7 @@
 
   in actor-aware detail responses. Pass `user` from each project router handler, not `_user`. Keep list payloads lightweight; they do not require capability objects.
 
-- [ ] **Step 4: Run focused tests and verify the API contract.**
+- [x] **Step 4: Run focused tests and verify the API contract.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/domain/test_projects.py backend/tests/collaboration/test_workspace_access.py -k "project or access"
@@ -200,7 +200,7 @@
 
   Expected: all project domain tests and the new visibility/management tests pass.
 
-- [ ] **Step 5: Commit project-boundary enforcement.**
+- [x] **Step 5: Commit project-boundary enforcement.**
 
   ```bash
   git add backend/app/projects/service.py backend/app/projects/router.py backend/tests/collaboration/test_workspace_access.py
@@ -218,7 +218,7 @@
 - Modify: `backend/app/plugins/router.py`
 - Modify: `backend/tests/collaboration/test_workspace_access.py`
 
-- [ ] **Step 1: Write failing meeting and global-list access tests.**
+- [x] **Step 1: Write failing meeting and global-list access tests.**
 
   Test an outsider against `GET /api/meetings/{id}`, `PUT /api/meetings/{id}`, `POST /api/meetings/{id}/start`, `GET /api/meetings`, and a plugin export endpoint. Test an invited non-member can read only their meeting and post a meeting comment later, but cannot update or start it. Assert global meetings/actions/decisions pages exclude the outsider’s inaccessible project.
 
@@ -230,7 +230,7 @@
       assert outsider.get(f"/api/meetings/{meeting['id']}").status_code == 403
   ```
 
-- [ ] **Step 2: Run the test and verify the current endpoints are unguarded.**
+- [x] **Step 2: Run the test and verify the current endpoints are unguarded.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/collaboration/test_workspace_access.py -k "meeting or global"
@@ -238,7 +238,7 @@
 
   Expected: failure because an outsider can currently read or mutate the meeting.
 
-- [ ] **Step 3: Add meeting-aware adapters without weakening scheduler behavior.**
+- [x] **Step 3: Add meeting-aware adapters without weakening scheduler behavior.**
 
   At HTTP boundaries, use `WorkspaceAccess.require_project_view()` for project-scoped meeting/series lists, `require_meeting_view()` for meeting detail/snapshots, and `require_project_contribute()` before all meeting, series, occurrence, lifecycle, amendment, and plugin-action/export writes. Keep `materialize_due_occurrences()` actor-free because it is an internal scheduler command.
 
@@ -246,7 +246,7 @@
 
   In `workspace/router.py`, add the visible project predicate to global actions and decisions. For global meetings include projects visible to the user plus meetings where the user is a participant, using `distinct()` when the participant filter is joined. In `plugins/context.py` and plugin action/export routes, require the corresponding project/meeting capability before constructing a context.
 
-- [ ] **Step 4: Run meeting and plugin regression tests.**
+- [x] **Step 4: Run meeting and plugin regression tests.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/domain/test_meeting_series.py backend/tests/domain/test_meeting_lifecycle.py backend/tests/plugins backend/tests/collaboration/test_workspace_access.py -k "not retry"
@@ -254,7 +254,7 @@
 
   Expected: existing lifecycle/plugin behavior remains green; new forbidden and invited-user cases pass.
 
-- [ ] **Step 5: Commit protected meeting entry points.**
+- [x] **Step 5: Commit protected meeting entry points.**
 
   ```bash
   git add backend/app/meetings backend/app/workspace/router.py backend/app/plugins/context.py backend/app/plugins/router.py backend/tests/collaboration/test_workspace_access.py
@@ -273,7 +273,7 @@
 - Modify: `backend/app/attachments/router.py`
 - Modify: `backend/tests/collaboration/test_workspace_access.py`
 
-- [ ] **Step 1: Write failing bypass tests before adding guards.**
+- [x] **Step 1: Write failing bypass tests before adding guards.**
 
   Cover each resource family through a representative route: outsider creating an agenda item, decision, attachment, or comment receives `403`; stakeholder can list but cannot create; project member can create; invited non-member can list/create comments only on their own meeting and cannot upload a meeting attachment.
 
@@ -284,19 +284,19 @@
       assert outsider.post(f"/api/attachments/meeting/{meeting['id']}", files={"file": ("x.txt", b"x", "text/plain")}).status_code == 403
   ```
 
-- [ ] **Step 2: Run bypass tests and verify they fail for the intended missing guards.**
+- [x] **Step 2: Run bypass tests and verify they fail for the intended missing guards.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/collaboration/test_workspace_access.py -k "bypass or stakeholder or invited"
   ```
 
-- [ ] **Step 3: Add guards at each resource’s canonical source chain.**
+- [x] **Step 3: Add guards at each resource’s canonical source chain.**
 
   In `AgendaService`, load the item/meeting then call `require_project_contribute(meeting.project_id, actor)` before every create, update, delete, move, reorder, and lifecycle command; call `require_meeting_view` before detail/list output. In `OutcomeService`, guard `project_id` creators and load each existing decision/action/question/agenda source before update/review/finalise/convert/copy commands. In `CommentService`, use `_target_context()` to choose project contribution for project targets and `require_meeting_comment()` for meeting or agenda targets; apply the same view decision to comment lists and replies. In the attachment router, derive project and optional meeting from `require_target()` and require view for list/download/preview, contribution for upload, and contribution plus existing author/admin rule for deletion.
 
   Do not duplicate role checks in routers; route handlers only supply the current actor and let service/attachment helpers call `WorkspaceAccess`.
 
-- [ ] **Step 4: Run the affected domain and collaboration suites.**
+- [x] **Step 4: Run the affected domain and collaboration suites.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/collaboration backend/tests/domain/test_outcomes.py backend/tests/meetings/test_attachments.py backend/tests/domain/test_meeting_lifecycle.py
@@ -304,7 +304,7 @@
 
   Expected: bypass tests pass, all existing ownership/version/state-machine tests remain green.
 
-- [ ] **Step 5: Commit the closed bypass paths.**
+- [x] **Step 5: Commit the closed bypass paths.**
 
   ```bash
   git add backend/app/agendas backend/app/outcomes backend/app/collaboration backend/app/attachments backend/tests/collaboration/test_workspace_access.py
@@ -322,7 +322,7 @@
 - Modify: `backend/tests/domain/test_projects.py`
 - Modify: `backend/tests/collaboration/test_workspace_access.py`
 
-- [ ] **Step 1: Write the failing two-session and API contract tests.**
+- [x] **Step 1: Write the failing two-session and API contract tests.**
 
   Use two sessions to fetch the same `ProjectUpdate`, commit one `ProjectUpdateEdit(expected_version=1, content_markdown="Winner")`, then attempt a stale second edit. Also assert the API serialises `version: 1`, rejects a PUT with no `expected_version` as `422`, and returns the standard `409` details for stale writes.
 
@@ -337,13 +337,13 @@
   assert conflict.value.details == {"expected_version": 1, "actual_version": 2}
   ```
 
-- [ ] **Step 2: Run the focused test and verify the stale write currently succeeds or the edit payload cannot be imported.**
+- [x] **Step 2: Run the focused test and verify the stale write currently succeeds or the edit payload cannot be imported.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/domain/test_projects.py -k project_update
   ```
 
-- [ ] **Step 3: Add schema, model, service, router, and migration support.**
+- [x] **Step 3: Add schema, model, service, router, and migration support.**
 
   Configure the model exactly like the existing versioned models:
 
@@ -356,7 +356,7 @@
 
   The migration must use revision `0009`, depend on `0008`, add a non-null `project_updates.version` with temporary `server_default="1"`, remove the server default after existing rows are populated, and create `ix_project_members_user_id`. Its downgrade drops that index and version column using `batch_alter_table` so SQLite is supported.
 
-- [ ] **Step 4: Run model, migration, and focused tests.**
+- [x] **Step 4: Run model, migration, and focused tests.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q backend/tests/domain/test_projects.py backend/tests/collaboration/test_workspace_access.py -k "update or progress"
@@ -367,7 +367,7 @@
 
   Expected: one winner persists, stale writers receive `409`, and the migration upgrades/downgrades cleanly.
 
-- [ ] **Step 5: Commit versioned progress writes.**
+- [x] **Step 5: Commit versioned progress writes.**
 
   ```bash
   git add backend/migrations/versions/0009_workspace_access_versions.py backend/app/projects/models.py backend/app/projects/schemas.py backend/app/projects/service.py backend/app/projects/router.py backend/tests/domain/test_projects.py backend/tests/collaboration/test_workspace_access.py
@@ -384,7 +384,7 @@
 - Modify: `frontend/src/views/MeetingWorkspaceView.vue`
 - Modify: `frontend/src/tests/project-workspace.test.ts`
 
-- [ ] **Step 1: Add failing UI capability tests.**
+- [x] **Step 1: Add failing UI capability tests.**
 
   Extend the existing project fixture with a `capabilities` field. Render the view with all flags false and assert that “编辑项目”, “新建”, and “发布进展” are absent. Render again with `can_manage: true, can_contribute: true, can_comment: true` and assert the existing controls remain present.
 
@@ -400,7 +400,7 @@
   })
   ```
 
-- [ ] **Step 2: Run the UI test and verify it fails because controls are unconditional.**
+- [x] **Step 2: Run the UI test and verify it fails because controls are unconditional.**
 
   ```bash
   npm --prefix frontend test -- --run src/tests/project-workspace.test.ts
@@ -408,11 +408,11 @@
 
   Expected: the read-only fixture still finds project mutation controls.
 
-- [ ] **Step 3: Implement capability-driven rendering without client-side ACL logic.**
+- [x] **Step 3: Implement capability-driven rendering without client-side ACL logic.**
 
   Add a shared `WorkspaceCapabilities` TypeScript type and require `capabilities` on `ProjectDetail` and `Meeting`. Gate project management with `project.capabilities.can_manage`; gate `ProjectCreatePanel` and `ProjectUpdateComposer` with `can_contribute`; gate meeting structural controls with `meeting.capabilities.can_contribute`; keep comments visible only when `can_comment`. Do not derive permissions from `session.user` or membership arrays.
 
-- [ ] **Step 4: Run focused frontend tests and build.**
+- [x] **Step 4: Run focused frontend tests and build.**
 
   ```bash
   npm --prefix frontend test -- --run src/tests/project-workspace.test.ts src/tests/meeting-lifecycle.test.ts src/tests/meeting-comments.test.ts
@@ -421,7 +421,7 @@
 
   Expected: controls match server capabilities and the production bundle builds.
 
-- [ ] **Step 5: Commit the capability UI.**
+- [x] **Step 5: Commit the capability UI.**
 
   ```bash
   git add frontend/src/domain/projects.ts frontend/src/domain/meetings.ts frontend/src/views/ProjectDetailView.vue frontend/src/components/ProjectActivityTab.vue frontend/src/views/MeetingWorkspaceView.vue frontend/src/tests/project-workspace.test.ts
@@ -434,15 +434,15 @@
 - Modify: `docs/development.md`
 - Modify: `docs/superpowers/plans/2026-08-01-collaboration-hardening.md`
 
-- [ ] **Step 1: Document the supported access and conflict contracts.**
+- [x] **Step 1: Document the supported access and conflict contracts.**
 
   Add a concise “多用户工作区访问” subsection in `docs/development.md` that links to the approved design, names the four project roles (admin, lead, member, stakeholder), explains meeting-participant read/comment scope, and requires `expected_version` for project-progress edits. Document that schema changes are delivered by migration `0009`, not test-only table creation.
 
-- [ ] **Step 2: Mark the executed plan steps complete as their commits land.**
+- [x] **Step 2: Mark the executed plan steps complete as their commits land.**
 
   Replace only the checkboxes corresponding to completed plan steps; do not edit design intent or squash the implementation commits into the documentation commit.
 
-- [ ] **Step 3: Run all mandated verification from the implementation worktree.**
+- [x] **Step 3: Run all mandated verification from the implementation worktree.**
 
   ```bash
   ../../.venv/bin/python -m pytest -q
@@ -455,7 +455,7 @@
 
   Expected: all tests/build commands exit 0, `git diff --check` is silent, and only intended documentation changes remain unstaged before the final commit.
 
-- [ ] **Step 4: Commit documentation and checked plan status.**
+- [x] **Step 4: Commit documentation and checked plan status.**
 
   ```bash
   git add docs/development.md docs/superpowers/plans/2026-08-01-collaboration-hardening.md
