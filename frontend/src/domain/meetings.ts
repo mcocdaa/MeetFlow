@@ -56,6 +56,7 @@ export type Attachment = {
   created_at: string
   download_url: string
   preview_url?: string
+  can_delete: boolean
 }
 
 export type MeetingAmendment = {

@@ -10,7 +10,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.lifecycle import actual_duration_seconds, start_planned_item
 from app.agendas.models import AgendaItem
-from app.auth.models import User, UserStatus
+from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.activity import ActivityRecorder
 from app.domain.enums import (
     AgendaStatus,
@@ -59,6 +59,7 @@ from app.meetings.schemas import (
 )
 from app.outcomes.models import Decision
 from app.projects.models import Project
+from app.projects.access import WorkspaceAccess
 
 
 def utcnow() -> datetime:
@@ -1546,10 +1547,14 @@ class MeetingService:
             raise AppError(404, "meeting_series_not_found", "会议系列不存在")
         return self.serialize_series(series)
 
-    def meeting_detail(self, meeting_id: str) -> dict[str, Any]:
-        return MeetingQueries(self).meeting_detail(meeting_id)
+    def meeting_detail(
+        self, meeting_id: str, actor: User | None = None
+    ) -> dict[str, Any]:
+        return MeetingQueries(self).meeting_detail(meeting_id, actor)
 
-    def _meeting_detail_impl(self, meeting_id: str) -> dict[str, Any]:
+    def _meeting_detail_impl(
+        self, meeting_id: str, actor: User | None = None
+    ) -> dict[str, Any]:
         meeting = self.session.scalar(
             select(Meeting)
             .where(Meeting.id == meeting_id)
@@ -1558,6 +1563,12 @@ class MeetingService:
         if meeting is None:
             raise AppError(404, "meeting_not_found", "会议不存在")
         result = self.serialize_meeting(meeting)
+        can_contribute = (
+            actor is not None
+            and WorkspaceAccess(self.session)
+            .meeting_capabilities(meeting, actor)
+            .can_contribute
+        )
         target_ids = [meeting.id] + [row.id for row in meeting.agenda_items]
         attachments = list(
             self.session.scalars(
@@ -1581,7 +1592,9 @@ class MeetingService:
         grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for item in attachments:
             grouped.setdefault((item.target_type, item.target_id), []).append(
-                self.serialize_attachment(item)
+                self.serialize_attachment(
+                    item, actor=actor, can_contribute=can_contribute
+                )
             )
         result["attachments"] = grouped.get(("meeting", meeting.id), [])
         for agenda in result["agenda_items"]:
@@ -1594,8 +1607,21 @@ class MeetingService:
             raise AppError(500, "actor_not_found", "记录创建者不存在")
         return user_ref(user)
 
-    def serialize_attachment(self, item: Attachment) -> dict[str, Any]:
-        return projector_serialize_attachment(item)
+    def serialize_attachment(
+        self,
+        item: Attachment,
+        *,
+        actor: User | None = None,
+        can_contribute: bool = False,
+    ) -> dict[str, Any]:
+        return projector_serialize_attachment(
+            item,
+            can_delete=bool(
+                actor is not None
+                and can_contribute
+                and (item.created_by == actor.id or actor.role == UserRole.ADMIN)
+            ),
+        )
 
     def serialize_action(self, item: ActionItem) -> dict[str, Any]:
         meeting = self.get_meeting(item.meeting_id)

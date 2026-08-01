@@ -6,7 +6,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, joinedload
 
+from app.auth.models import User
 from app.errors import AppError
+from app.inbox.access import NotificationScope
 from app.inbox.models import Notification
 
 
@@ -80,10 +82,18 @@ class InboxService:
     def __init__(self, session: Session):
         self.session = session
 
+    @staticmethod
+    def _filters(user: User, scope: NotificationScope) -> list:
+        filters = [Notification.user_id == user.id]
+        notification_filter = scope.notification_filter()
+        if notification_filter is not None:
+            filters.append(notification_filter)
+        return filters
+
     def history(
-        self, user_id: str, *, before: int | None = None, limit: int = 50
+        self, user: User, *, before: int | None = None, limit: int = 50
     ) -> InboxHistoryPage:
-        filters = [Notification.user_id == user_id]
+        filters = self._filters(user, NotificationScope.for_user(self.session, user))
         if before is not None:
             filters.append(Notification.id < before)
         rows = list(
@@ -103,15 +113,14 @@ class InboxService:
         )
 
     def changes(
-        self, user_id: str, *, cursor: int = 0, limit: int = 50
+        self, user: User, *, cursor: int = 0, limit: int = 50
     ) -> InboxChangesPage:
+        filters = self._filters(user, NotificationScope.for_user(self.session, user))
+        filters.append(Notification.id > cursor)
         rows = list(
             self.session.scalars(
                 select(Notification)
-                .where(
-                    Notification.user_id == user_id,
-                    Notification.id > cursor,
-                )
+                .where(*filters)
                 .options(joinedload(Notification.actor))
                 .order_by(Notification.id)
                 .limit(limit + 1)
@@ -125,23 +134,19 @@ class InboxService:
             has_more=has_more,
         )
 
-    def unread_count(self, user_id: str) -> int:
+    def unread_count(self, user: User) -> int:
+        filters = self._filters(user, NotificationScope.for_user(self.session, user))
+        filters.append(Notification.read_at.is_(None))
         return (
-            self.session.scalar(
-                select(func.count(Notification.id)).where(
-                    Notification.user_id == user_id,
-                    Notification.read_at.is_(None),
-                )
-            )
+            self.session.scalar(select(func.count(Notification.id)).where(*filters))
             or 0
         )
 
-    def read(self, notification_id: int, user_id: str) -> None:
+    def read(self, notification_id: int, user: User) -> None:
+        filters = self._filters(user, NotificationScope.for_user(self.session, user))
+        filters.append(Notification.id == notification_id)
         notification = self.session.scalar(
-            select(Notification).where(
-                Notification.id == notification_id,
-                Notification.user_id == user_id,
-            )
+            select(Notification).where(*filters)
         )
         if notification is None:
             raise AppError(404, "notification_not_found", "通知不存在")
@@ -149,13 +154,12 @@ class InboxService:
             notification.read_at = utcnow()
             self.session.commit()
 
-    def read_all(self, user_id: str) -> None:
+    def read_all(self, user: User) -> None:
+        filters = self._filters(user, NotificationScope.for_user(self.session, user))
+        filters.append(Notification.read_at.is_(None))
         self.session.execute(
             update(Notification)
-            .where(
-                Notification.user_id == user_id,
-                Notification.read_at.is_(None),
-            )
+            .where(*filters)
             .values(read_at=utcnow())
         )
         self.session.commit()

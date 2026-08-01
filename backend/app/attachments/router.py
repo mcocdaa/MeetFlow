@@ -83,7 +83,23 @@ def require_attachment(
     return attachment
 
 
-def serialize(item: Attachment) -> dict[str, Any]:
+def attachment_delete_allowed(
+    session: Session,
+    target: Project | Meeting | AgendaItem,
+    item: Attachment,
+    user: User,
+) -> bool:
+    project_id, _ = activity_context(target)
+    project = session.get(Project, project_id)
+    if project is None:
+        return False
+    capabilities = WorkspaceAccess(session).project_capabilities(project, user)
+    return capabilities.can_contribute and (
+        item.created_by == user.id or user.role == UserRole.ADMIN
+    )
+
+
+def serialize(item: Attachment, *, can_delete: bool = False) -> dict[str, Any]:
     return {
         "id": item.id,
         "target_type": item.target_type,
@@ -104,6 +120,7 @@ def serialize(item: Attachment) -> dict[str, Any]:
         "preview_url": (
             f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}/preview"
         ),
+        "can_delete": can_delete,
     }
 
 
@@ -122,7 +139,13 @@ def list_attachments(
         .options(joinedload(Attachment.creator))
         .order_by(Attachment.created_at.desc(), Attachment.id.desc())
     )
-    return [serialize(row) for row in rows]
+    return [
+        serialize(
+            row,
+            can_delete=attachment_delete_allowed(session, target, row, user),
+        )
+        for row in rows
+    ]
 
 
 @router.post("/{target_type}/{target_id}", status_code=201)
@@ -174,7 +197,7 @@ async def upload_attachment(
         raise
     session.refresh(attachment)
     _ = attachment.creator
-    return serialize(attachment)
+    return serialize(attachment, can_delete=True)
 
 
 def attachment_file(request: Request, item: Attachment) -> Path:

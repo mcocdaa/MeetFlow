@@ -54,7 +54,7 @@ async function upload() {
 }
 
 async function remove(attachment: Attachment) {
-  if (!props.canContribute) return
+  if (!props.canContribute || !attachment.can_delete) return
   if (!window.confirm(`确定删除附件“${attachment.original_name}”吗？`)) return
     await api(`/api/attachments/${attachment.target_type}/${attachment.target_id}/${attachment.id}`, { method: 'DELETE' })
   emit('deleted', attachment.id)
@@ -76,7 +76,7 @@ async function remove(attachment: Attachment) {
         <img v-if="attachment.attachment_type === 'image'" :src="fileUrl(attachment)" :alt="attachment.original_name" />
         <div v-else class="file-glyph" aria-hidden="true">DOC</div>
         <div class="attachment-meta"><strong :title="attachment.original_name">{{ attachment.original_name }}</strong><span>{{ formatSize(attachment.size) }} · {{ attachment.created_by.display_name }}</span></div>
-        <div class="row-actions"><a class="button button-small button-quiet" :href="fileUrl(attachment)" download>下载</a><button v-if="canContribute" class="button button-small button-danger" @click="remove(attachment)">删除</button></div>
+        <div class="row-actions"><a class="button button-small button-quiet" :href="fileUrl(attachment)" download>下载</a><button v-if="attachment.can_delete" class="button button-small button-danger" @click="remove(attachment)">删除</button></div>
       </article>
     </div>
     <p v-else class="empty-state">还没有附件</p>

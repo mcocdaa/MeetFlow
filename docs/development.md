@@ -69,7 +69,7 @@ docker compose down
 
 项目是工作区访问边界。完整的角色和 API 契约见[协同加固设计](superpowers/specs/2026-08-01-collaboration-hardening-design.md)：`admin` 与项目负责人（lead）可管理工作区，`member` 可贡献会议、议题、产出、附件和项目进展，`stakeholder` 只能查看。非项目成员若被邀请为某场会议参与人，仅能查看该场会议及其材料，并可在该会议评论；这不授予项目级访问或写入权。
 
-项目和会议详情的 `capabilities` 由服务端计算，前端只能据此渲染操作入口，不能从登录角色或成员列表自行推导权限。编辑项目进展必须提交 `expected_version`；过期写入返回 `409 version_conflict`，客户端应刷新后重试。该版本字段和 `project_members.user_id` 索引由 Alembic 迁移 `0009` 交付，不能用测试建表逻辑替代生产迁移。
+项目和会议详情的 `capabilities` 由服务端计算，前端只能据此渲染操作入口，不能从登录角色或成员列表自行推导权限。附件响应另有逐项 `can_delete`，它同时反映贡献能力及作者/管理员约束。个人 attention 与 inbox 共用同一工作区通知范围：权限撤销后，既有私有项目通知不得出现在列表、增量、未读数或已读命令中。编辑项目进展必须提交 `expected_version`；过期写入返回 `409 version_conflict`，客户端应刷新后重试。该版本字段和 `project_members.user_id` 索引由 Alembic 迁移 `0009` 交付，不能用测试建表逻辑替代生产迁移。
 
 ## 会议系列与完成快照
 

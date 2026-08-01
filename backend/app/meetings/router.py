@@ -169,7 +169,7 @@ def get_meeting(
 ) -> dict[str, Any]:
     service = MeetingService(session)
     meeting = WorkspaceAccess(session).require_meeting_view(meeting_id, user)
-    result = service.meeting_detail(meeting_id)
+    result = service.meeting_detail(meeting_id, user)
     capabilities = WorkspaceAccess(session).meeting_capabilities(meeting, user)
     result["capabilities"] = {
         "can_manage": capabilities.can_manage,

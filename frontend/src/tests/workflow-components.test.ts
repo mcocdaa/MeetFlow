@@ -34,4 +34,28 @@ describe('meeting workflow components', () => {
     expect(emitted().changed).toBeUndefined()
   })
 
+  it('does not offer deletion for a shared attachment the user cannot delete', () => {
+    render(AttachmentPanel, {
+      props: {
+        meetingId: 'm1',
+        canContribute: true,
+        attachments: [{
+          id: 'a1',
+          target_type: 'meeting',
+          target_id: 'm1',
+          original_name: 'shared.txt',
+          mime_type: 'text/plain',
+          size: 6,
+          attachment_type: 'file',
+          created_by: { id: 'u1', username: 'owner', display_name: 'Owner' },
+          created_at: '',
+          download_url: '/api/attachments/meeting/m1/a1',
+          can_delete: false,
+        }],
+      },
+    })
+
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument()
+  })
+
 })

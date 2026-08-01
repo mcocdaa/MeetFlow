@@ -518,6 +518,11 @@ class ProjectService:
                         "created_by": user_ref(item.creator),
                         "created_at": item.created_at,
                         "download_url": f"/api/attachments/project/{project_id}/{item.id}",
+                        "can_delete": result["capabilities"]["can_contribute"]
+                        and (
+                            item.created_by == actor.id
+                            or actor.role == UserRole.ADMIN
+                        ),
                     }
                     for item in attachments
                 ],

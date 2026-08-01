@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,7 +10,11 @@ from app.agendas.service import AgendaService
 from app.auth.models import User, UserRole, UserStatus
 from app.domain.enums import ParticipationRole, ProjectMemberRole
 from app.errors import AppError
+from app.inbox.models import Notification
 from app.meetings.models import Meeting, MeetingParticipant
+from app.outcomes.schemas import ActionWrite
+from app.outcomes.service import OutcomeService
+from app.plugins.context import PluginContextBuilder
 from app.plugins.models import PluginJob, PluginJobStatus
 from app.projects.models import ProjectMember
 from app.projects.schemas import ProjectWrite
@@ -380,6 +384,162 @@ def test_project_activity_respects_workspace_visibility(client):
     assert outsider.status_code == 403
     assert outsider.json()["error"]["code"] == "project_view_forbidden"
     assert stakeholder.status_code == 200
+
+
+def test_attention_and_work_brief_omit_private_assigned_actions(client):
+    context = _create_http_context(client)
+    database = client.app.state.database
+
+    with database.session() as session:
+        admin = session.scalar(select(User).where(User.username == "admin"))
+        outsider = session.scalar(
+            select(User).where(User.username == "http-outsider")
+        )
+        assert admin is not None and outsider is not None
+        OutcomeService(session).create_action(
+            context.project_id,
+            ActionWrite(
+                project_id=context.project_id,
+                content="Private deployment action",
+                owner_user_id=outsider.id,
+                due_date=date.today() + timedelta(days=1),
+            ),
+            admin,
+        )
+
+    attention = _as_user(client, context.outsider_cookie).get("/api/attention")
+
+    assert attention.status_code == 200
+    assert attention.json()["items"] == []
+    assert attention.json()["notifications"] == []
+    assert attention.json()["unread_count"] == 0
+
+    with database.session() as session:
+        outsider = session.scalar(
+            select(User).where(User.username == "http-outsider")
+        )
+        assert outsider is not None
+        brief = PluginContextBuilder(session).user_work_brief(outsider)
+
+    assert brief["projects"] == []
+    assert brief["attention"]["items"] == []
+    assert brief["attention"]["notifications"] == []
+
+
+def test_inbox_omits_notifications_outside_workspace_access(client):
+    context = _create_http_context(client)
+    database = client.app.state.database
+
+    with database.session() as session:
+        admin = session.scalar(select(User).where(User.username == "admin"))
+        outsider = session.scalar(
+            select(User).where(User.username == "http-outsider")
+        )
+        assert admin is not None and outsider is not None
+        action = OutcomeService(session).create_action(
+            context.project_id,
+            ActionWrite(
+                project_id=context.project_id,
+                content="Private inbox action",
+                owner_user_id=outsider.id,
+            ),
+            admin,
+        )
+        notification = session.scalar(
+            select(Notification).where(
+                Notification.user_id == outsider.id,
+                Notification.subject_id == action.id,
+            )
+        )
+        assert notification is not None
+        notification_id = notification.id
+
+    history = _as_user(client, context.outsider_cookie).get("/api/inbox")
+    changes = _as_user(client, context.outsider_cookie).get("/api/inbox/changes")
+    read = _as_user(client, context.outsider_cookie).post(
+        f"/api/inbox/{notification_id}/read"
+    )
+    read_all = _as_user(client, context.outsider_cookie).post("/api/inbox/read-all")
+
+    assert history.status_code == 200
+    assert history.json()["items"] == []
+    assert history.json()["unread_count"] == 0
+    assert changes.status_code == 200
+    assert changes.json()["notifications"] == []
+    assert changes.json()["unread_count"] == 0
+    assert read.status_code == 404
+    assert read.json()["error"]["code"] == "notification_not_found"
+    assert read_all.status_code == 204
+
+    with database.session() as session:
+        notification = session.get(Notification, notification_id)
+        assert notification is not None
+        assert notification.read_at is None
+
+
+def test_invited_participant_receives_meeting_action_comment_notifications(client):
+    context = _create_http_context(client)
+    database = client.app.state.database
+
+    with database.session() as session:
+        admin = session.scalar(select(User).where(User.username == "admin"))
+        invited = session.scalar(select(User).where(User.username == "http-invited"))
+        assert admin is not None and invited is not None
+        action = OutcomeService(session).create_action(
+            context.project_id,
+            ActionWrite(
+                project_id=context.project_id,
+                meeting_id=context.meeting_id,
+                content="Meeting action open for comment",
+            ),
+            admin,
+        )
+        invited_id = invited.id
+
+    mentioned = _as_user(client, context.admin_cookie).post(
+        "/api/comments",
+        json={
+            "target_type": "action_item",
+            "target_id": action.id,
+            "body_markdown": "Please review this meeting action",
+            "mention_user_ids": [invited_id],
+        },
+    )
+    inbox = _as_user(client, context.invited_cookie).get("/api/inbox")
+    attention = _as_user(client, context.invited_cookie).get("/api/attention")
+
+    assert mentioned.status_code == 201
+    assert inbox.status_code == 200
+    assert [item["subject"] for item in inbox.json()["items"]] == [
+        {"type": "action_item", "id": action.id}
+    ]
+    assert attention.status_code == 200
+    assert [item["subject"] for item in attention.json()["notifications"]] == [
+        {"type": "action_item", "id": action.id}
+    ]
+    assert [item["subject_id"] for item in attention.json()["items"]] == [action.id]
+
+
+def test_attachment_payload_only_allows_author_or_admin_to_delete(client):
+    context = _create_http_context(client)
+
+    uploaded = _as_user(client, context.lead_cookie).post(
+        f"/api/attachments/meeting/{context.meeting_id}",
+        files={"file": ("shared.txt", b"shared", "text/plain")},
+    )
+    listed = _as_user(client, context.member_cookie).get(
+        f"/api/attachments/meeting/{context.meeting_id}"
+    )
+    detail = _as_user(client, context.member_cookie).get(
+        f"/api/meetings/{context.meeting_id}"
+    )
+
+    assert uploaded.status_code == 201
+    assert uploaded.json()["can_delete"] is True
+    assert listed.status_code == 200
+    assert listed.json()[0]["can_delete"] is False
+    assert detail.status_code == 200
+    assert detail.json()["attachments"][0]["can_delete"] is False
 
 
 def test_plugin_jobs_stop_exposing_results_after_membership_revocation(client):

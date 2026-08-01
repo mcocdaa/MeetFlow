@@ -56,6 +56,7 @@ export type ProjectAttachment = {
   download_url: string
   created_by: UserRef
   created_at: string
+  can_delete: boolean
 }
 
 export type ProjectActionSummary = {
