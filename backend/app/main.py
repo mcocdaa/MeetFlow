@@ -39,7 +39,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     auth_service = AuthService(resolved)
     attachment_storage = AttachmentStorage(resolved.data_dir, resolved.max_upload_bytes)
     plugin_manager = PluginManager(
-        resolved.plugins_dir, database, resolved.app_secret_key
+        resolved.plugins_dir,
+        database,
+        resolved.app_secret_key,
+        resolved.plugin_timeout_seconds,
     )
     plugin_worker = PluginJobWorker(database, plugin_manager)
     series_scheduler = MeetingSeriesScheduler(database)

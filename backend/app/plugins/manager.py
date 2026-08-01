@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import json
 import sys
@@ -54,11 +55,16 @@ class PluginManager:
     supported_api_versions = {1, 2}
 
     def __init__(
-        self, plugins_dir: Path, database: Database, app_secret_key: str
+        self,
+        plugins_dir: Path,
+        database: Database,
+        app_secret_key: str,
+        plugin_timeout_seconds: float = 60.0,
     ):
         self.plugins_dir = plugins_dir.resolve()
         self.database = database
         self.secret_box = SecretBox(app_secret_key)
+        self.plugin_timeout_seconds = plugin_timeout_seconds
         self._descriptors: dict[str, PluginDescriptor] = {}
         self._loaded_descriptors: dict[str, PluginDescriptor] = {}
         self._actions: dict[str, MeetingAction] = {}
@@ -251,11 +257,20 @@ class PluginManager:
                     raise AttributeError("plugin must export register(registry)")
                 registry = PluginRegistry(descriptor.plugin_id)
                 register(registry)
-                for action_id, action in registry.actions.items():
+
+                staged_actions = list(registry.actions.items())
+                staged_subscribers = list(registry.event_subscribers.items())
+                staged_exporters = list(registry.exporters.items())
+                for action_id, _action in staged_actions:
+                    if (
+                        descriptor.manifest.api_version >= 2
+                        and action_id
+                        not in descriptor.manifest.capabilities.actions
+                    ):
+                        raise ValueError(f"action {action_id} is not declared")
                     if action_id in self._actions:
                         raise ValueError("duplicate global action id")
-                    self._actions[action_id] = action
-                for event_type, handler in registry.event_subscribers.items():
+                for event_type, _handler in staged_subscribers:
                     if (
                         descriptor.manifest.api_version >= 2
                         and event_type
@@ -264,10 +279,7 @@ class PluginManager:
                         raise ValueError(
                             f"event subscriber {event_type} is not declared"
                         )
-                    self._event_subscribers.setdefault(event_type, []).append(
-                        (descriptor.plugin_id, handler)
-                    )
-                for exporter_id, handler in registry.exporters.items():
+                for exporter_id, _handler in staged_exporters:
                     if (
                         descriptor.manifest.api_version >= 2
                         and exporter_id not in descriptor.manifest.capabilities.exporters
@@ -275,6 +287,14 @@ class PluginManager:
                         raise ValueError(f"exporter {exporter_id} is not declared")
                     if exporter_id in self._exporters:
                         raise ValueError("duplicate global exporter id")
+
+                for action_id, action in staged_actions:
+                    self._actions[action_id] = action
+                for event_type, handler in staged_subscribers:
+                    self._event_subscribers.setdefault(event_type, []).append(
+                        (descriptor.plugin_id, handler)
+                    )
+                for exporter_id, handler in staged_exporters:
                     self._exporters[exporter_id] = (descriptor.plugin_id, handler)
                 self._modules[descriptor.plugin_id] = module
                 self._loaded_descriptors[descriptor.plugin_id] = descriptor
@@ -435,7 +455,9 @@ class PluginManager:
     ) -> None:
         for plugin_id, handler in self._event_subscribers.get(event_type, []):
             config = self.runtime_config(plugin_id, session)
-            await handler(payload, config)
+            await asyncio.wait_for(
+                handler(payload, config), timeout=self.plugin_timeout_seconds
+            )
 
     def loaded_exporters(self) -> list[str]:
         return list(self._exporters)
