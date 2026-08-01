@@ -1,5 +1,6 @@
 import type { UserRef, Versioned } from '../api/contracts'
 import type { ActionItem, Decision, OpenQuestion } from './outcomes'
+import type { WorkspaceCapabilities } from './projects'
 
 export type MeetingStatus = 'draft' | 'ready' | 'in_progress' | 'completed' | 'canceled'
 export type AgendaStatus = 'planned' | 'in_progress' | 'completed' | 'skipped' | 'canceled'
@@ -55,6 +56,7 @@ export type Attachment = {
   created_at: string
   download_url: string
   preview_url?: string
+  can_delete: boolean
 }
 
 export type MeetingAmendment = {
@@ -96,6 +98,7 @@ export type AgendaItem = Versioned & {
 }
 
 export type Meeting = Versioned & {
+  capabilities: WorkspaceCapabilities
   id: string
   project: { id: string; name: string; slug: string }
   series: { id: string; title: string } | null

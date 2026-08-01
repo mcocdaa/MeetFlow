@@ -23,8 +23,10 @@ class MeetingQueries:
     def series_detail(self, series_id: str) -> dict[str, Any]:
         return self.service._series_detail_impl(series_id)
 
-    def meeting_detail(self, meeting_id: str) -> dict[str, Any]:
-        return self.service._meeting_detail_impl(meeting_id)
+    def meeting_detail(
+        self, meeting_id: str, actor: User | None = None
+    ) -> dict[str, Any]:
+        return self.service._meeting_detail_impl(meeting_id, actor)
 
     def package(self, meeting_id: str) -> dict[str, Any]:
         return self.service._package_impl(meeting_id)

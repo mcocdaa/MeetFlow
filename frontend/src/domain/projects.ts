@@ -5,12 +5,18 @@ export type ProjectStatus = 'planned' | 'active' | 'paused' | 'completed' | 'can
 export type ProjectHealth = 'on_track' | 'at_risk' | 'off_track' | 'unset'
 export type ProjectMemberRole = 'member' | 'stakeholder'
 
+export type WorkspaceCapabilities = {
+  can_manage: boolean
+  can_contribute: boolean
+  can_comment: boolean
+}
+
 export type ProjectMembership = {
   role: ProjectMemberRole
   user: UserRef
 }
 
-export type ProjectUpdate = {
+export type ProjectUpdate = Versioned & {
   id: string
   project_id: string
   health: ProjectHealth
@@ -50,6 +56,7 @@ export type ProjectAttachment = {
   download_url: string
   created_by: UserRef
   created_at: string
+  can_delete: boolean
 }
 
 export type ProjectActionSummary = {
@@ -63,6 +70,7 @@ export type ProjectActionSummary = {
 }
 
 export type ProjectDetail = Project & {
+  capabilities: WorkspaceCapabilities
   next_meeting: { id: string; title: string; scheduled_start: string; status: string } | null
   recent_decisions: Decision[]
   meeting_count: number

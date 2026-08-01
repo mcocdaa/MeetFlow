@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.agendas.models import AgendaItem
@@ -24,6 +24,7 @@ from app.meetings.models import (
 from app.meetings.service import as_utc, project_ref, user_ref
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.outcomes.service import OutcomeService
+from app.projects.access import WorkspaceAccess
 from app.workspace.work_briefs import current_work_brief
 
 router = APIRouter(tags=["workspace"])
@@ -47,10 +48,13 @@ def global_actions(
     due_after: date | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     filters = []
+    visible_project_ids = WorkspaceAccess(session).visible_project_ids(user)
+    if visible_project_ids is not None:
+        filters.append(ActionItem.project_id.in_(visible_project_ids))
     if project_id:
         filters.append(ActionItem.project_id == project_id)
     if status:
@@ -81,12 +85,15 @@ def global_decisions(
     reviewer_user_id: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     statement = select(Decision).options(selectinload(Decision.reviewers))
     count_statement = select(func.count()).select_from(Decision)
     filters = []
+    visible_project_ids = WorkspaceAccess(session).visible_project_ids(user)
+    if visible_project_ids is not None:
+        filters.append(Decision.project_id.in_(visible_project_ids))
     if project_id:
         filters.append(Decision.project_id == project_id)
     if status:
@@ -115,7 +122,7 @@ def global_meetings(
     start_before: datetime | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     agenda_count = (
@@ -139,6 +146,17 @@ def global_meetings(
     statement = select(Meeting, agenda_count, snapshot_count, amendment_count)
     count_statement = select(func.count()).select_from(Meeting)
     filters = []
+    visible_project_ids = WorkspaceAccess(session).visible_project_ids(user)
+    if visible_project_ids is not None:
+        participant_meeting_ids = select(MeetingParticipant.meeting_id).where(
+            MeetingParticipant.user_id == user.id
+        )
+        filters.append(
+            or_(
+                Meeting.project_id.in_(visible_project_ids),
+                Meeting.id.in_(participant_meeting_ids),
+            )
+        )
     if project_id:
         filters.append(Meeting.project_id == project_id)
     if status:

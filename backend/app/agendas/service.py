@@ -25,6 +25,7 @@ from app.errors import AppError
 from app.meetings.models import Meeting
 from app.meetings.service import user_ref
 from app.outcomes.models import ActionItem, Decision, OpenQuestion
+from app.projects.access import WorkspaceAccess
 
 
 def utcnow() -> datetime:
@@ -60,6 +61,14 @@ class AgendaService:
         if meeting is None:
             raise AppError(404, "meeting_not_found", "会议不存在")
         return meeting
+
+    def _require_meeting_view(self, meeting: Meeting, actor: User) -> None:
+        WorkspaceAccess(self.session).require_meeting_view(meeting.id, actor)
+
+    def _require_meeting_contribution(self, meeting: Meeting, actor: User) -> None:
+        access = WorkspaceAccess(self.session)
+        access.require_meeting_view(meeting.id, actor)
+        access.require_project_contribute(meeting.project_id, actor)
 
     @staticmethod
     def _require_mutable(meeting: Meeting) -> None:
@@ -195,8 +204,12 @@ class AgendaService:
                 if row.source_tag_key not in requested[kind]:
                     self.session.delete(row)
 
-    def list(self, meeting_id: str) -> list[AgendaItem]:
-        self._meeting(meeting_id)
+    def list(
+        self, meeting_id: str, *, actor: User | None = None
+    ) -> list[AgendaItem]:
+        meeting = self._meeting(meeting_id)
+        if actor is not None:
+            self._require_meeting_view(meeting, actor)
         return list(
             self.session.scalars(
                 select(AgendaItem)
@@ -303,6 +316,7 @@ class AgendaService:
     ) -> AgendaItem:
         self._require_active(actor)
         meeting = self._meeting(meeting_id)
+        self._require_meeting_contribution(meeting, actor)
         self._require_mutable(meeting)
         require_version(expected_meeting_version, meeting.version)
         tags = parse_outcome_tags(payload.notes_markdown)
@@ -343,6 +357,7 @@ class AgendaService:
         self._require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
+        self._require_meeting_contribution(meeting, actor)
         meeting_id = meeting.id
         self._require_mutable(meeting)
         expected_meeting_version = meeting.version
@@ -385,6 +400,7 @@ class AgendaService:
     ) -> list[AgendaItem]:
         self._require_active(actor)
         meeting = self._meeting(meeting_id)
+        self._require_meeting_contribution(meeting, actor)
         self._require_mutable(meeting)
         actual_version = self.session.scalar(
             select(Meeting.version).where(Meeting.id == meeting_id)
@@ -436,6 +452,7 @@ class AgendaService:
         self._require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
+        self._require_meeting_contribution(meeting, actor)
         self._require_mutable(meeting)
         meeting_id = meeting.id
         expected_meeting_version = meeting.version
@@ -480,6 +497,7 @@ class AgendaService:
         self._require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
+        self._require_meeting_contribution(meeting, actor)
         if meeting.status != MeetingStatus.in_progress:
             raise AppError(409, "meeting_not_in_progress", "会议尚未开始")
         meeting_id = meeting.id
@@ -522,6 +540,7 @@ class AgendaService:
         self._require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
+        self._require_meeting_contribution(meeting, actor)
         if meeting.status != MeetingStatus.in_progress:
             raise AppError(409, "meeting_not_in_progress", "会议尚未开始")
         expected_meeting_version = meeting.version
@@ -556,6 +575,8 @@ class AgendaService:
         item = self.get(item_id)
         source = item.meeting
         target = self._meeting(payload.target_meeting_id)
+        self._require_meeting_contribution(source, actor)
+        self._require_meeting_contribution(target, actor)
         source_id = source.id
         target_id = target.id
         if source_id == target_id:
@@ -679,6 +700,7 @@ class AgendaService:
         self._require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
+        self._require_meeting_contribution(meeting, actor)
         meeting_id = meeting.id
         self._require_mutable(meeting)
         require_version(payload.expected_version, item.version)
@@ -756,7 +778,9 @@ class AgendaService:
             "completed_at": item.completed_at,
         }
 
-    def detail(self, item_id: str) -> dict[str, Any]:
+    def detail(
+        self, item_id: str, *, actor: User | None = None
+    ) -> dict[str, Any]:
         item = self.session.scalar(
             select(AgendaItem)
             .where(AgendaItem.id == item_id)
@@ -769,9 +793,16 @@ class AgendaService:
         )
         if item is None:
             raise AppError(404, "agenda_item_not_found", "议题不存在")
+        if actor is not None:
+            self._require_meeting_view(item.meeting, actor)
         return self.serialize(item)
 
-    def ordered_detail(self, meeting_id: str) -> list[dict[str, Any]]:
+    def ordered_detail(
+        self, meeting_id: str, *, actor: User | None = None
+    ) -> list[dict[str, Any]]:
+        meeting = self._meeting(meeting_id)
+        if actor is not None:
+            self._require_meeting_view(meeting, actor)
         items = self.session.scalars(
             select(AgendaItem)
             .where(AgendaItem.meeting_id == meeting_id)

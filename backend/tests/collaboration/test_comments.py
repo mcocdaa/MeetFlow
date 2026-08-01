@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.agendas.schemas import AgendaCommand, AgendaWrite
 from app.agendas.service import AgendaService
@@ -9,12 +9,15 @@ from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.models import ActivityEvent, Comment
 from app.collaboration.schemas import CommentCommand, CommentEdit, CommentWrite
 from app.collaboration.service import CommentService
+from app.domain.enums import ProjectMemberRole
 from app.errors import AppError
 from app.meetings.models import MeetingParticipant
 from app.meetings.schemas import MeetingWrite
 from app.meetings.service import MeetingService
 from app.outcomes.schemas import ActionWrite, DecisionWrite
 from app.outcomes.service import OutcomeService
+from app.projects.access import WorkspaceAccess
+from app.projects.models import ProjectMember
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
 
@@ -482,6 +485,222 @@ def test_comment_author_can_resolve_and_reopen_thread(client, comment_context):
         )
         assert reopened.resolved_at is None
         assert reopened.resolved_by is None
+
+
+def test_serialized_project_comment_actions_require_current_contribution(
+    client, comment_context
+):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        member = session.get(User, context["member_id"])
+        assert member is not None
+        service = CommentService(session)
+        root = service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                body_markdown="Created while contributing",
+            ),
+            member,
+        )
+        reply = service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                parent_id=root.id,
+                body_markdown="Reply while contributing",
+            ),
+            member,
+        )
+        membership = session.scalar(
+            select(ProjectMember).where(
+                ProjectMember.project_id == context["project_id"],
+                ProjectMember.user_id == member.id,
+            )
+        )
+        assert membership is not None
+        membership.role = ProjectMemberRole.stakeholder
+        session.commit()
+
+        page = service.list_for_target(
+            "project",
+            context["project_id"],
+            actor=member,
+        )
+
+        selects: list[str] = []
+
+        def capture_select(_conn, _cursor, statement, _parameters, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(statement)
+
+        event.listen(session.bind, "before_cursor_execute", capture_select)
+        try:
+            payload = service.serialize(
+                page.items[0],
+                member,
+                can_change=page.can_change,
+                replies=page.replies_by_parent[root.id],
+            )
+        finally:
+            event.remove(session.bind, "before_cursor_execute", capture_select)
+
+    assert {
+        key: payload[key] for key in ("can_edit", "can_delete", "can_resolve")
+    } == {"can_edit": False, "can_delete": False, "can_resolve": False}
+    assert {
+        key: payload["replies"][0][key] for key in ("can_edit", "can_delete")
+    } == {"can_edit": False, "can_delete": False}
+    assert page.can_change is False
+    assert selects == []
+
+
+def test_serialized_replies_keep_their_own_ownership_check(client, comment_context):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        admin = session.get(User, context["admin_id"])
+        member = session.get(User, context["member_id"])
+        assert admin is not None
+        assert member is not None
+        service = CommentService(session)
+        root = service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                body_markdown="Admin root",
+            ),
+            admin,
+        )
+        reply = service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                parent_id=root.id,
+                body_markdown="Member reply",
+            ),
+            member,
+        )
+        page = service.list_for_target(
+            "project", context["project_id"], actor=member
+        )
+        payload = service.serialize(
+            next(comment for comment in page.items if comment.id == root.id),
+            member,
+            can_change=page.can_change,
+            replies=page.replies_by_parent[root.id],
+        )
+
+    assert payload["can_edit"] is False
+    assert payload["replies"][0]["id"] == reply.id
+    assert payload["replies"][0]["can_edit"] is True
+
+
+def test_comment_pagination_checks_workspace_capability_once_per_page(
+    client, comment_context, monkeypatch
+):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        member = session.get(User, context["member_id"])
+        assert member is not None
+        service = CommentService(session)
+        root = service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                body_markdown="Capability lookup root",
+            ),
+            member,
+        )
+        service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                parent_id=root.id,
+                body_markdown="Capability lookup reply",
+            ),
+            member,
+        )
+        original = WorkspaceAccess.project_capabilities
+        calls = 0
+
+        def count_capabilities(access, project, actor):
+            nonlocal calls
+            calls += 1
+            return original(access, project, actor)
+
+        monkeypatch.setattr(
+            WorkspaceAccess, "project_capabilities", count_capabilities
+        )
+        thread_page = service.list_for_target(
+            "project", context["project_id"], actor=member
+        )
+        reply_page = service.list_replies(root.id, actor=member)
+
+    assert thread_page.can_change is True
+    assert reply_page.can_change is True
+    assert calls == 2
+
+
+def test_serialized_resolved_comment_list_avoids_resolver_n_plus_one(
+    client, comment_context
+):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        member = session.get(User, context["member_id"])
+        assert member is not None
+        resolvers = [
+            User(
+                username=f"comment-resolver-{index}",
+                display_name=f"Comment Resolver {index}",
+                password_hash="unused",
+                role=UserRole.ADMIN,
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all(resolvers)
+        session.commit()
+
+        service = CommentService(session)
+        for index, resolver in enumerate(resolvers):
+            comment = service.create(
+                CommentWrite(
+                    target_type="project",
+                    target_id=context["project_id"],
+                    body_markdown=f"Resolved by another admin {index}",
+                ),
+                member,
+            )
+            service.resolve(
+                comment.id,
+                CommentCommand(expected_version=comment.version),
+                resolver,
+            )
+
+        session.expunge_all()
+        actor = session.get(User, context["member_id"])
+        assert actor is not None
+        page = service.list_for_target(
+            "project", context["project_id"], actor=actor
+        )
+        selects: list[str] = []
+
+        def capture_select(_conn, _cursor, statement, _parameters, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(statement)
+
+        event.listen(session.bind, "before_cursor_execute", capture_select)
+        try:
+            payloads = [
+                service.serialize(comment, actor, can_change=page.can_change)
+                for comment in page.items
+            ]
+        finally:
+            event.remove(session.bind, "before_cursor_execute", capture_select)
+
+    assert len(payloads) == 5
+    assert all(payload["resolved_by"] is not None for payload in payloads)
+    assert selects == []
 
 
 def test_comment_api_auth_versions_and_agenda_delete_guard(

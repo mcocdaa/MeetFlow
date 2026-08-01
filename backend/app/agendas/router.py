@@ -33,7 +33,8 @@ def create_agenda_item(
             payload,
             user,
             expected_meeting_version=expected_meeting_version,
-        ).id
+        ).id,
+        actor=user,
     )
 
 
@@ -45,7 +46,7 @@ def update_agenda_item(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = AgendaService(session)
-    return service.detail(service.update(item_id, payload, user).id)
+    return service.detail(service.update(item_id, payload, user).id, actor=user)
 
 
 @router.delete("/api/agenda-items/{item_id}", status_code=204)
@@ -56,7 +57,8 @@ def delete_agenda_item(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> None:
-    AgendaService(session).delete(
+    service = AgendaService(session)
+    service.delete(
         item_id,
         payload,
         user,
@@ -73,7 +75,7 @@ def reorder_agenda_items(
 ) -> list[dict[str, Any]]:
     service = AgendaService(session)
     service.reorder(meeting_id, payload, user)
-    return service.ordered_detail(meeting_id)
+    return service.ordered_detail(meeting_id, actor=user)
 
 
 def _command(name: str):
@@ -85,7 +87,7 @@ def _command(name: str):
     ) -> dict[str, Any]:
         service = AgendaService(session)
         item = getattr(service, name)(item_id, payload, user)
-        return service.detail(item.id)
+        return service.detail(item.id, actor=user)
 
     return run
 
@@ -100,7 +102,7 @@ def complete_and_advance_agenda_item(
     service = AgendaService(session)
     completed, next_agenda_item_id = service.complete_and_advance(item_id, payload, user)
     return {
-        "agenda_item": service.detail(completed.id),
+        "agenda_item": service.detail(completed.id, actor=user),
         "next_agenda_item_id": next_agenda_item_id,
     }
 
@@ -129,4 +131,4 @@ def move_agenda_item(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = AgendaService(session)
-    return service.detail(service.move(item_id, payload, user).id)
+    return service.detail(service.move(item_id, payload, user).id, actor=user)

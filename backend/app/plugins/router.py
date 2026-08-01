@@ -24,6 +24,7 @@ from app.auth.models import User
 from app.database import get_session
 from app.errors import AppError
 from app.meetings.service import MeetingService
+from app.projects.access import WorkspaceAccess
 from app.plugins.events import retry_plugin_event as retry_plugin_event_command
 from app.plugins.manager import (
     PluginConfigurationError,
@@ -81,6 +82,40 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
         "started_at": job.started_at,
         "finished_at": job.finished_at,
     }
+
+
+def require_job_target_access(
+    session: Session,
+    job: PluginJob,
+    user: User,
+    *,
+    contribute: bool,
+) -> None:
+    access = WorkspaceAccess(session)
+    if job.target_type == "meeting":
+        meeting = access.require_meeting_view(job.target_id, user)
+        if contribute:
+            access.require_project_contribute(meeting.project_id, user)
+        else:
+            access.require_project_view(meeting.project_id, user)
+        return
+    if job.target_type == "project":
+        if contribute:
+            access.require_project_contribute(job.target_id, user)
+        else:
+            access.require_project_view(job.target_id, user)
+        return
+    raise AppError(422, "invalid_plugin_target", "插件任务目标无效")
+
+
+def can_view_job_target(session: Session, job: PluginJob, user: User) -> bool:
+    try:
+        require_job_target_access(session, job, user, contribute=False)
+    except AppError as exc:
+        if exc.status_code in {403, 404, 422}:
+            return False
+        raise
+    return True
 
 
 def serialize_event(event: PluginEvent) -> dict[str, Any]:
@@ -348,6 +383,7 @@ def get_job(
         raise AppError(404, "plugin_job_not_found", "AI 任务不存在")
     if job.created_by != user.id and user.role.value != "admin":
         raise AppError(403, "plugin_job_forbidden", "无权查看此 AI 任务")
+    require_job_target_access(session, job, user, contribute=False)
     return serialize_job(job)
 
 
@@ -357,6 +393,7 @@ def get_accessible_job(session: Session, job_id: str, user: User) -> PluginJob:
         raise AppError(404, "plugin_job_not_found", "AI 任务不存在")
     if job.created_by != user.id and user.role.value != "admin":
         raise AppError(403, "plugin_job_forbidden", "无权操作此 AI 任务")
+    require_job_target_access(session, job, user, contribute=True)
     return job
 
 
@@ -438,7 +475,13 @@ def list_jobs(
             PluginJob.applied_at.is_(None), PluginJob.dismissed_at.is_(None)
         )
     jobs = session.scalars(statement.order_by(PluginJob.created_at.desc(), PluginJob.id.desc()))
-    return {"items": [serialize_job(job) for job in jobs]}
+    return {
+        "items": [
+            serialize_job(job)
+            for job in jobs
+            if can_view_job_target(session, job, user)
+        ]
+    }
 
 
 @meeting_actions_router.post("/{meeting_id}/plugin-actions/{action_id}")
@@ -450,6 +493,9 @@ async def run_action(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict:
+    access = WorkspaceAccess(session)
+    meeting = access.require_meeting_view(meeting_id, user)
+    access.require_project_contribute(meeting.project_id, user)
     manager = request.app.state.plugin_manager
     action = next(
         (
@@ -507,6 +553,9 @@ async def export_meeting(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> Response:
+    access = WorkspaceAccess(session)
+    meeting = access.require_meeting_view(meeting_id, user)
+    access.require_project_contribute(meeting.project_id, user)
     manager = request.app.state.plugin_manager
     if exporter_id not in manager.loaded_exporters():
         raise AppError(404, "plugin_export_not_found", "会议导出器不存在")

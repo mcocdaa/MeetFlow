@@ -14,6 +14,7 @@ from app.domain.enums import (
     MeetingStatus,
 )
 from app.inbox.models import Notification
+from app.inbox.access import NotificationScope
 from app.inbox.service import InboxService
 from app.meetings.models import Meeting, MeetingParticipant
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
@@ -87,23 +88,23 @@ class AttentionService:
     def _normalize_subject_type(subject_type: str) -> str:
         return SUBJECT_TYPES.get(subject_type, subject_type)
 
-    def _unread(self, user_id: str) -> tuple[list[Notification], int, bool]:
+    def _unread(
+        self, user_id: str, scope: NotificationScope
+    ) -> tuple[list[Notification], int, bool]:
+        filters = [Notification.user_id == user_id, Notification.read_at.is_(None)]
+        notification_filter = scope.notification_filter()
+        if notification_filter is not None:
+            filters.append(notification_filter)
         unread_count = (
             self.session.scalar(
-                select(func.count(Notification.id)).where(
-                    Notification.user_id == user_id,
-                    Notification.read_at.is_(None),
-                )
+                select(func.count(Notification.id)).where(*filters)
             )
             or 0
         )
         notifications = list(
             self.session.scalars(
                 select(Notification)
-                .where(
-                    Notification.user_id == user_id,
-                    Notification.read_at.is_(None),
-                )
+                .where(*filters)
                 .options(joinedload(Notification.actor))
                 .order_by(Notification.id.desc())
                 .limit(UNREAD_LIMIT)
@@ -112,45 +113,61 @@ class AttentionService:
         return notifications, unread_count, unread_count > NOTIFICATION_LIMIT
 
     def _domain_actions(
-        self, user_id: str, horizon: date
+        self, user_id: str, horizon: date, scope: NotificationScope
     ) -> tuple[list[ActionItem], bool]:
-        rows = list(
-            self.session.scalars(
-                select(ActionItem)
-                .where(
-                    ActionItem.owner_user_id == user_id,
-                    ActionItem.status.in_(
-                        [ActionStatus.open, ActionStatus.in_progress]
-                    ),
-                    ActionItem.due_date.is_not(None),
-                    ActionItem.due_date <= horizon,
-                )
-                .options(joinedload(ActionItem.project))
-                .order_by(ActionItem.due_date, ActionItem.content, ActionItem.id)
-                .limit(ITEM_LIMIT + 1)
+        statement = (
+            select(ActionItem)
+            .where(
+                ActionItem.owner_user_id == user_id,
+                ActionItem.status.in_([ActionStatus.open, ActionStatus.in_progress]),
+                ActionItem.due_date.is_not(None),
+                ActionItem.due_date <= horizon,
             )
+            .options(joinedload(ActionItem.project))
+            .order_by(ActionItem.due_date, ActionItem.content, ActionItem.id)
+            .limit(ITEM_LIMIT + 1)
+        )
+        if scope.project_ids is not None:
+            statement = statement.where(
+                or_(
+                    ActionItem.project_id.in_(scope.project_ids),
+                    ActionItem.meeting_id.in_(scope.participant_meeting_ids),
+                )
+            )
+        rows = list(
+            self.session.scalars(statement)
         )
         return rows[:ITEM_LIMIT], len(rows) > ITEM_LIMIT
 
-    def _domain_decisions(self, user_id: str) -> tuple[list[Decision], bool]:
-        rows = list(
-            self.session.scalars(
-                select(Decision)
-                .join(DecisionReviewer)
-                .where(
-                    DecisionReviewer.user_id == user_id,
-                    DecisionReviewer.status == DecisionReviewerStatus.pending,
-                    Decision.status == DecisionStatus.proposed,
-                )
-                .options(joinedload(Decision.project))
-                .order_by(Decision.title, Decision.id)
-                .limit(ITEM_LIMIT + 1)
+    def _domain_decisions(
+        self, user_id: str, scope: NotificationScope
+    ) -> tuple[list[Decision], bool]:
+        statement = (
+            select(Decision)
+            .join(DecisionReviewer)
+            .where(
+                DecisionReviewer.user_id == user_id,
+                DecisionReviewer.status == DecisionReviewerStatus.pending,
+                Decision.status == DecisionStatus.proposed,
             )
+            .options(joinedload(Decision.project))
+            .order_by(Decision.title, Decision.id)
+            .limit(ITEM_LIMIT + 1)
+        )
+        if scope.project_ids is not None:
+            statement = statement.where(
+                or_(
+                    Decision.project_id.in_(scope.project_ids),
+                    Decision.meeting_id.in_(scope.participant_meeting_ids),
+                )
+            )
+        rows = list(
+            self.session.scalars(statement)
         )
         return rows[:ITEM_LIMIT], len(rows) > ITEM_LIMIT
 
     def _domain_meetings(
-        self, user_id: str, now: datetime, upcoming: datetime
+        self, user_id: str, now: datetime, upcoming: datetime, scope: NotificationScope
     ) -> tuple[list[tuple[Meeting, bool]], bool]:
         is_participant = exists(
             select(MeetingParticipant.meeting_id).where(
@@ -164,7 +181,7 @@ class AttentionService:
                 AgendaItem.status.in_([AgendaStatus.planned, AgendaStatus.in_progress]),
             )
         )
-        rows = self.session.execute(
+        statement = (
             select(Meeting, needs_preparation)
             .where(
                 Meeting.scheduled_start >= now,
@@ -179,11 +196,19 @@ class AttentionService:
             .options(joinedload(Meeting.project))
             .order_by(Meeting.scheduled_start, Meeting.title, Meeting.id)
             .limit(ITEM_LIMIT + 1)
-        ).all()
+        )
+        if scope.project_ids is not None:
+            statement = statement.where(
+                or_(
+                    Meeting.project_id.in_(scope.project_ids),
+                    Meeting.id.in_(scope.participant_meeting_ids),
+                )
+            )
+        rows = self.session.execute(statement).all()
         return rows[:ITEM_LIMIT], len(rows) > ITEM_LIMIT
 
     def _load_notification_subjects(
-        self, keys: set[tuple[str, str]]
+        self, keys: set[tuple[str, str]], scope: NotificationScope
     ) -> dict[tuple[str, str], dict[str, Any]]:
         loaded: dict[tuple[str, str], dict[str, Any]] = {}
         ids_by_type: dict[str, set[str]] = {}
@@ -195,6 +220,8 @@ class AttentionService:
             for project in self.session.scalars(
                 select(Project).where(Project.id.in_(project_ids))
             ):
+                if not scope.project_visible(project.id):
+                    continue
                 loaded[("project", project.id)] = _item(
                     "project", project.id, project, project.name
                 )
@@ -206,6 +233,8 @@ class AttentionService:
                 .where(Meeting.id.in_(meeting_ids))
                 .options(joinedload(Meeting.project))
             ):
+                if not scope.meeting_visible(meeting.project_id, meeting.id):
+                    continue
                 loaded[("meeting", meeting.id)] = _item(
                     "meeting",
                     meeting.id,
@@ -222,6 +251,10 @@ class AttentionService:
                 .where(AgendaItem.id.in_(agenda_ids))
                 .options(joinedload(AgendaItem.meeting).joinedload(Meeting.project))
             ):
+                if not scope.meeting_visible(
+                    agenda.meeting.project_id, agenda.meeting_id
+                ):
+                    continue
                 loaded[("agenda_item", agenda.id)] = _item(
                     "agenda_item",
                     agenda.id,
@@ -237,6 +270,10 @@ class AttentionService:
                 .where(Decision.id.in_(decision_ids))
                 .options(joinedload(Decision.project))
             ):
+                if not scope.meeting_visible(
+                    decision.project_id, decision.meeting_id
+                ):
+                    continue
                 loaded[("decision", decision.id)] = _item(
                     "decision",
                     decision.id,
@@ -252,6 +289,8 @@ class AttentionService:
                 .where(ActionItem.id.in_(action_ids))
                 .options(joinedload(ActionItem.project))
             ):
+                if not scope.meeting_visible(action.project_id, action.meeting_id):
+                    continue
                 loaded[("action", action.id)] = _item(
                     "action",
                     action.id,
@@ -271,7 +310,8 @@ class AttentionService:
         upcoming = current + timedelta(days=7)
         rows: dict[tuple[str, str], dict[str, Any]] = {}
 
-        actions, actions_truncated = self._domain_actions(user.id, horizon)
+        scope = NotificationScope.for_user(self.session, user)
+        actions, actions_truncated = self._domain_actions(user.id, horizon, scope)
         for action in actions:
             item = _item(
                 "action",
@@ -287,7 +327,7 @@ class AttentionService:
             )
             rows[("action", action.id)] = item
 
-        decisions, decisions_truncated = self._domain_decisions(user.id)
+        decisions, decisions_truncated = self._domain_decisions(user.id, scope)
         for decision in decisions:
             item = _item(
                 "decision",
@@ -299,7 +339,9 @@ class AttentionService:
             _add_reason(item, "decision_review_pending")
             rows[("decision", decision.id)] = item
 
-        meetings, meetings_truncated = self._domain_meetings(user.id, current, upcoming)
+        meetings, meetings_truncated = self._domain_meetings(
+            user.id, current, upcoming, scope
+        )
         for meeting, needs_preparation in meetings:
             item = _item(
                 "meeting",
@@ -314,7 +356,7 @@ class AttentionService:
                 _add_reason(item, "meeting_needs_preparation")
             rows[("meeting", meeting.id)] = item
 
-        unread, unread_count, unread_truncated = self._unread(user.id)
+        unread, unread_count, unread_truncated = self._unread(user.id, scope)
         notification_reasons: dict[tuple[str, str], list[str]] = {}
         for notification in unread:
             reason = NOTIFICATION_REASONS.get(notification.kind)
@@ -329,7 +371,7 @@ class AttentionService:
                 reasons.append(reason)
 
         missing_keys = set(notification_reasons) - set(rows)
-        rows.update(self._load_notification_subjects(missing_keys))
+        rows.update(self._load_notification_subjects(missing_keys, scope))
         for key, reasons in notification_reasons.items():
             item = rows.get(key)
             if item is None:

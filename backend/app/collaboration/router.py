@@ -14,7 +14,8 @@ from app.collaboration.schemas import (
 )
 from app.collaboration.service import CommentService
 from app.database import get_session
-from app.projects.service import ProjectService, user_ref
+from app.projects.access import WorkspaceAccess
+from app.projects.service import user_ref
 
 router = APIRouter(prefix="/api/projects", tags=["collaboration"])
 comments_router = APIRouter(prefix="/api/comments", tags=["comments"])
@@ -39,10 +40,10 @@ def list_project_activity(
     before: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
     meeting_id: str | None = Query(default=None),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> ActivityPageResponse:
-    ProjectService(session).require(project_id)
+    WorkspaceAccess(session).require_project_view(project_id, user)
     page = ActivityRecorder(session).list_for_project(
         project_id, before=before, limit=limit, meeting_id=meeting_id
     )
@@ -66,6 +67,7 @@ def list_comments(
     page = service.list_for_target(
         target_type,
         target_id,
+        actor=user,
         before=before,
         limit=limit,
         reply_limit=reply_limit,
@@ -75,6 +77,7 @@ def list_comments(
             service.serialize(
                 comment,
                 user,
+                can_change=page.can_change,
                 replies=page.replies_by_parent[comment.id],
                 reply_next_cursor=page.reply_next_cursor_by_parent[comment.id],
             )
@@ -93,9 +96,12 @@ def list_comment_replies(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    page = service.list_replies(comment_id, after=after, limit=limit)
+    page = service.list_replies(comment_id, actor=user, after=after, limit=limit)
     return {
-        "items": [service.serialize(comment, user) for comment in page.items],
+        "items": [
+            service.serialize(comment, user, can_change=page.can_change)
+            for comment in page.items
+        ],
         "next_cursor": page.next_cursor,
     }
 
@@ -107,7 +113,7 @@ def create_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(service.create(payload, user), user)
+    return service.serialize(service.create(payload, user), user, can_change=True)
 
 
 @comments_router.put("/{comment_id}")
@@ -118,7 +124,9 @@ def update_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(service.update(comment_id, payload, user), user)
+    return service.serialize(
+        service.update(comment_id, payload, user), user, can_change=True
+    )
 
 
 @comments_router.post("/{comment_id}/resolve")
@@ -129,7 +137,9 @@ def resolve_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(service.resolve(comment_id, payload, user), user)
+    return service.serialize(
+        service.resolve(comment_id, payload, user), user, can_change=True
+    )
 
 
 @comments_router.post("/{comment_id}/reopen")
@@ -140,7 +150,9 @@ def reopen_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(service.reopen(comment_id, payload, user), user)
+    return service.serialize(
+        service.reopen(comment_id, payload, user), user, can_change=True
+    )
 
 
 @comments_router.delete("/{comment_id}", status_code=204)

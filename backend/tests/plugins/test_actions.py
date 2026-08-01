@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from app.auth.models import User, UserRole, UserStatus
+
 
 @pytest.fixture
 def ai_work_assistant_backend():
@@ -257,6 +259,35 @@ def test_user_discovers_and_executes_registered_action(
     assert result.json()["model"] == "test-model"
     meeting = plugin_client.get(f"/api/meetings/{plugin_meeting_id}").json()
     assert meeting["summary_markdown"] == ""
+
+
+def test_nonmember_cannot_run_meeting_plugin_action(
+    plugin_client, plugin_meeting_id
+):
+    configure_plugin(plugin_client)
+    database = plugin_client.app.state.database
+    with database.session() as session:
+        outsider = User(
+            username="plugin-outsider",
+            display_name="Plugin Outsider",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(outsider)
+        session.commit()
+        session.refresh(outsider)
+        cookie_name = plugin_client.app.state.auth_service.cookie_name
+        cookie_value = plugin_client.app.state.auth_service.issue_cookie(outsider)
+
+    plugin_client.cookies.clear()
+    plugin_client.cookies.set(cookie_name, cookie_value)
+    response = plugin_client.post(
+        f"/api/meetings/{plugin_meeting_id}/plugin-actions/test-ai.summarize",
+        json={},
+    )
+
+    assert response.status_code == 403
 
 
 def test_action_requires_declared_plugin_configuration(

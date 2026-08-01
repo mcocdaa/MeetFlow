@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
-from app.projects.schemas import ProjectEdit, ProjectUpdateWrite, ProjectWrite
+from app.projects.schemas import (
+    ProjectEdit,
+    ProjectUpdateEdit,
+    ProjectUpdateWrite,
+    ProjectWrite,
+)
 from app.projects.service import ProjectService
 
 
@@ -16,10 +21,10 @@ updates_router = APIRouter(prefix="/api/project-updates", tags=["projects"])
 
 @router.get("")
 def list_projects(
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    return ProjectService(session).list()
+    return ProjectService(session).list(user)
 
 
 @router.post("", status_code=201)
@@ -35,10 +40,10 @@ def create_project(
 @router.get("/{project_id}")
 def get_project(
     project_id: str,
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    return ProjectService(session).detail(project_id)
+    return ProjectService(session).detail(project_id, user)
 
 
 @router.put("/{project_id}")
@@ -66,11 +71,11 @@ def list_project_updates(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     return ProjectService(session).list_updates(
-        project_id, limit=limit, offset=offset
+        project_id, user, limit=limit, offset=offset
     )
 
 
@@ -90,7 +95,7 @@ def create_project_update(
 @updates_router.put("/{update_id}")
 def edit_project_update(
     update_id: str,
-    payload: ProjectUpdateWrite,
+    payload: ProjectUpdateEdit,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:

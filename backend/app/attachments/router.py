@@ -18,6 +18,7 @@ from app.database import get_session
 from app.errors import AppError
 from app.meetings.models import Meeting
 from app.projects.models import Project
+from app.projects.access import WorkspaceAccess
 
 TEXT_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".py", ".log"}
 TEXT_PREVIEW_MAX_BYTES = 512 * 1024
@@ -48,6 +49,23 @@ def activity_context(
     return target.meeting.project_id, target.meeting_id
 
 
+def require_target_access(
+    session: Session,
+    target: Project | Meeting | AgendaItem,
+    user: User,
+    *,
+    contribute: bool,
+) -> None:
+    project_id, meeting_id = activity_context(target)
+    access = WorkspaceAccess(session)
+    if contribute:
+        access.require_project_contribute(project_id, user)
+    elif meeting_id is None:
+        access.require_project_view(project_id, user)
+    else:
+        access.require_meeting_view(meeting_id, user)
+
+
 def require_attachment(
     session: Session, target_type: str, target_id: str, attachment_id: str
 ) -> Attachment:
@@ -65,7 +83,23 @@ def require_attachment(
     return attachment
 
 
-def serialize(item: Attachment) -> dict[str, Any]:
+def attachment_delete_allowed(
+    session: Session,
+    target: Project | Meeting | AgendaItem,
+    item: Attachment,
+    user: User,
+) -> bool:
+    project_id, _ = activity_context(target)
+    project = session.get(Project, project_id)
+    if project is None:
+        return False
+    capabilities = WorkspaceAccess(session).project_capabilities(project, user)
+    return capabilities.can_contribute and (
+        item.created_by == user.id or user.role == UserRole.ADMIN
+    )
+
+
+def serialize(item: Attachment, *, can_delete: bool = False) -> dict[str, Any]:
     return {
         "id": item.id,
         "target_type": item.target_type,
@@ -86,6 +120,7 @@ def serialize(item: Attachment) -> dict[str, Any]:
         "preview_url": (
             f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}/preview"
         ),
+        "can_delete": can_delete,
     }
 
 
@@ -93,17 +128,24 @@ def serialize(item: Attachment) -> dict[str, Any]:
 def list_attachments(
     target_type: str,
     target_id: str,
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    require_target(session, target_type, target_id)
+    target = require_target(session, target_type, target_id)
+    require_target_access(session, target, user, contribute=False)
     rows = session.scalars(
         select(Attachment)
         .where(Attachment.target_type == target_type, Attachment.target_id == target_id)
         .options(joinedload(Attachment.creator))
         .order_by(Attachment.created_at.desc(), Attachment.id.desc())
     )
-    return [serialize(row) for row in rows]
+    return [
+        serialize(
+            row,
+            can_delete=attachment_delete_allowed(session, target, row, user),
+        )
+        for row in rows
+    ]
 
 
 @router.post("/{target_type}/{target_id}", status_code=201)
@@ -116,6 +158,7 @@ async def upload_attachment(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     target = require_target(session, target_type, target_id)
+    require_target_access(session, target, user, contribute=True)
     storage = request.app.state.attachment_storage
     stored_name, final_path, size = await storage.save(target_type, target_id, file)
     detected_image = sniff_inline_image(final_path)
@@ -154,7 +197,7 @@ async def upload_attachment(
         raise
     session.refresh(attachment)
     _ = attachment.creator
-    return serialize(attachment)
+    return serialize(attachment, can_delete=True)
 
 
 def attachment_file(request: Request, item: Attachment) -> Path:
@@ -172,10 +215,12 @@ def download_attachment(
     target_id: str,
     attachment_id: str,
     request: Request,
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     item = require_attachment(session, target_type, target_id, attachment_id)
+    target = require_target(session, item.target_type, item.target_id)
+    require_target_access(session, target, user, contribute=False)
     path = attachment_file(request, item)
     disposition = "inline" if item.attachment_type == "image" else "attachment"
     return FileResponse(
@@ -193,10 +238,12 @@ def preview_attachment(
     target_id: str,
     attachment_id: str,
     request: Request,
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     item = require_attachment(session, target_type, target_id, attachment_id)
+    target = require_target(session, item.target_type, item.target_id)
+    require_target_access(session, target, user, contribute=False)
     path = attachment_file(request, item)
     if path.suffix.lower() not in TEXT_SUFFIXES or item.size > TEXT_PREVIEW_MAX_BYTES:
         raise AppError(415, "attachment_preview_unsupported", "该附件不支持文本预览")
@@ -216,9 +263,10 @@ def delete_attachment(
     session: Session = Depends(get_session),
 ) -> None:
     item = require_attachment(session, target_type, target_id, attachment_id)
+    target = require_target(session, item.target_type, item.target_id)
+    require_target_access(session, target, user, contribute=True)
     if item.created_by != user.id and user.role != UserRole.ADMIN:
         raise AppError(403, "attachment_delete_forbidden", "只能删除自己上传的附件")
-    target = require_target(session, item.target_type, item.target_id)
     path = request.app.state.attachment_storage.attachment_path(
         item.target_type, item.target_id, item.stored_name
     )

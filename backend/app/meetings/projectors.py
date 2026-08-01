@@ -42,7 +42,9 @@ def serialize_amendment(item: MeetingAmendment) -> dict[str, Any]:
     }
 
 
-def serialize_attachment(item: Attachment) -> dict[str, Any]:
+def serialize_attachment(
+    item: Attachment, *, can_delete: bool = False
+) -> dict[str, Any]:
     return {
         "id": item.id,
         "target_type": item.target_type,
@@ -54,4 +56,5 @@ def serialize_attachment(item: Attachment) -> dict[str, Any]:
         "created_by": user_ref(item.creator),
         "created_at": item.created_at,
         "download_url": f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}",
+        "can_delete": can_delete,
     }

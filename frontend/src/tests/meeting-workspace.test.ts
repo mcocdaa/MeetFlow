@@ -40,6 +40,7 @@ const SummaryAssistant = defineComponent({
 const user = { id: 'u1', username: 'lin', display_name: '林宇' }
 const meeting = {
   id: 'm1', project: { id: 'p1', name: 'MeetFlow', slug: 'meetflow' }, series: null, title: '迭代评审', purpose_markdown: '', scheduled_start: '2026-07-24T02:00:00Z', scheduled_end: '2026-07-24T03:00:00Z', status: 'ready', host: user, recorder: user, summary_markdown: '', raw_notes_markdown: '', version: 2,
+  capabilities: { can_manage: true, can_contribute: true, can_comment: true },
   participants: [{ user, participation_role: 'host', position: 0 }],
   agenda_items: [{ id: 'a1', meeting_id: 'm1', title: '发布方案', agenda_type: 'decision', notes_markdown: '', status: 'planned', position: 0, proposer: null, presenter: null, estimated_minutes: 20, decisions: [], actions: [], open_questions: [], version: 1, created_at: '', updated_at: '' }],
   attachments: [], created_by: user, updated_by: user, created_at: '', updated_at: '',
@@ -56,6 +57,14 @@ function meetingFixture(overrides: Record<string, unknown> = {}) {
 
 describe('meeting workspace', () => {
   beforeEach(() => { apiMock.mockReset(); apiDownloadMock.mockReset(); apiMock.mockResolvedValue(meeting); editorBuffer.value = '' })
+
+  it('safely falls back to read-only when an older response lacks capabilities', async () => {
+    apiMock.mockResolvedValue(meetingFixture({ capabilities: undefined }))
+    render(MeetingWorkspaceView)
+
+    expect(await screen.findByRole('heading', { name: '迭代评审' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开始会议' })).not.toBeInTheDocument()
+  })
 
   it('keeps preparation fields on demand instead of above the active agenda', async () => {
     render(MeetingWorkspaceView)

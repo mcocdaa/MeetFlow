@@ -7,8 +7,9 @@ from app.agendas.lifecycle import complete_item, start_planned_item
 from app.agendas.schemas import AgendaWrite
 from app.agendas.service import AgendaService
 from app.meetings.models import utcnow
-from app.meetings.models import Meeting
-from app.auth.models import User
+from app.auth.models import User, UserRole, UserStatus
+from app.domain.enums import ParticipationRole
+from app.meetings.models import Meeting, MeetingParticipant
 from app.plugins.jobs import PluginJobService
 from app.plugins.models import PluginJob, PluginJobStatus
 from app.plugins.worker import PluginJobWorker
@@ -212,6 +213,47 @@ def test_submit_endpoint_returns_active_duplicate_job(
     assert second.json()["status"] == "queued"
 
 
+def test_invited_nonmember_cannot_submit_a_meeting_plugin_job(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    with database.session() as session:
+        invited = User(
+            username="job-invited",
+            display_name="Job Invited",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(invited)
+        session.flush()
+        session.add(
+            MeetingParticipant(
+                meeting_id=plugin_meeting_id,
+                user_id=invited.id,
+                participation_role=ParticipationRole.attendee,
+                position=1,
+            )
+        )
+        session.commit()
+        cookie_name = plugin_client.app.state.auth_service.cookie_name
+        cookie_value = plugin_client.app.state.auth_service.issue_cookie(invited)
+
+    plugin_client.cookies.clear()
+    plugin_client.cookies.set(cookie_name, cookie_value)
+    response = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "meeting",
+            "target_id": plugin_meeting_id,
+            "input": {},
+        },
+    )
+
+    assert response.status_code == 403
+
+
 def test_creator_can_cancel_queued_job_and_rerun_terminal_job(
     plugin_client, plugin_meeting_id
 ):
@@ -359,6 +401,46 @@ def test_list_jobs_can_be_scoped_to_one_meeting(plugin_client, plugin_meeting_id
     )
 
     assert created.status_code == 201
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        created.json()["id"]
+    ]
+
+
+def test_list_jobs_ignores_invalid_stored_targets(plugin_client, plugin_meeting_id):
+    created = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "meeting",
+            "target_id": plugin_meeting_id,
+            "input": {},
+        },
+    )
+    assert created.status_code == 201
+
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        session.add(
+            PluginJob(
+                plugin_id="test-ai",
+                action_id="test-ai.summarize",
+                target_type="retired_target",
+                target_id="retired-id",
+                dedupe_key="retired-target",
+                status=PluginJobStatus.succeeded,
+                input_json={},
+                context_snapshot={},
+                result_json={"markdown": "stale"},
+                created_by=actor_id,
+                finished_at=utcnow(),
+            )
+        )
+        session.commit()
+
+    response = plugin_client.get("/api/plugin-jobs")
+
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["items"]] == [
         created.json()["id"]

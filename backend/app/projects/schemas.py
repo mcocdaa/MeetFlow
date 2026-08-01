@@ -157,3 +157,7 @@ class ProjectUpdateWrite(BaseModel):
         if not value.strip():
             raise ValueError("content_markdown must not be blank")
         return value
+
+
+class ProjectUpdateEdit(ProjectUpdateWrite):
+    expected_version: int = Field(ge=1)

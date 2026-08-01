@@ -19,7 +19,13 @@ from app.attachments.models import Attachment
 from app.outcomes.models import ActionItem, Decision
 from app.outcomes.service import OutcomeService
 from app.projects.models import Project, ProjectMember, ProjectUpdate
-from app.projects.schemas import ProjectEdit, ProjectUpdateWrite, ProjectWrite
+from app.projects.access import WorkspaceAccess
+from app.projects.schemas import (
+    ProjectEdit,
+    ProjectUpdateEdit,
+    ProjectUpdateWrite,
+    ProjectWrite,
+)
 
 
 def user_ref(user: User | None) -> dict[str, str] | None:
@@ -94,7 +100,7 @@ class ProjectService:
     def create(self, payload: ProjectWrite, actor: User) -> Project:
         self._require_active(actor)
         member_ids = self._validate_user_references(
-            payload.lead_user_id, payload.member_ids
+            payload.lead_user_id, unique_ids([*payload.member_ids, actor.id])
         )
         values = payload.model_dump(exclude={"member_ids"})
         project = Project(
@@ -128,8 +134,9 @@ class ProjectService:
         return project
 
     def update(self, project_id: str, payload: ProjectEdit, actor: User) -> Project:
-        self._require_active(actor)
-        project = self.require(project_id)
+        project = WorkspaceAccess(self.session).require_project_manage(
+            project_id, actor
+        )
         require_version(payload.expected_version, project.version)
         changes = payload.model_dump(
             exclude={"expected_version", "member_ids"}, exclude_unset=True
@@ -187,28 +194,19 @@ class ProjectService:
         self.session.refresh(project)
         return project
 
-    def _can_post_update(self, project: Project, actor: User) -> bool:
-        if actor.role == UserRole.ADMIN:
-            return True
-        return any(item.user_id == actor.id for item in project.memberships)
-
     def create_update(
         self,
         project_id: str,
         payload: ProjectUpdateWrite,
         actor: User,
     ) -> ProjectUpdate:
-        self._require_active(actor)
-        project = self.require(project_id)
-        if not self._can_post_update(project, actor):
-            raise AppError(
-                403,
-                "project_membership_required",
-                "只有项目成员可以发布进展",
-            )
+        project = WorkspaceAccess(self.session).require_project_contribute(
+            project_id, actor
+        )
         update = ProjectUpdate(
             project_id=project.id,
             created_by=actor.id,
+            version=1,
             **payload.model_dump(),
         )
         self.session.add(update)
@@ -228,19 +226,23 @@ class ProjectService:
     def edit_update(
         self,
         update_id: str,
-        payload: ProjectUpdateWrite,
+        payload: ProjectUpdateEdit,
         actor: User,
     ) -> ProjectUpdate:
-        self._require_active(actor)
         update = self.require_update(update_id)
+        WorkspaceAccess(self.session).require_project_contribute(
+            update.project_id, actor
+        )
         if update.created_by != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(
                 403,
                 "project_update_forbidden",
                 "只能修改自己发布的项目进展",
             )
-        for field, value in payload.model_dump().items():
+        require_version(payload.expected_version, update.version)
+        for field, value in payload.model_dump(exclude={"expected_version"}).items():
             setattr(update, field, value)
+        update.version += 1
         ActivityRecorder(self.session).record(
             project_id=update.project_id,
             actor_user_id=actor.id,
@@ -249,19 +251,41 @@ class ProjectService:
             subject_id=update.id,
             payload={"health": update.health.value},
         )
-        self.session.commit()
+        try:
+            self.session.commit()
+        except StaleDataError as exc:
+            self.session.rollback()
+            actual_version = self.session.scalar(
+                select(ProjectUpdate.version).where(ProjectUpdate.id == update_id)
+            )
+            if actual_version is None:
+                raise AppError(404, "project_update_not_found", "项目进展不存在") from exc
+            require_version(payload.expected_version, actual_version)
+            raise AppError(
+                409,
+                "version_conflict",
+                "项目进展已被其他操作更新，请刷新后重试",
+                details={
+                    "expected_version": payload.expected_version,
+                    "actual_version": actual_version,
+                },
+            ) from exc
         self.session.refresh(update)
         return update
 
     def delete(self, project_id: str, actor: User) -> None:
-        self._require_active(actor)
-        project = self.require(project_id)
-        if actor.role != UserRole.ADMIN and project.lead_user_id != actor.id:
+        try:
+            project = WorkspaceAccess(self.session).require_project_manage(
+                project_id, actor
+            )
+        except AppError as exc:
+            if exc.code != "project_management_forbidden":
+                raise
             raise AppError(
                 403,
                 "project_delete_forbidden",
                 "只有管理员或项目负责人可以删除项目",
-            )
+            ) from exc
         has_meeting = self.session.scalar(
             select(Meeting.id).where(Meeting.project_id == project.id).limit(1)
         )
@@ -299,6 +323,7 @@ class ProjectService:
             "health": update.health,
             "content_markdown": update.content_markdown,
             "source": update.source,
+            "version": update.version,
             "created_by": user_ref(update.creator),
             "created_at": update.created_at,
             "updated_at": update.updated_at,
@@ -322,10 +347,11 @@ class ProjectService:
         project: Project,
         *,
         updates: list[ProjectUpdate] | None = None,
+        actor: User | None = None,
     ) -> dict[str, Any]:
         if updates is None:
             updates = self._updates(project.id, limit=20)
-        return {
+        result = {
             "id": project.id,
             "name": project.name,
             "slug": project.slug,
@@ -349,8 +375,19 @@ class ProjectService:
             "created_at": project.created_at,
             "updated_at": project.updated_at,
         }
+        if actor is not None:
+            capabilities = WorkspaceAccess(self.session).project_capabilities(
+                project, actor
+            )
+            result["capabilities"] = {
+                "can_manage": capabilities.can_manage,
+                "can_contribute": capabilities.can_contribute,
+                "can_comment": capabilities.can_comment,
+            }
+        return result
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self, actor: User) -> list[dict[str, Any]]:
+        access = WorkspaceAccess(self.session)
         statement = (
             select(Project)
             .options(
@@ -361,10 +398,14 @@ class ProjectService:
             )
             .order_by(Project.updated_at.desc())
         )
+        visible_project_ids = access.visible_project_ids(actor)
+        if visible_project_ids is not None:
+            statement = statement.where(Project.id.in_(visible_project_ids))
         projects = self.session.scalars(statement)
         return [self.serialize(project, updates=[]) for project in projects]
 
-    def detail(self, project_id: str) -> dict[str, Any]:
+    def detail(self, project_id: str, actor: User) -> dict[str, Any]:
+        WorkspaceAccess(self.session).require_project_view(project_id, actor)
         statement = (
             select(Project)
             .where(Project.id == project_id)
@@ -378,7 +419,9 @@ class ProjectService:
         project = self.session.scalar(statement)
         if project is None:
             raise AppError(404, "project_not_found", "项目不存在")
-        result = self.serialize(project, updates=self._updates(project_id, limit=20))
+        result = self.serialize(
+            project, updates=self._updates(project_id, limit=20), actor=actor
+        )
         now = datetime.now(timezone.utc)
         next_meeting = self.session.scalar(
             select(Meeting)
@@ -475,6 +518,11 @@ class ProjectService:
                         "created_by": user_ref(item.creator),
                         "created_at": item.created_at,
                         "download_url": f"/api/attachments/project/{project_id}/{item.id}",
+                        "can_delete": result["capabilities"]["can_contribute"]
+                        and (
+                            item.created_by == actor.id
+                            or actor.role == UserRole.ADMIN
+                        ),
                     }
                     for item in attachments
                 ],
@@ -483,9 +531,9 @@ class ProjectService:
         return result
 
     def list_updates(
-        self, project_id: str, *, limit: int = 50, offset: int = 0
+        self, project_id: str, actor: User, *, limit: int = 50, offset: int = 0
     ) -> list[dict[str, Any]]:
-        self.require(project_id)
+        WorkspaceAccess(self.session).require_project_view(project_id, actor)
         return [
             self.serialize_update(update)
             for update in self._updates(project_id, limit=limit, offset=offset)

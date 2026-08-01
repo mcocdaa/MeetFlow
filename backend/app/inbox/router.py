@@ -18,11 +18,11 @@ def inbox_history(
     session: Session = Depends(get_session),
 ) -> dict:
     service = InboxService(session)
-    page = service.history(user.id, before=before, limit=limit)
+    page = service.history(user, before=before, limit=limit)
     return {
         "items": [service.serialize(item) for item in page.items],
         "next_cursor": page.next_cursor,
-        "unread_count": service.unread_count(user.id),
+        "unread_count": service.unread_count(user),
     }
 
 
@@ -34,12 +34,12 @@ def inbox_changes(
     session: Session = Depends(get_session),
 ) -> dict:
     service = InboxService(session)
-    page = service.changes(user.id, cursor=cursor, limit=limit)
+    page = service.changes(user, cursor=cursor, limit=limit)
     return {
         "notifications": [service.serialize(item) for item in page.items],
         "next_cursor": page.next_cursor,
         "has_more": page.has_more,
-        "unread_count": service.unread_count(user.id),
+        "unread_count": service.unread_count(user),
     }
 
 
@@ -48,7 +48,7 @@ def read_all_notifications(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> None:
-    InboxService(session).read_all(user.id)
+    InboxService(session).read_all(user)
 
 
 @router.post("/{notification_id}/read", status_code=204)
@@ -57,4 +57,4 @@ def read_notification(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> None:
-    InboxService(session).read(notification_id, user.id)
+    InboxService(session).read(notification_id, user)

@@ -18,6 +18,7 @@ from app.errors import AppError
 from app.inbox.service import NotificationWriter
 from app.meetings.models import Meeting, MeetingParticipant
 from app.outcomes.models import ActionItem, Decision
+from app.projects.access import WorkspaceAccess
 from app.projects.models import Project
 
 SUPPORTED_TARGETS = {
@@ -45,6 +46,7 @@ def user_ref(user: User) -> dict[str, str]:
 def comment_options():
     return (
         joinedload(Comment.creator),
+        joinedload(Comment.resolver),
         selectinload(Comment.mentions).joinedload(CommentMention.user),
     )
 
@@ -55,12 +57,14 @@ class CommentThreadPage:
     replies_by_parent: dict[str, list[Comment]]
     reply_next_cursor_by_parent: dict[str, str | None]
     next_cursor: str | None
+    can_change: bool = False
 
 
 @dataclass(frozen=True)
 class CommentReplyPage:
     items: list[Comment]
     next_cursor: str | None
+    can_change: bool = False
 
 
 class CommentService:
@@ -89,6 +93,15 @@ class CommentService:
             meeting = target.meeting
             return meeting.project_id, meeting.id
         return target.project_id, target.meeting_id
+
+    def _require_comment_access(
+        self, project_id: str, meeting_id: str | None, actor: User
+    ) -> None:
+        access = WorkspaceAccess(self.session)
+        if meeting_id is None:
+            access.require_project_contribute(project_id, actor)
+        else:
+            access.require_meeting_comment(meeting_id, actor)
 
     def _mentions(
         self, user_ids: list[str], actor: User, meeting_id: str | None
@@ -190,6 +203,7 @@ class CommentService:
         project_id, meeting_id = self._target_context(
             payload.target_type, payload.target_id
         )
+        self._require_comment_access(project_id, meeting_id, actor)
         parent_id = None
         direct_parent_id = None
         direct_recipient = None
@@ -275,6 +289,7 @@ class CommentService:
     def update(self, comment_id: str, payload: CommentEdit, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(403, "comment_edit_forbidden", "只能编辑自己的评论")
         require_version(payload.expected_version, comment.version)
@@ -320,6 +335,7 @@ class CommentService:
     def delete(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(403, "comment_delete_forbidden", "只能删除自己的评论")
         if comment.deleted_at is not None:
@@ -345,6 +361,7 @@ class CommentService:
     def resolve(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.parent_id is not None:
             raise AppError(422, "comment_root_required", "只能解决评论主题")
         self._require_thread_owner_or_admin(comment, actor)
@@ -369,6 +386,7 @@ class CommentService:
     def reopen(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.parent_id is not None:
             raise AppError(422, "comment_root_required", "只能重开评论主题")
         self._require_thread_owner_or_admin(comment, actor)
@@ -395,11 +413,25 @@ class CommentService:
         target_type: str,
         target_id: str,
         *,
+        actor: User | None = None,
         before: str | None = None,
         limit: int = 20,
         reply_limit: int = 50,
     ) -> CommentThreadPage:
-        self._target_context(target_type, target_id)
+        project_id, meeting_id = self._target_context(target_type, target_id)
+        can_change = False
+        if actor is not None:
+            access = WorkspaceAccess(self.session)
+            if meeting_id is None:
+                _, capabilities = access.require_project_view_with_capabilities(
+                    project_id, actor
+                )
+                can_change = capabilities.can_contribute
+            else:
+                _, capabilities = access.require_meeting_view_with_capabilities(
+                    meeting_id, actor
+                )
+                can_change = capabilities.can_comment
         filters = [
             Comment.target_type == target_type,
             Comment.target_id == target_id,
@@ -478,16 +510,31 @@ class CommentService:
             replies_by_parent=replies_by_parent,
             reply_next_cursor_by_parent=reply_next_cursor_by_parent,
             next_cursor=next_cursor,
+            can_change=can_change,
         )
 
     def list_replies(
         self,
         root_id: str,
         *,
+        actor: User | None = None,
         after: str | None = None,
         limit: int = 50,
     ) -> CommentReplyPage:
         root = self._get_loaded(root_id)
+        can_change = False
+        if actor is not None:
+            access = WorkspaceAccess(self.session)
+            if root.meeting_id is None:
+                _, capabilities = access.require_project_view_with_capabilities(
+                    root.project_id, actor
+                )
+                can_change = capabilities.can_contribute
+            else:
+                _, capabilities = access.require_meeting_view_with_capabilities(
+                    root.meeting_id, actor
+                )
+                can_change = capabilities.can_comment
         if root.parent_id is not None:
             raise AppError(422, "comment_root_required", "只能分页读取根评论的回复")
         filters = [Comment.parent_id == root.id]
@@ -518,17 +565,22 @@ class CommentService:
         return CommentReplyPage(
             items=items,
             next_cursor=items[-1].id if has_more and items else None,
+            can_change=can_change,
         )
 
-    @staticmethod
     def serialize(
+        self,
         comment: Comment,
         actor: User,
         *,
+        can_change: bool = False,
         replies: list[Comment] | None = None,
         reply_next_cursor: str | None = None,
     ) -> dict[str, Any]:
-        can_change = comment.created_by == actor.id or actor.role == UserRole.ADMIN
+        comment_can_change = (
+            (comment.created_by == actor.id or actor.role == UserRole.ADMIN)
+            and can_change
+        )
         result = {
             "id": comment.id,
             "target": {"type": comment.target_type, "id": comment.target_id},
@@ -545,10 +597,10 @@ class CommentService:
             "resolved_by": user_ref(comment.resolver) if comment.resolver else None,
             "created_at": comment.created_at,
             "updated_at": comment.updated_at,
-            "can_edit": can_change and comment.deleted_at is None,
-            "can_delete": can_change,
+            "can_edit": comment_can_change and comment.deleted_at is None,
+            "can_delete": comment_can_change,
             "can_resolve": (
-                can_change
+                comment_can_change
                 and comment.parent_id is None
                 and comment.deleted_at is None
             ),
@@ -557,6 +609,6 @@ class CommentService:
         }
         if replies is not None:
             result["replies"] = [
-                CommentService.serialize(reply, actor) for reply in replies
+                self.serialize(reply, actor, can_change=can_change) for reply in replies
             ]
         return result
