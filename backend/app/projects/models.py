@@ -101,6 +101,11 @@ class ProjectUpdate(Base):
     source: Mapped[ProjectUpdateSource] = mapped_column(
         Enum(ProjectUpdateSource), default=ProjectUpdateSource.human
     )
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    __mapper_args__ = {
+        "version_id_col": version,
+        "version_id_generator": False,
+    }
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow

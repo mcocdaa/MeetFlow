@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
-from app.projects.schemas import ProjectEdit, ProjectUpdateWrite, ProjectWrite
+from app.projects.schemas import (
+    ProjectEdit,
+    ProjectUpdateEdit,
+    ProjectUpdateWrite,
+    ProjectWrite,
+)
 from app.projects.service import ProjectService
 
 
@@ -90,7 +95,7 @@ def create_project_update(
 @updates_router.put("/{update_id}")
 def edit_project_update(
     update_id: str,
-    payload: ProjectUpdateWrite,
+    payload: ProjectUpdateEdit,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:

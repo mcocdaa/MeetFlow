@@ -20,7 +20,12 @@ from app.outcomes.models import ActionItem, Decision
 from app.outcomes.service import OutcomeService
 from app.projects.models import Project, ProjectMember, ProjectUpdate
 from app.projects.access import WorkspaceAccess
-from app.projects.schemas import ProjectEdit, ProjectUpdateWrite, ProjectWrite
+from app.projects.schemas import (
+    ProjectEdit,
+    ProjectUpdateEdit,
+    ProjectUpdateWrite,
+    ProjectWrite,
+)
 
 
 def user_ref(user: User | None) -> dict[str, str] | None:
@@ -201,6 +206,7 @@ class ProjectService:
         update = ProjectUpdate(
             project_id=project.id,
             created_by=actor.id,
+            version=1,
             **payload.model_dump(),
         )
         self.session.add(update)
@@ -220,7 +226,7 @@ class ProjectService:
     def edit_update(
         self,
         update_id: str,
-        payload: ProjectUpdateWrite,
+        payload: ProjectUpdateEdit,
         actor: User,
     ) -> ProjectUpdate:
         update = self.require_update(update_id)
@@ -233,8 +239,10 @@ class ProjectService:
                 "project_update_forbidden",
                 "只能修改自己发布的项目进展",
             )
-        for field, value in payload.model_dump().items():
+        require_version(payload.expected_version, update.version)
+        for field, value in payload.model_dump(exclude={"expected_version"}).items():
             setattr(update, field, value)
+        update.version += 1
         ActivityRecorder(self.session).record(
             project_id=update.project_id,
             actor_user_id=actor.id,
@@ -243,7 +251,25 @@ class ProjectService:
             subject_id=update.id,
             payload={"health": update.health.value},
         )
-        self.session.commit()
+        try:
+            self.session.commit()
+        except StaleDataError as exc:
+            self.session.rollback()
+            actual_version = self.session.scalar(
+                select(ProjectUpdate.version).where(ProjectUpdate.id == update_id)
+            )
+            if actual_version is None:
+                raise AppError(404, "project_update_not_found", "项目进展不存在") from exc
+            require_version(payload.expected_version, actual_version)
+            raise AppError(
+                409,
+                "version_conflict",
+                "项目进展已被其他操作更新，请刷新后重试",
+                details={
+                    "expected_version": payload.expected_version,
+                    "actual_version": actual_version,
+                },
+            ) from exc
         self.session.refresh(update)
         return update
 
@@ -297,6 +323,7 @@ class ProjectService:
             "health": update.health,
             "content_markdown": update.content_markdown,
             "source": update.source,
+            "version": update.version,
             "created_by": user_ref(update.creator),
             "created_at": update.created_at,
             "updated_at": update.updated_at,

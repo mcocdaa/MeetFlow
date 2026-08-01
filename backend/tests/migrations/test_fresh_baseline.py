@@ -60,6 +60,7 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         column["name"] for column in inspector.get_columns("project_updates")
     }
     assert "created_by" in project_update_columns
+    assert "version" in project_update_columns
     assert "created_by_user_id" not in project_update_columns
     assert "author_id" not in project_update_columns
     recurrence_columns = {
@@ -155,6 +156,11 @@ def test_fresh_database_upgrades_to_head(tmp_path):
         for index in inspector.get_indexes("plugin_events")
     }
     assert ("status", "next_attempt_at") in plugin_event_indexes
+    project_member_indexes = {
+        tuple(index["column_names"])
+        for index in inspector.get_indexes("project_members")
+    }
+    assert ("user_id",) in project_member_indexes
     notification_indexes = {
         tuple(index["column_names"]) for index in inspector.get_indexes("notifications")
     }
