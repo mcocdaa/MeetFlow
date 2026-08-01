@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.auth.models import User, UserRole, UserStatus
@@ -23,6 +24,15 @@ class AccessRows:
     meeting_id: str
 
 
+@dataclass
+class AccessHttpContext:
+    project_id: str
+    admin_cookie: dict[str, str]
+    lead_cookie: dict[str, str]
+    member_cookie: dict[str, str]
+    outsider_cookie: dict[str, str]
+
+
 def _active_user(username: str) -> User:
     return User(
         username=username,
@@ -31,6 +41,43 @@ def _active_user(username: str) -> User:
         role=UserRole.MEMBER,
         status=UserStatus.ACTIVE,
     )
+
+
+def _create_http_context(client: TestClient) -> AccessHttpContext:
+    database = client.app.state.database
+    with database.session() as session:
+        admin = session.scalar(select(User).where(User.username == "admin"))
+        assert admin is not None
+        lead = _active_user("http-lead")
+        member = _active_user("http-member")
+        outsider = _active_user("http-outsider")
+        session.add_all([lead, member, outsider])
+        session.commit()
+        project = ProjectService(session).create(
+            ProjectWrite(
+                name="HTTP access project",
+                slug="http-access-project",
+                lead_user_id=lead.id,
+                member_ids=[lead.id, member.id],
+            ),
+            admin,
+        )
+        cookie_name = client.app.state.auth_service.cookie_name
+        issue_cookie = client.app.state.auth_service.issue_cookie
+        return AccessHttpContext(
+            project_id=project.id,
+            admin_cookie={cookie_name: issue_cookie(admin)},
+            lead_cookie={cookie_name: issue_cookie(lead)},
+            member_cookie={cookie_name: issue_cookie(member)},
+            outsider_cookie={cookie_name: issue_cookie(outsider)},
+        )
+
+
+def _as_user(client: TestClient, cookie: dict[str, str]) -> TestClient:
+    client.cookies.clear()
+    for name, value in cookie.items():
+        client.cookies.set(name, value)
+    return client
 
 
 def test_workspace_access_distinguishes_roles(client):
@@ -111,3 +158,28 @@ def test_workspace_access_distinguishes_roles(client):
         assert not access.meeting_capabilities(
             loaded_meeting, rows.invited
         ).can_contribute
+
+
+def test_project_routes_filter_visibility_and_require_management(client):
+    context = _create_http_context(client)
+
+    outsider_list = _as_user(client, context.outsider_cookie).get("/api/projects")
+    outsider_detail = _as_user(client, context.outsider_cookie).get(
+        f"/api/projects/{context.project_id}"
+    )
+    member_update = _as_user(client, context.member_cookie).put(
+        f"/api/projects/{context.project_id}",
+        json={"expected_version": 1, "summary": "Member cannot manage"},
+    )
+    lead_update = _as_user(client, context.lead_cookie).put(
+        f"/api/projects/{context.project_id}",
+        json={"expected_version": 1, "summary": "Lead can manage"},
+    )
+
+    assert outsider_list.status_code == 200
+    assert outsider_list.json() == []
+    assert outsider_detail.status_code == 403
+    assert outsider_detail.json()["error"]["code"] == "project_view_forbidden"
+    assert member_update.status_code == 403
+    assert member_update.json()["error"]["code"] == "project_management_forbidden"
+    assert lead_update.status_code == 200
