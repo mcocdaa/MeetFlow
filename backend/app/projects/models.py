@@ -74,7 +74,7 @@ class ProjectMember(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
     )
     user_id: Mapped[str] = mapped_column(
-        ForeignKey("users.id"), primary_key=True
+        ForeignKey("users.id"), primary_key=True, index=True
     )
     role: Mapped[ProjectMemberRole] = mapped_column(
         Enum(ProjectMemberRole), default=ProjectMemberRole.member
