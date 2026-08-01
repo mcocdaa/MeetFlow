@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: 为项目概览网格写失败的样式回归测试
+## Task 1: 为项目概览网格写失败的样式回归测试
 
 **Files:**
 - Modify: `frontend/vite.config.ts:11-17`
@@ -54,7 +54,7 @@ npm --prefix frontend test -- --run src/tests/project-workspace.test.ts
 
 Expected: 新用例失败，实际 `alignItems` 为 `start`，证明测试覆盖了截图中的网格收缩原因。
 
-### Task 2: 拉伸同一网格行的项目概览卡片
+## Task 2: 拉伸同一网格行的项目概览卡片
 
 **Files:**
 - Modify: `frontend/src/styles.css:362`
@@ -112,6 +112,6 @@ Expected: `meetflow:local` 重建完成，容器为 healthy，健康接口返回
 - [x] **Step 5: 提交实现**
 
 ```bash
-git add frontend/src/styles.css frontend/src/tests/project-workspace.test.ts docs/superpowers/plans/2026-08-01-project-overview-card-alignment.md
+git add frontend/vite.config.ts frontend/src/styles.css frontend/src/tests/project-workspace.test.ts docs/superpowers/plans/2026-08-01-project-overview-card-alignment.md
 git commit -m "fix: align project overview cards"
 ```

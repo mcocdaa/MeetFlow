@@ -112,7 +112,7 @@ def can_view_job_target(session: Session, job: PluginJob, user: User) -> bool:
     try:
         require_job_target_access(session, job, user, contribute=False)
     except AppError as exc:
-        if exc.status_code in {403, 404}:
+        if exc.status_code in {403, 404, 422}:
             return False
         raise
     return True

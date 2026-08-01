@@ -407,6 +407,46 @@ def test_list_jobs_can_be_scoped_to_one_meeting(plugin_client, plugin_meeting_id
     ]
 
 
+def test_list_jobs_ignores_invalid_stored_targets(plugin_client, plugin_meeting_id):
+    created = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "meeting",
+            "target_id": plugin_meeting_id,
+            "input": {},
+        },
+    )
+    assert created.status_code == 201
+
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        session.add(
+            PluginJob(
+                plugin_id="test-ai",
+                action_id="test-ai.summarize",
+                target_type="retired_target",
+                target_id="retired-id",
+                dedupe_key="retired-target",
+                status=PluginJobStatus.succeeded,
+                input_json={},
+                context_snapshot={},
+                result_json={"markdown": "stale"},
+                created_by=actor_id,
+                finished_at=utcnow(),
+            )
+        )
+        session.commit()
+
+    response = plugin_client.get("/api/plugin-jobs")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        created.json()["id"]
+    ]
+
+
 def test_dismissed_and_applied_jobs_are_history_not_pending_drafts(
     plugin_client, plugin_meeting_id
 ):
