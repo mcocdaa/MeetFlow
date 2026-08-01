@@ -144,3 +144,25 @@ def test_record_event_rejects_non_mapping_or_sensitive_payload(plugin_client):
                 target_id="m1",
                 payload={"api_key": "do-not-store"},
             )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"access_token": "do-not-store"},
+        {"nested": {"secret_key": "do-not-store"}},
+        {"private_key": "do-not-store"},
+        {"encryption_key": "do-not-store"},
+    ],
+)
+def test_record_event_rejects_compound_sensitive_payload_keys(payload):
+    database = event_database()
+    with database.session() as session:
+        with pytest.raises(ValueError, match="sensitive"):
+            record_plugin_event(
+                session,
+                event_type="test.event",
+                target_type="meeting",
+                target_id="m1",
+                payload=payload,
+            )

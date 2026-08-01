@@ -40,6 +40,26 @@ def test_validate_export_rejects_unsafe_result(result):
         validate_export(result)
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        r"..\secret.txt",
+        r"meeting\draft.md",
+        "meeting\n.md",
+        "meeting\x00.md",
+    ],
+)
+def test_validate_export_rejects_cross_platform_or_control_filename(filename):
+    with pytest.raises(ValueError):
+        validate_export(
+            PluginExport(
+                media_type="text/plain",
+                filename=filename,
+                content=b"x",
+            )
+        )
+
+
 def test_validate_export_rejects_results_over_eight_megabytes():
     with pytest.raises(ValueError, match="8 MB"):
         validate_export(

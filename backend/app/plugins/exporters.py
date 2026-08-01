@@ -19,6 +19,11 @@ def validate_export(result: PluginExport) -> PluginExport:
         raise ValueError("export media type must not be empty")
     if not isinstance(result.content, bytes):
         raise ValueError("export content must be bytes")
+    if "\\" in result.filename or any(
+        ord(character) < 32 or ord(character) == 127
+        for character in result.filename
+    ):
+        raise ValueError("export filename must be a single safe path segment")
     path = PurePath(result.filename)
     if not result.filename or path.name != result.filename or result.filename in {".", ".."}:
         raise ValueError("export filename must be a single safe path segment")

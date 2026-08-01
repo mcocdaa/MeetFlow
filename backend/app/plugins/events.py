@@ -16,9 +16,11 @@ _SENSITIVE_KEYS = {
     "apikey",
     "authorization",
     "password",
+    "private_key",
     "secret",
     "token",
     "stored_value",
+    "encryption_key",
 }
 
 
@@ -30,7 +32,12 @@ def _validate_payload(value: Any) -> dict[str, Any]:
         if isinstance(item, Mapping):
             for key, child in item.items():
                 normalized = str(key).strip().lower().replace("-", "_")
-                if normalized in _SENSITIVE_KEYS or normalized.endswith("_secret"):
+                if any(
+                    normalized == sensitive_key
+                    or normalized.startswith(f"{sensitive_key}_")
+                    or normalized.endswith(f"_{sensitive_key}")
+                    for sensitive_key in _SENSITIVE_KEYS
+                ):
                     raise ValueError("event payload contains sensitive data")
                 walk(child)
         elif isinstance(item, (list, tuple)):
