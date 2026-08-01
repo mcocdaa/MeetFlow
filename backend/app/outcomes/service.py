@@ -47,6 +47,7 @@ from app.outcomes.schemas import (
     QuestionScheduleWrite,
     QuestionWrite,
 )
+from app.projects.access import WorkspaceAccess
 from app.projects.models import Project
 
 
@@ -61,6 +62,17 @@ def _aware(value: datetime) -> datetime:
 class OutcomeService:
     def __init__(self, session: Session):
         self.session = session
+
+    def _require_project_view(self, project_id: str, actor: User) -> None:
+        WorkspaceAccess(self.session).require_project_view(project_id, actor)
+
+    def _require_project_contribution(self, project_id: str, actor: User) -> None:
+        WorkspaceAccess(self.session).require_project_contribute(project_id, actor)
+
+    def _require_meeting_contribution(self, meeting: Meeting, actor: User) -> None:
+        access = WorkspaceAccess(self.session)
+        access.require_meeting_view(meeting.id, actor)
+        access.require_project_contribute(meeting.project_id, actor)
 
     def _record(
         self,
@@ -254,6 +266,7 @@ class OutcomeService:
         self, project_id: str, payload: DecisionWrite, actor: User
     ) -> Decision:
         self._require_active(actor)
+        self._require_project_contribution(project_id, actor)
         _, meeting, _ = self.require_source_chain(
             project_id, payload.meeting_id, payload.agenda_item_id
         )
@@ -291,6 +304,7 @@ class OutcomeService:
     ) -> Decision:
         self._require_active(actor)
         decision = self._decision(decision_id)
+        self._require_project_contribution(decision.project_id, actor)
         if decision.source_agenda_item_id is not None:
             raise AppError(409, "derived_outcome_read_only", "议题备注生成的成果不可直接编辑")
         require_version(payload.expected_version, decision.version)
@@ -351,6 +365,7 @@ class OutcomeService:
     ) -> Decision:
         self._require_active(actor)
         decision = self._decision(decision_id)
+        self._require_project_contribution(decision.project_id, actor)
         require_version(payload.expected_version, decision.version)
         if decision.status != DecisionStatus.proposed:
             raise AppError(409, "decision_not_reviewable", "决策已不再接受评审")
@@ -389,6 +404,7 @@ class OutcomeService:
     ) -> Decision:
         self._require_active(actor)
         decision = self._decision(decision_id)
+        self._require_project_contribution(decision.project_id, actor)
         require_version(payload.expected_version, decision.version)
         if decision.status != DecisionStatus.proposed:
             raise AppError(409, "invalid_decision_transition", "仅提议中的决策可定稿")
@@ -419,6 +435,7 @@ class OutcomeService:
     ) -> Decision:
         self._require_active(actor)
         decision = self._decision(decision_id)
+        self._require_project_contribution(decision.project_id, actor)
         require_version(payload.expected_version, decision.version)
         if decision.status != DecisionStatus.proposed:
             raise AppError(409, "invalid_decision_transition", "仅提议中的决策可撤回")
@@ -449,6 +466,8 @@ class OutcomeService:
         self._require_active(actor)
         old = self._decision(decision_id)
         new = self._decision(payload.new_decision_id)
+        self._require_project_contribution(old.project_id, actor)
+        self._require_project_contribution(new.project_id, actor)
         require_version(payload.expected_version, old.version)
         require_version(payload.expected_new_version, new.version)
         if (
@@ -488,6 +507,7 @@ class OutcomeService:
         self, project_id: str, payload: ActionWrite, actor: User
     ) -> ActionItem:
         self._require_active(actor)
+        self._require_project_contribution(project_id, actor)
         if payload.project_id != project_id:
             raise AppError(422, "source_mismatch", "行动项项目与路径项目不匹配")
         _, meeting, _ = self.require_source_chain(
@@ -523,6 +543,7 @@ class OutcomeService:
     ) -> ActionItem:
         self._require_active(actor)
         action = self._action(action_id)
+        self._require_project_contribution(action.project_id, actor)
         if action.source_agenda_item_id is not None:
             raise AppError(409, "derived_outcome_read_only", "议题备注生成的成果不可直接编辑")
         require_version(payload.expected_version, action.version)
@@ -591,6 +612,7 @@ class OutcomeService:
         self, project_id: str, payload: QuestionWrite, actor: User
     ) -> OpenQuestion:
         self._require_active(actor)
+        self._require_project_contribution(project_id, actor)
         _, meeting, _ = self.require_source_chain(
             project_id, payload.meeting_id, payload.agenda_item_id
         )
@@ -619,6 +641,7 @@ class OutcomeService:
     ) -> OpenQuestion:
         self._require_active(actor)
         question = self._question(question_id)
+        self._require_project_contribution(question.project_id, actor)
         if question.source_agenda_item_id is not None:
             raise AppError(409, "derived_outcome_read_only", "议题备注生成的成果不可直接编辑")
         require_version(payload.expected_version, question.version)
@@ -662,6 +685,7 @@ class OutcomeService:
     ) -> AgendaItem:
         self._require_active(actor)
         question = self._question(question_id)
+        self._require_project_contribution(question.project_id, actor)
         require_version(payload.expected_version, question.version)
         if (
             question.status == OpenQuestionStatus.scheduled
@@ -673,6 +697,7 @@ class OutcomeService:
         meeting = self.session.get(Meeting, payload.meeting_id)
         if meeting is None:
             raise AppError(404, "source_not_found", "目标会议不存在")
+        self._require_meeting_contribution(meeting, actor)
         require_version(payload.expected_meeting_version, meeting.version)
         self._mutable_meeting(meeting)
         if meeting.project_id != question.project_id:
@@ -723,11 +748,13 @@ class OutcomeService:
     ) -> OpenQuestion:
         self._require_active(actor)
         question = self._question(question_id)
+        self._require_project_contribution(question.project_id, actor)
         require_version(payload.expected_version, question.version)
         if question.status in {OpenQuestionStatus.resolved, OpenQuestionStatus.dropped}:
             raise AppError(409, "question_already_closed", "开放问题已关闭")
         if payload.decision_id:
             decision = self._decision(payload.decision_id)
+            self._require_project_contribution(decision.project_id, actor)
             if (
                 decision.project_id != question.project_id
                 or decision.status != DecisionStatus.final
@@ -776,6 +803,8 @@ class OutcomeService:
         target = self.session.get(AgendaItem, payload.target_agenda_item_id)
         if source is None or target is None:
             raise AppError(404, "source_not_found", "源议题或目标议题不存在")
+        self._require_meeting_contribution(source.meeting, actor)
+        self._require_meeting_contribution(target.meeting, actor)
         actual_source_version = self.session.scalar(
             select(AgendaItem.version).where(AgendaItem.id == source.id)
         )
@@ -873,6 +902,7 @@ class OutcomeService:
         source = self.session.get(AgendaItem, source_id)
         if source is None:
             raise AppError(404, "source_not_found", "源议题不存在")
+        self._require_meeting_contribution(source.meeting, actor)
         existing = self.session.scalar(
             select(OpenQuestion).where(
                 OpenQuestion.converted_from_agenda_item_id == source.id
@@ -951,6 +981,8 @@ class OutcomeService:
         target = self.session.get(Meeting, payload.target_meeting_id)
         if source is None or target is None:
             raise AppError(404, "source_not_found", "源议题或目标会议不存在")
+        self._require_meeting_contribution(source.meeting, actor)
+        self._require_meeting_contribution(target, actor)
         duplicate = self.session.scalar(
             select(AgendaItem).where(
                 AgendaItem.meeting_id == target.id,
@@ -1062,7 +1094,11 @@ class OutcomeService:
         self.session.refresh(item)
         return item
 
-    def list_decisions(self, project_id: str, limit: int = 200) -> list[Decision]:
+    def list_decisions(
+        self, project_id: str, limit: int = 200, actor: User | None = None
+    ) -> list[Decision]:
+        if actor is not None:
+            self._require_project_view(project_id, actor)
         self._project(project_id)
         return list(
             self.session.scalars(
@@ -1074,7 +1110,11 @@ class OutcomeService:
             )
         )
 
-    def list_actions(self, project_id: str, limit: int = 200) -> list[ActionItem]:
+    def list_actions(
+        self, project_id: str, limit: int = 200, actor: User | None = None
+    ) -> list[ActionItem]:
+        if actor is not None:
+            self._require_project_view(project_id, actor)
         self._project(project_id)
         return list(
             self.session.scalars(
@@ -1085,7 +1125,11 @@ class OutcomeService:
             )
         )
 
-    def list_questions(self, project_id: str, limit: int = 200) -> list[OpenQuestion]:
+    def list_questions(
+        self, project_id: str, limit: int = 200, actor: User | None = None
+    ) -> list[OpenQuestion]:
+        if actor is not None:
+            self._require_project_view(project_id, actor)
         self._project(project_id)
         return list(
             self.session.scalars(

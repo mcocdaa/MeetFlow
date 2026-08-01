@@ -1,12 +1,17 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.agendas.schemas import AgendaWrite
+from app.agendas.service import AgendaService
 from app.auth.models import User, UserRole, UserStatus
 from app.domain.enums import ParticipationRole, ProjectMemberRole
+from app.errors import AppError
 from app.meetings.models import Meeting, MeetingParticipant
+from app.plugins.models import PluginJob, PluginJobStatus
 from app.projects.models import ProjectMember
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
@@ -31,6 +36,7 @@ class AccessHttpContext:
     admin_cookie: dict[str, str]
     lead_cookie: dict[str, str]
     member_cookie: dict[str, str]
+    stakeholder_cookie: dict[str, str]
     outsider_cookie: dict[str, str]
     invited_cookie: dict[str, str]
 
@@ -52,19 +58,26 @@ def _create_http_context(client: TestClient) -> AccessHttpContext:
         assert admin is not None
         lead = _active_user("http-lead")
         member = _active_user("http-member")
+        stakeholder = _active_user("http-stakeholder")
         outsider = _active_user("http-outsider")
         invited = _active_user("http-invited")
-        session.add_all([lead, member, outsider, invited])
+        session.add_all([lead, member, stakeholder, outsider, invited])
         session.commit()
         project = ProjectService(session).create(
             ProjectWrite(
                 name="HTTP access project",
                 slug="http-access-project",
                 lead_user_id=lead.id,
-                member_ids=[lead.id, member.id],
+                member_ids=[lead.id, member.id, stakeholder.id],
             ),
             admin,
         )
+        session.scalar(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project.id,
+                ProjectMember.user_id == stakeholder.id,
+            )
+        ).role = ProjectMemberRole.stakeholder
         meeting = Meeting(
             project_id=project.id,
             title="HTTP access meeting",
@@ -90,6 +103,7 @@ def _create_http_context(client: TestClient) -> AccessHttpContext:
             admin_cookie={cookie_name: issue_cookie(admin)},
             lead_cookie={cookie_name: issue_cookie(lead)},
             member_cookie={cookie_name: issue_cookie(member)},
+            stakeholder_cookie={cookie_name: issue_cookie(stakeholder)},
             outsider_cookie={cookie_name: issue_cookie(outsider)},
             invited_cookie={cookie_name: issue_cookie(invited)},
         )
@@ -229,3 +243,211 @@ def test_meeting_routes_allow_invited_view_but_filter_outsiders(client):
     assert outsider_detail.status_code == 403
     assert outsider_global.status_code == 200
     assert outsider_global.json()["items"] == []
+
+
+def test_nonmember_cannot_comment_on_or_upload_to_a_meeting(client):
+    context = _create_http_context(client)
+
+    comment = _as_user(client, context.outsider_cookie).post(
+        "/api/comments",
+        json={
+            "target_type": "meeting",
+            "target_id": context.meeting_id,
+            "body_markdown": "Outsider comment",
+            "mention_user_ids": [],
+        },
+    )
+
+    assert comment.status_code == 403
+    assert comment.json()["error"]["code"] == "meeting_comment_forbidden"
+
+    upload = _as_user(client, context.outsider_cookie).post(
+        f"/api/attachments/meeting/{context.meeting_id}",
+        files={"file": ("outsider.txt", b"no access", "text/plain")},
+    )
+
+    assert upload.status_code == 403
+    assert upload.json()["error"]["code"] == "project_contribution_forbidden"
+
+
+def test_invited_nonmember_can_comment_but_cannot_upload_to_own_meeting(client):
+    context = _create_http_context(client)
+
+    comment = _as_user(client, context.invited_cookie).post(
+        "/api/comments",
+        json={
+            "target_type": "meeting",
+            "target_id": context.meeting_id,
+            "body_markdown": "Invited attendee comment",
+            "mention_user_ids": [],
+        },
+    )
+    listed = _as_user(client, context.invited_cookie).get(
+        "/api/comments",
+        params={"target_type": "meeting", "target_id": context.meeting_id},
+    )
+    upload = _as_user(client, context.invited_cookie).post(
+        f"/api/attachments/meeting/{context.meeting_id}",
+        files={"file": ("invited.txt", b"no upload access", "text/plain")},
+    )
+
+    assert comment.status_code == 201
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["items"]] == [comment.json()["id"]]
+    assert upload.status_code == 403
+    assert upload.json()["error"]["code"] == "project_contribution_forbidden"
+
+
+def test_nonmember_cannot_create_agendas_or_project_outcomes(client):
+    context = _create_http_context(client)
+
+    agenda = _as_user(client, context.outsider_cookie).post(
+        f"/api/meetings/{context.meeting_id}/agenda-items",
+        params={"expected_meeting_version": 1},
+        json={"title": "Outsider agenda", "agenda_type": "discussion"},
+    )
+
+    assert agenda.status_code == 403
+    assert agenda.json()["error"]["code"] == "project_view_forbidden"
+
+    decision = _as_user(client, context.outsider_cookie).post(
+        f"/api/projects/{context.project_id}/decisions",
+        json={
+            "title": "Outsider decision",
+            "decision_markdown": "No authority",
+            "rationale_markdown": "",
+            "reviewer_ids": [],
+        },
+    )
+
+    assert decision.status_code == 403
+    assert decision.json()["error"]["code"] == "project_contribution_forbidden"
+
+
+def test_agenda_service_requires_project_contribution(client):
+    context = _create_http_context(client)
+    database = client.app.state.database
+
+    with database.session() as session:
+        outsider = session.scalar(
+            select(User).where(User.username == "http-outsider")
+        )
+        assert outsider is not None
+
+        with pytest.raises(AppError) as error:
+            AgendaService(session).create(
+                context.meeting_id,
+                AgendaWrite(title="Service bypass", agenda_type="discussion"),
+                outsider,
+                expected_meeting_version=1,
+            )
+
+    assert error.value.code == "project_view_forbidden"
+
+
+def test_stakeholder_can_list_but_cannot_create_project_outcomes(client):
+    context = _create_http_context(client)
+
+    listed = _as_user(client, context.stakeholder_cookie).get(
+        f"/api/projects/{context.project_id}/decisions"
+    )
+    decision = _as_user(client, context.stakeholder_cookie).post(
+        f"/api/projects/{context.project_id}/decisions",
+        json={
+            "title": "Stakeholder decision",
+            "decision_markdown": "No write authority",
+            "rationale_markdown": "",
+            "reviewer_ids": [],
+        },
+    )
+
+    assert listed.status_code == 200
+    assert listed.json() == []
+    assert decision.status_code == 403
+    assert decision.json()["error"]["code"] == "project_contribution_forbidden"
+
+
+def test_project_activity_respects_workspace_visibility(client):
+    context = _create_http_context(client)
+
+    outsider = _as_user(client, context.outsider_cookie).get(
+        f"/api/projects/{context.project_id}/activity"
+    )
+    stakeholder = _as_user(client, context.stakeholder_cookie).get(
+        f"/api/projects/{context.project_id}/activity"
+    )
+
+    assert outsider.status_code == 403
+    assert outsider.json()["error"]["code"] == "project_view_forbidden"
+    assert stakeholder.status_code == 200
+
+
+def test_plugin_jobs_stop_exposing_results_after_membership_revocation(client):
+    context = _create_http_context(client)
+    database = client.app.state.database
+
+    with database.session() as session:
+        member = session.scalar(select(User).where(User.username == "http-member"))
+        assert member is not None
+        membership = session.scalar(
+            select(ProjectMember).where(
+                ProjectMember.project_id == context.project_id,
+                ProjectMember.user_id == member.id,
+            )
+        )
+        assert membership is not None
+        session.delete(membership)
+        job = PluginJob(
+            plugin_id="test-ai",
+            action_id="test-ai.summarize",
+            target_type="meeting",
+            target_id=context.meeting_id,
+            dedupe_key=f"revoked:meeting:{context.meeting_id}",
+            status=PluginJobStatus.succeeded,
+            input_json={},
+            context_snapshot={},
+            result_json={"markdown": "private meeting result"},
+            created_by=member.id,
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    detail = _as_user(client, context.member_cookie).get(
+        f"/api/plugin-jobs/{job_id}"
+    )
+    listed = _as_user(client, context.member_cookie).get("/api/plugin-jobs")
+
+    assert detail.status_code == 403
+    assert detail.json()["error"]["code"] == "project_view_forbidden"
+    assert listed.status_code == 200
+    assert listed.json()["items"] == []
+
+
+def test_plugin_job_list_ignores_deleted_targets(client):
+    context = _create_http_context(client)
+    database = client.app.state.database
+
+    with database.session() as session:
+        member = session.scalar(select(User).where(User.username == "http-member"))
+        assert member is not None
+        session.add(
+            PluginJob(
+                plugin_id="test-ai",
+                action_id="test-ai.summarize",
+                target_type="meeting",
+                target_id="missing-meeting",
+                dedupe_key="deleted:meeting:missing-meeting",
+                status=PluginJobStatus.succeeded,
+                input_json={},
+                context_snapshot={},
+                result_json={"markdown": "expired result"},
+                created_by=member.id,
+            )
+        )
+        session.commit()
+
+    listed = _as_user(client, context.member_cookie).get("/api/plugin-jobs")
+
+    assert listed.status_code == 200
+    assert listed.json()["items"] == []

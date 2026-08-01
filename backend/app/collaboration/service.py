@@ -18,6 +18,7 @@ from app.errors import AppError
 from app.inbox.service import NotificationWriter
 from app.meetings.models import Meeting, MeetingParticipant
 from app.outcomes.models import ActionItem, Decision
+from app.projects.access import WorkspaceAccess
 from app.projects.models import Project
 
 SUPPORTED_TARGETS = {
@@ -89,6 +90,15 @@ class CommentService:
             meeting = target.meeting
             return meeting.project_id, meeting.id
         return target.project_id, target.meeting_id
+
+    def _require_comment_access(
+        self, project_id: str, meeting_id: str | None, actor: User
+    ) -> None:
+        access = WorkspaceAccess(self.session)
+        if meeting_id is None:
+            access.require_project_contribute(project_id, actor)
+        else:
+            access.require_meeting_comment(meeting_id, actor)
 
     def _mentions(
         self, user_ids: list[str], actor: User, meeting_id: str | None
@@ -190,6 +200,7 @@ class CommentService:
         project_id, meeting_id = self._target_context(
             payload.target_type, payload.target_id
         )
+        self._require_comment_access(project_id, meeting_id, actor)
         parent_id = None
         direct_parent_id = None
         direct_recipient = None
@@ -275,6 +286,7 @@ class CommentService:
     def update(self, comment_id: str, payload: CommentEdit, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(403, "comment_edit_forbidden", "只能编辑自己的评论")
         require_version(payload.expected_version, comment.version)
@@ -320,6 +332,7 @@ class CommentService:
     def delete(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
             raise AppError(403, "comment_delete_forbidden", "只能删除自己的评论")
         if comment.deleted_at is not None:
@@ -345,6 +358,7 @@ class CommentService:
     def resolve(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.parent_id is not None:
             raise AppError(422, "comment_root_required", "只能解决评论主题")
         self._require_thread_owner_or_admin(comment, actor)
@@ -369,6 +383,7 @@ class CommentService:
     def reopen(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
         self._require_active(actor)
         comment = self._get_loaded(comment_id)
+        self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.parent_id is not None:
             raise AppError(422, "comment_root_required", "只能重开评论主题")
         self._require_thread_owner_or_admin(comment, actor)
@@ -395,11 +410,18 @@ class CommentService:
         target_type: str,
         target_id: str,
         *,
+        actor: User | None = None,
         before: str | None = None,
         limit: int = 20,
         reply_limit: int = 50,
     ) -> CommentThreadPage:
-        self._target_context(target_type, target_id)
+        project_id, meeting_id = self._target_context(target_type, target_id)
+        if actor is not None:
+            access = WorkspaceAccess(self.session)
+            if meeting_id is None:
+                access.require_project_view(project_id, actor)
+            else:
+                access.require_meeting_view(meeting_id, actor)
         filters = [
             Comment.target_type == target_type,
             Comment.target_id == target_id,
@@ -484,10 +506,17 @@ class CommentService:
         self,
         root_id: str,
         *,
+        actor: User | None = None,
         after: str | None = None,
         limit: int = 50,
     ) -> CommentReplyPage:
         root = self._get_loaded(root_id)
+        if actor is not None:
+            access = WorkspaceAccess(self.session)
+            if root.meeting_id is None:
+                access.require_project_view(root.project_id, actor)
+            else:
+                access.require_meeting_view(root.meeting_id, actor)
         if root.parent_id is not None:
             raise AppError(422, "comment_root_required", "只能分页读取根评论的回复")
         filters = [Comment.parent_id == root.id]

@@ -35,12 +35,13 @@ def _service(session: Session) -> OutcomeService:
 def list_decisions(
     project_id: str,
     limit: int = Query(default=200, ge=1, le=200),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     service = _service(session)
     return [
-        service.serialize(item) for item in service.list_decisions(project_id, limit)
+        service.serialize(item)
+        for item in service.list_decisions(project_id, limit, actor=user)
     ]
 
 
@@ -114,11 +115,14 @@ def supersede_decision(
 def list_actions(
     project_id: str,
     limit: int = Query(default=200, ge=1, le=200),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     service = _service(session)
-    return [service.serialize(item) for item in service.list_actions(project_id, limit)]
+    return [
+        service.serialize(item)
+        for item in service.list_actions(project_id, limit, actor=user)
+    ]
 
 
 @router.post("/api/projects/{project_id}/actions", status_code=201)
@@ -147,12 +151,13 @@ def update_action(
 def list_questions(
     project_id: str,
     limit: int = Query(default=200, ge=1, le=200),
-    _user: User = Depends(current_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     service = _service(session)
     return [
-        service.serialize(item) for item in service.list_questions(project_id, limit)
+        service.serialize(item)
+        for item in service.list_questions(project_id, limit, actor=user)
     ]
 
 

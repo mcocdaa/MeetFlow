@@ -84,6 +84,40 @@ def serialize_job(job: PluginJob) -> dict[str, Any]:
     }
 
 
+def require_job_target_access(
+    session: Session,
+    job: PluginJob,
+    user: User,
+    *,
+    contribute: bool,
+) -> None:
+    access = WorkspaceAccess(session)
+    if job.target_type == "meeting":
+        meeting = access.require_meeting_view(job.target_id, user)
+        if contribute:
+            access.require_project_contribute(meeting.project_id, user)
+        else:
+            access.require_project_view(meeting.project_id, user)
+        return
+    if job.target_type == "project":
+        if contribute:
+            access.require_project_contribute(job.target_id, user)
+        else:
+            access.require_project_view(job.target_id, user)
+        return
+    raise AppError(422, "invalid_plugin_target", "插件任务目标无效")
+
+
+def can_view_job_target(session: Session, job: PluginJob, user: User) -> bool:
+    try:
+        require_job_target_access(session, job, user, contribute=False)
+    except AppError as exc:
+        if exc.status_code in {403, 404}:
+            return False
+        raise
+    return True
+
+
 def serialize_event(event: PluginEvent) -> dict[str, Any]:
     return {
         "event_id": event.event_id,
@@ -349,6 +383,7 @@ def get_job(
         raise AppError(404, "plugin_job_not_found", "AI 任务不存在")
     if job.created_by != user.id and user.role.value != "admin":
         raise AppError(403, "plugin_job_forbidden", "无权查看此 AI 任务")
+    require_job_target_access(session, job, user, contribute=False)
     return serialize_job(job)
 
 
@@ -358,6 +393,7 @@ def get_accessible_job(session: Session, job_id: str, user: User) -> PluginJob:
         raise AppError(404, "plugin_job_not_found", "AI 任务不存在")
     if job.created_by != user.id and user.role.value != "admin":
         raise AppError(403, "plugin_job_forbidden", "无权操作此 AI 任务")
+    require_job_target_access(session, job, user, contribute=True)
     return job
 
 
@@ -439,7 +475,13 @@ def list_jobs(
             PluginJob.applied_at.is_(None), PluginJob.dismissed_at.is_(None)
         )
     jobs = session.scalars(statement.order_by(PluginJob.created_at.desc(), PluginJob.id.desc()))
-    return {"items": [serialize_job(job) for job in jobs]}
+    return {
+        "items": [
+            serialize_job(job)
+            for job in jobs
+            if can_view_job_target(session, job, user)
+        ]
+    }
 
 
 @meeting_actions_router.post("/{meeting_id}/plugin-actions/{action_id}")
