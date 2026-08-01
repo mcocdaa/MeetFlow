@@ -77,6 +77,20 @@ class WorkspaceAccess:
         )
         return WorkspaceCapabilities(can_view=invited is not None, can_comment=invited is not None)
 
+    def _project_capability_context(
+        self, project_id: str, actor: User
+    ) -> tuple[Project, WorkspaceCapabilities]:
+        self._require_active(actor)
+        project = self._project(project_id)
+        return project, self.project_capabilities(project, actor)
+
+    def _meeting_capability_context(
+        self, meeting_id: str, actor: User
+    ) -> tuple[Meeting, WorkspaceCapabilities]:
+        self._require_active(actor)
+        meeting = self._meeting(meeting_id)
+        return meeting, self.meeting_capabilities(meeting, actor)
+
     def visible_project_ids(self, actor: User):
         self._require_active(actor)
         if actor.role == UserRole.ADMIN:
@@ -93,20 +107,21 @@ class WorkspaceAccess:
         error_code: str,
         message: str,
     ) -> Project:
-        self._require_active(actor)
-        project = self._project(project_id)
-        if not getattr(self.project_capabilities(project, actor), capability):
+        project, capabilities = self._project_capability_context(project_id, actor)
+        if not getattr(capabilities, capability):
             raise AppError(403, error_code, message)
         return project
 
     def require_project_view(self, project_id: str, actor: User) -> Project:
-        return self._require_project_capability(
-            project_id,
-            actor,
-            "can_view",
-            "project_view_forbidden",
-            "无权查看此项目",
-        )
+        return self.require_project_view_with_capabilities(project_id, actor)[0]
+
+    def require_project_view_with_capabilities(
+        self, project_id: str, actor: User
+    ) -> tuple[Project, WorkspaceCapabilities]:
+        project, capabilities = self._project_capability_context(project_id, actor)
+        if not capabilities.can_view:
+            raise AppError(403, "project_view_forbidden", "无权查看此项目")
+        return project, capabilities
 
     def require_project_contribute(self, project_id: str, actor: User) -> Project:
         return self._require_project_capability(
@@ -127,15 +142,18 @@ class WorkspaceAccess:
         )
 
     def require_meeting_view(self, meeting_id: str, actor: User) -> Meeting:
-        self._require_active(actor)
-        meeting = self._meeting(meeting_id)
-        if not self.meeting_capabilities(meeting, actor).can_view:
+        return self.require_meeting_view_with_capabilities(meeting_id, actor)[0]
+
+    def require_meeting_view_with_capabilities(
+        self, meeting_id: str, actor: User
+    ) -> tuple[Meeting, WorkspaceCapabilities]:
+        meeting, capabilities = self._meeting_capability_context(meeting_id, actor)
+        if not capabilities.can_view:
             raise AppError(403, "project_view_forbidden", "无权查看此会议")
-        return meeting
+        return meeting, capabilities
 
     def require_meeting_comment(self, meeting_id: str, actor: User) -> Meeting:
-        self._require_active(actor)
-        meeting = self._meeting(meeting_id)
-        if not self.meeting_capabilities(meeting, actor).can_comment:
+        meeting, capabilities = self._meeting_capability_context(meeting_id, actor)
+        if not capabilities.can_comment:
             raise AppError(403, "meeting_comment_forbidden", "无权评论此会议")
         return meeting

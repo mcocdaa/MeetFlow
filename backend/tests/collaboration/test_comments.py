@@ -16,6 +16,7 @@ from app.meetings.schemas import MeetingWrite
 from app.meetings.service import MeetingService
 from app.outcomes.schemas import ActionWrite, DecisionWrite
 from app.outcomes.service import OutcomeService
+from app.projects.access import WorkspaceAccess
 from app.projects.models import ProjectMember
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
@@ -592,6 +593,52 @@ def test_serialized_replies_keep_their_own_ownership_check(client, comment_conte
     assert payload["can_edit"] is False
     assert payload["replies"][0]["id"] == reply.id
     assert payload["replies"][0]["can_edit"] is True
+
+
+def test_comment_pagination_checks_workspace_capability_once_per_page(
+    client, comment_context, monkeypatch
+):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        member = session.get(User, context["member_id"])
+        assert member is not None
+        service = CommentService(session)
+        root = service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                body_markdown="Capability lookup root",
+            ),
+            member,
+        )
+        service.create(
+            CommentWrite(
+                target_type="project",
+                target_id=context["project_id"],
+                parent_id=root.id,
+                body_markdown="Capability lookup reply",
+            ),
+            member,
+        )
+        original = WorkspaceAccess.project_capabilities
+        calls = 0
+
+        def count_capabilities(access, project, actor):
+            nonlocal calls
+            calls += 1
+            return original(access, project, actor)
+
+        monkeypatch.setattr(
+            WorkspaceAccess, "project_capabilities", count_capabilities
+        )
+        thread_page = service.list_for_target(
+            "project", context["project_id"], actor=member
+        )
+        reply_page = service.list_replies(root.id, actor=member)
+
+    assert thread_page.can_change is True
+    assert reply_page.can_change is True
+    assert calls == 2
 
 
 def test_comment_api_auth_versions_and_agenda_delete_guard(

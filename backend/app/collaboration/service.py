@@ -422,15 +422,15 @@ class CommentService:
         if actor is not None:
             access = WorkspaceAccess(self.session)
             if meeting_id is None:
-                project = access.require_project_view(project_id, actor)
-                can_change = access.project_capabilities(
-                    project, actor
-                ).can_contribute
+                _, capabilities = access.require_project_view_with_capabilities(
+                    project_id, actor
+                )
+                can_change = capabilities.can_contribute
             else:
-                meeting = access.require_meeting_view(meeting_id, actor)
-                can_change = access.meeting_capabilities(
-                    meeting, actor
-                ).can_comment
+                _, capabilities = access.require_meeting_view_with_capabilities(
+                    meeting_id, actor
+                )
+                can_change = capabilities.can_comment
         filters = [
             Comment.target_type == target_type,
             Comment.target_id == target_id,
@@ -525,15 +525,15 @@ class CommentService:
         if actor is not None:
             access = WorkspaceAccess(self.session)
             if root.meeting_id is None:
-                project = access.require_project_view(root.project_id, actor)
-                can_change = access.project_capabilities(
-                    project, actor
-                ).can_contribute
+                _, capabilities = access.require_project_view_with_capabilities(
+                    root.project_id, actor
+                )
+                can_change = capabilities.can_contribute
             else:
-                meeting = access.require_meeting_view(root.meeting_id, actor)
-                can_change = access.meeting_capabilities(
-                    meeting, actor
-                ).can_comment
+                _, capabilities = access.require_meeting_view_with_capabilities(
+                    root.meeting_id, actor
+                )
+                can_change = capabilities.can_comment
         if root.parent_id is not None:
             raise AppError(422, "comment_root_required", "只能分页读取根评论的回复")
         filters = [Comment.parent_id == root.id]
