@@ -46,6 +46,7 @@ def user_ref(user: User) -> dict[str, str]:
 def comment_options():
     return (
         joinedload(Comment.creator),
+        joinedload(Comment.resolver),
         selectinload(Comment.mentions).joinedload(CommentMention.user),
     )
 

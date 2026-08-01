@@ -641,6 +641,68 @@ def test_comment_pagination_checks_workspace_capability_once_per_page(
     assert calls == 2
 
 
+def test_serialized_resolved_comment_list_avoids_resolver_n_plus_one(
+    client, comment_context
+):
+    context = comment_context
+    with client.app.state.database.session() as session:
+        member = session.get(User, context["member_id"])
+        assert member is not None
+        resolvers = [
+            User(
+                username=f"comment-resolver-{index}",
+                display_name=f"Comment Resolver {index}",
+                password_hash="unused",
+                role=UserRole.ADMIN,
+                status=UserStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+        session.add_all(resolvers)
+        session.commit()
+
+        service = CommentService(session)
+        for index, resolver in enumerate(resolvers):
+            comment = service.create(
+                CommentWrite(
+                    target_type="project",
+                    target_id=context["project_id"],
+                    body_markdown=f"Resolved by another admin {index}",
+                ),
+                member,
+            )
+            service.resolve(
+                comment.id,
+                CommentCommand(expected_version=comment.version),
+                resolver,
+            )
+
+        session.expunge_all()
+        actor = session.get(User, context["member_id"])
+        assert actor is not None
+        page = service.list_for_target(
+            "project", context["project_id"], actor=actor
+        )
+        selects: list[str] = []
+
+        def capture_select(_conn, _cursor, statement, _parameters, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(statement)
+
+        event.listen(session.bind, "before_cursor_execute", capture_select)
+        try:
+            payloads = [
+                service.serialize(comment, actor, can_change=page.can_change)
+                for comment in page.items
+            ]
+        finally:
+            event.remove(session.bind, "before_cursor_execute", capture_select)
+
+    assert len(payloads) == 5
+    assert all(payload["resolved_by"] is not None for payload in payloads)
+    assert selects == []
+
+
 def test_comment_api_auth_versions_and_agenda_delete_guard(
     client, authenticated_client, comment_context
 ):
