@@ -25,6 +25,7 @@ function fixture(status: 'draft' | 'ready' | 'in_progress' | 'completed', unreso
     id: 'm1', project: { id: 'p1', name: 'MeetFlow', slug: 'meetflow' }, series: null, title: '迭代评审', purpose_markdown: '确认发布范围',
     scheduled_start: '2026-07-24T02:00:00Z', scheduled_end: '2026-07-24T03:00:00Z', status, host: user, recorder: user,
     summary_markdown: '本轮范围已经确认', raw_notes_markdown: '', version: 4, participants: [{ user, participation_role: 'host', position: 0 }],
+    capabilities: { can_manage: true, can_contribute: true, can_comment: true },
     agenda_items: agenda, meeting_decisions: [], meeting_actions: [], meeting_open_questions: [], attachments: [], amendments: [], snapshots: [],
     current_snapshot: status === 'completed' ? { id: 's1', completion_number: 1, snapshot_json: { meeting: { title: '迭代评审', summary_markdown: '本轮范围已经确认' }, agenda_items: agenda }, created_by: user, created_at: '' } : null,
     created_by: user, updated_by: user, created_at: '', updated_at: '',
@@ -67,6 +68,20 @@ describe('meeting lifecycle workspace', () => {
     render(MeetingWorkspaceView)
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1'))
     expect(await screen.findByText(control, { selector })).toBeVisible()
+  })
+
+  it('keeps a comment-only attendee in read-only meeting mode', async () => {
+    const meeting = fixture('draft')
+    meeting.capabilities = { can_manage: false, can_contribute: false, can_comment: true }
+    apiMock.mockResolvedValue(meeting)
+    render(MeetingWorkspaceView)
+
+    expect(await screen.findByRole('heading', { name: '迭代评审' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '准备信息' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开始会议' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '+ 议题' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '评论' })).toBeInTheDocument()
+    expect(screen.getByLabelText('议题标题')).toHaveAttribute('readonly')
   })
 
   it('allows finishing with unresolved agenda and lets the server mark them skipped', async () => {

@@ -30,6 +30,7 @@ const project = {
   id: 'p1', name: 'MeetFlow', slug: 'meetflow', summary: '团队会议工作区', description_markdown: '项目说明',
   status: 'active', health: 'on_track', lead: { id: 'u1', username: 'lin', display_name: '林宇' }, target_date: '2026-08-01', version: 3,
   memberships: [{ role: 'member', user: { id: 'u1', username: 'lin', display_name: '林宇' } }],
+  capabilities: { can_manage: true, can_contribute: true, can_comment: true },
   updates: [{ id: 'up1', project_id: 'p1', health: 'on_track', content_markdown: '完成后端契约', source: 'human', created_by: { id: 'u1', username: 'lin', display_name: '林宇' }, created_at: '2026-07-22T10:00:00Z', updated_at: '2026-07-22T10:00:00Z' }],
   next_meeting: { id: 'm1', title: '迭代评审', scheduled_start: '2026-07-24T02:00:00Z', status: 'ready' },
   recent_decisions: [{ id: 'd1', title: '采用项目工作区', status: 'final' }],
@@ -65,6 +66,34 @@ describe('project workspace', () => {
     expect(screen.getByRole('heading', { name: '近期行动项' })).toBeInTheDocument()
     expect(screen.queryByLabelText('进展记录')).not.toBeInTheDocument()
     expect(screen.queryByTestId('project-inline-progress')).not.toBeInTheDocument()
+  })
+
+  it('does not expose project mutation controls to a read-only stakeholder', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/projects/p1') {
+        return Promise.resolve({
+          ...project,
+          capabilities: { can_manage: false, can_contribute: false, can_comment: false },
+        })
+      }
+      return defaultProjectResponse(path)
+    })
+
+    render(ProjectDetailView)
+
+    expect(await screen.findByRole('heading', { name: 'MeetFlow' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '编辑项目' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '新建' })).not.toBeInTheDocument()
+
+    await fireEvent.click(screen.getByRole('tab', { name: '动态' }))
+    expect(screen.queryByLabelText('进展记录')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '发布进展' })).not.toBeInTheDocument()
+
+    await fireEvent.click(screen.getByRole('tab', { name: '会议' }))
+    expect(screen.queryByRole('button', { name: '添加会议' })).not.toBeInTheDocument()
+
+    await fireEvent.click(screen.getByRole('tab', { name: '文件' }))
+    expect(screen.queryByLabelText('上传附件')).not.toBeInTheDocument()
   })
 
   it('keeps project progress editing with its AI assistance in Activity', async () => {

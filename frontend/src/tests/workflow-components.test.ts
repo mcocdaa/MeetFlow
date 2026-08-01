@@ -16,7 +16,7 @@ describe('meeting workflow components', () => {
 
   it('uploads a file and asks the parent to refresh attachments', async () => {
     apiMock.mockResolvedValue({ id: 'a1' })
-    const { emitted } = render(AttachmentPanel, { props: { meetingId: 'm1', attachments: [] } })
+    const { emitted } = render(AttachmentPanel, { props: { meetingId: 'm1', attachments: [], canContribute: true } })
     const file = new File(['notes'], 'notes.txt', { type: 'text/plain' })
     selectFile(screen.getByLabelText('上传附件'), file)
     await fireEvent.click(screen.getByRole('button', { name: '上传' }))
@@ -25,7 +25,7 @@ describe('meeting workflow components', () => {
   })
 
   it('rejects a file over 20 MB before sending it', async () => {
-    const { emitted } = render(AttachmentPanel, { props: { meetingId: 'm1', attachments: [] } })
+    const { emitted } = render(AttachmentPanel, { props: { meetingId: 'm1', attachments: [], canContribute: true } })
     const file = new File([new Uint8Array(20 * 1024 * 1024 + 1)], 'large.bin')
     selectFile(screen.getByLabelText('上传附件'), file)
     await fireEvent.click(screen.getByRole('button', { name: '上传' }))
