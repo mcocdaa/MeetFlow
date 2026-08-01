@@ -9,7 +9,7 @@
 - SQLite 保存结构化数据，附件和备份保存在数据目录。容器运行时的持久化目录是 `/app/data`，部署时对应宿主机的 `./data/`。
 - 生产镜像只有一个应用容器。Vue 资源在构建阶段生成，运行阶段启动 Uvicorn 和内置的插件任务 worker。
 - 会议系列的固定周期实例由应用进程内的低频 worker 创建；读取系列、会议列表和开始固定实例也会补算，因而不依赖外部 Cron。
-- 会议生命周期由 `MeetingService` 兼容 facade 转交 `MeetingLifecycleCommands`；命令通过 `UnitOfWork` 在一次会话事务中提交，`LifecyclePolicy` 只负责纯状态迁移判断。会议读取、package 和 plugin context 通过 `MeetingQueries` 读侧边界委托，`projectors.py` 承担快照、附件和用户/项目引用的纯投影。
+- `MeetingLifecycleCommands` 当前只负责 `start` 和 `finish`，并通过 `UnitOfWork` 在一次会话事务中提交；其余生命周期转换仍由 `MeetingService._commit_meeting_command` 提交，`LifecyclePolicy` 只负责纯状态迁移判断。会议读取、package 和 plugin context 通过 `MeetingQueries` 读侧边界委托，`projectors.py` 承担快照、附件和用户/项目引用的纯投影。
 - 外部插件目录固定为 `/app/plugins`。生产部署可将宿主机目录以只读方式挂载到这里；插件代码仅应来自可信的服务器管理员。
 
 ## 本地开发
