@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import { session } from '../auth/session'
 import { registerEditorAssistant } from '../plugins/registry'
+import '../styles.css'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -66,6 +67,16 @@ describe('project workspace', () => {
     expect(screen.getByRole('heading', { name: '近期行动项' })).toBeInTheDocument()
     expect(screen.queryByLabelText('进展记录')).not.toBeInTheDocument()
     expect(screen.queryByTestId('project-inline-progress')).not.toBeInTheDocument()
+  })
+
+  it('stretches dashboard cards within each overview row', async () => {
+    const { container } = render(ProjectDetailView)
+
+    await screen.findByRole('heading', { name: '项目状态' })
+    const grid = container.querySelector<HTMLElement>('.project-overview-grid')
+
+    expect(grid).not.toBeNull()
+    expect(getComputedStyle(grid as HTMLElement).alignItems).toBe('stretch')
   })
 
   it('does not expose project mutation controls to a read-only stakeholder', async () => {
