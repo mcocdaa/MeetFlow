@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agendas.models import AgendaItem
 from app.auth.dependencies import admin_user, current_user
 from app.auth.models import User
 from app.database import get_session
@@ -94,6 +95,16 @@ def require_job_target_access(
     access = WorkspaceAccess(session)
     if job.target_type == "meeting":
         meeting = access.require_meeting_view(job.target_id, user)
+        if contribute:
+            access.require_project_contribute(meeting.project_id, user)
+        else:
+            access.require_project_view(meeting.project_id, user)
+        return
+    if job.target_type == "agenda_item":
+        agenda_item = session.get(AgendaItem, job.target_id)
+        if agenda_item is None:
+            raise AppError(404, "agenda_item_not_found", "议题不存在")
+        meeting = access.require_meeting_view(agenda_item.meeting_id, user)
         if contribute:
             access.require_project_contribute(meeting.project_id, user)
         else:
@@ -457,7 +468,7 @@ def apply_job(
 
 @jobs_router.get("")
 def list_jobs(
-    target_type: Literal["meeting", "project"] | None = None,
+    target_type: Literal["meeting", "agenda_item", "project"] | None = None,
     target_id: str | None = None,
     include_history: bool = False,
     user: User = Depends(current_user),

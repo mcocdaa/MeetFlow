@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -163,6 +164,165 @@ def test_same_active_action_returns_existing_job(
     assert created is True
     assert duplicate is False
     assert second.id == first.id
+
+
+def test_agenda_plugin_job_context_uses_the_selected_server_agenda(
+    plugin_client, plugin_meeting_id
+):
+    manager = plugin_client.app.state.plugin_manager
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+
+    with database.session() as session:
+        actor = session.get(User, actor_id)
+        meeting = session.get(Meeting, plugin_meeting_id)
+        other = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(title="Other agenda", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        selected = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(
+                title="Selected agenda",
+                agenda_type="decision",
+                notes_markdown="Server-authoritative notes",
+            ),
+            actor,
+            expected_meeting_version=session.get(Meeting, meeting.id).version,
+        )
+        other_id = other.id
+        selected_id = selected.id
+        job, created = PluginJobService(session, manager).submit(
+            "test-ai.summarize", "agenda_item", selected_id, {}, actor.id
+        )
+        context_snapshot = job.context_snapshot
+        target_id = job.target_id
+
+    assert created is True
+    assert target_id == selected_id
+    assert context_snapshot["current_agenda_item"] == next(
+        item
+        for item in context_snapshot["agenda_items"]
+        if item["id"] == selected_id
+    )
+    assert context_snapshot["current_agenda_item"]["title"] == "Selected agenda"
+    assert context_snapshot["current_agenda_item"]["id"] != other_id
+
+
+def test_agenda_plugin_jobs_dedupe_per_agenda_item(
+    plugin_client, plugin_meeting_id
+):
+    manager = plugin_client.app.state.plugin_manager
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+
+    with database.session() as session:
+        actor = session.get(User, actor_id)
+        meeting = session.get(Meeting, plugin_meeting_id)
+        first_agenda = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(title="First agenda", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        second_agenda = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(title="Second agenda", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=session.get(Meeting, meeting.id).version,
+        )
+        first_agenda_id = first_agenda.id
+        second_agenda_id = second_agenda.id
+        service = PluginJobService(session, manager)
+        first, first_created = service.submit(
+            "test-ai.summarize", "agenda_item", first_agenda_id, {}, actor.id
+        )
+        same, same_created = service.submit(
+            "test-ai.summarize", "agenda_item", first_agenda_id, {}, actor.id
+        )
+        second, second_created = service.submit(
+            "test-ai.summarize", "agenda_item", second_agenda_id, {}, actor.id
+        )
+        first_id = first.id
+        same_id = same.id
+        second_id = second.id
+        second_dedupe_key = second.dedupe_key
+
+    assert first_created is True
+    assert same_created is False
+    assert same_id == first_id
+    assert second_created is True
+    assert second_id != first_id
+    assert second_dedupe_key == f"test-ai.summarize:agenda_item:{second_agenda_id}"
+
+
+def test_invited_nonmember_cannot_submit_an_agenda_plugin_job(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    with database.session() as session:
+        admin = session.get(User, plugin_client.get("/api/auth/me").json()["id"])
+        meeting = session.get(Meeting, plugin_meeting_id)
+        agenda = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(title="Restricted agenda", agenda_type="discussion"),
+            admin,
+            expected_meeting_version=meeting.version,
+        )
+        invited = User(
+            username="agenda-job-invited",
+            display_name="Agenda Job Invited",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(invited)
+        session.flush()
+        session.add(
+            MeetingParticipant(
+                meeting_id=plugin_meeting_id,
+                user_id=invited.id,
+                participation_role=ParticipationRole.attendee,
+                position=1,
+            )
+        )
+        agenda_id = agenda.id
+        session.commit()
+        cookie_name = plugin_client.app.state.auth_service.cookie_name
+        cookie_value = plugin_client.app.state.auth_service.issue_cookie(invited)
+
+    plugin_client.cookies.clear()
+    plugin_client.cookies.set(cookie_name, cookie_value)
+    response = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "agenda_item",
+            "target_id": agenda_id,
+            "input": {},
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_submit_agenda_plugin_job_returns_agenda_not_found(
+    plugin_client, plugin_meeting_id
+):
+    response = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "agenda_item",
+            "target_id": str(uuid.uuid4()),
+            "input": {},
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "agenda_item_not_found"
 
 
 def test_worker_marks_interrupted_request_as_non_replayable(
@@ -404,6 +564,59 @@ def test_list_jobs_can_be_scoped_to_one_meeting(plugin_client, plugin_meeting_id
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["items"]] == [
         created.json()["id"]
+    ]
+
+
+def test_list_jobs_can_be_scoped_to_one_agenda_item(
+    plugin_client, plugin_meeting_id
+):
+    database = plugin_client.app.state.database
+    actor_id = plugin_client.get("/api/auth/me").json()["id"]
+    with database.session() as session:
+        actor = session.get(User, actor_id)
+        meeting = session.get(Meeting, plugin_meeting_id)
+        first_agenda = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(title="First agenda", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=meeting.version,
+        )
+        second_agenda = AgendaService(session).create(
+            meeting.id,
+            AgendaWrite(title="Second agenda", agenda_type="discussion"),
+            actor,
+            expected_meeting_version=session.get(Meeting, meeting.id).version,
+        )
+        first_agenda_id = first_agenda.id
+        second_agenda_id = second_agenda.id
+
+    first = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "agenda_item",
+            "target_id": first_agenda_id,
+            "input": {},
+        },
+    )
+    second = plugin_client.post(
+        "/api/plugin-jobs",
+        json={
+            "action_id": "test-ai.summarize",
+            "target_type": "agenda_item",
+            "target_id": second_agenda_id,
+            "input": {},
+        },
+    )
+    response = plugin_client.get(
+        f"/api/plugin-jobs?target_type=agenda_item&target_id={second_agenda_id}"
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        second.json()["id"]
     ]
 
 

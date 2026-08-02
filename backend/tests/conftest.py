@@ -134,6 +134,7 @@ def register(registry):
             "required": ["markdown", "suggested_patch", "model"],
         },
         handler=summarize,
+        target_types=("meeting", "agenda_item"),
     ))
 """,
         enabled=True,

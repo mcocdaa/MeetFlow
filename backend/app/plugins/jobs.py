@@ -5,7 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.agendas.models import AgendaItem
 from app.auth.models import User
+from app.errors import AppError
 from app.plugins.context import PluginContextBuilder
 from app.plugins.manager import PluginManager
 from app.plugins.models import PluginJob, PluginJobStatus
@@ -40,6 +42,12 @@ class PluginJobService:
         if target_type == "meeting":
             meeting = access.require_meeting_view(target_id, actor)
             access.require_project_contribute(meeting.project_id, actor)
+        elif target_type == "agenda_item":
+            agenda_item = self.session.get(AgendaItem, target_id)
+            if agenda_item is None:
+                raise AppError(404, "agenda_item_not_found", "议题不存在")
+            meeting = access.require_meeting_view(agenda_item.meeting_id, actor)
+            access.require_project_contribute(meeting.project_id, actor)
         elif target_type == "project":
             access.require_project_contribute(target_id, actor)
         else:
@@ -48,6 +56,8 @@ class PluginJobService:
         context_builder = PluginContextBuilder(self.session)
         if target_type == "meeting":
             context = context_builder.meeting(target_id, actor)
+        elif target_type == "agenda_item":
+            context = context_builder.agenda_item(target_id, actor)
         else:
             context = context_builder.project(target_id, actor)
         context = self._json_snapshot(context)
