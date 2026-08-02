@@ -24,10 +24,15 @@ function registerAssistant() {
 function renderAssistant(registered: RegisteredAssistant, slot: string, modelValue = '原有内容') {
   const component = registered.assistants.get(slot)
   if (!component) throw new Error(`assistant was not registered for ${slot}`)
+  const targetType = slot === 'project-update-editor'
+    ? 'project'
+    : slot === 'agenda-notes-editor'
+      ? 'agenda_item'
+      : 'meeting'
   return render(component as any, {
     props: {
       modelValue,
-      context: { targetType: slot === 'project-update-editor' ? 'project' : 'meeting', targetId: 'target-1' },
+      context: { targetType, targetId: 'target-1' },
     },
   })
 }
@@ -39,6 +44,7 @@ it('registers assistants for all editor slots and its task extension', () => {
 
   expect([...registered.assistants.keys()]).toEqual([
     'meeting-summary-editor',
+    'agenda-notes-editor',
     'project-update-editor',
     'action-composer',
     'decision-composer',
@@ -49,6 +55,7 @@ it('registers assistants for all editor slots and its task extension', () => {
 
 it.each([
   ['meeting-summary-editor', 'AI 协助纪要', '生成会议纪要'],
+  ['agenda-notes-editor', 'AI 协助议题', '整理议题记录'],
   ['project-update-editor', 'AI 协助进展', '总结项目进展'],
   ['action-composer', 'AI 协助行动项', '生成行动项建议'],
   ['decision-composer', 'AI 协助决策', '生成决策建议'],
@@ -114,6 +121,7 @@ it('writes an action suggestion directly into the active editor', async () => {
 it.each([
   ['decision-composer', '生成决策建议', 'decision_suggestions', '采用灰度发布。'],
   ['question-composer', '梳理开放问题', 'open_question_suggestions', '- 如何确认发布范围？'],
+  ['agenda-notes-editor', '整理议题记录', 'agenda_notes', '## 已整理的议题记录'],
 ])('writes %s output directly into the active editor', async (slot, label, actionId, markdown) => {
   vi.useFakeTimers()
   const registered = registerAssistant()
@@ -129,7 +137,7 @@ it.each([
     method: 'POST',
     body: JSON.stringify({
       action_id: `ai-work-assistant.${actionId}`,
-      target_type: 'meeting',
+      target_type: slot === 'agenda-notes-editor' ? 'agenda_item' : 'meeting',
       target_id: 'target-1',
       input: { current_markdown: '原有内容' },
     }),

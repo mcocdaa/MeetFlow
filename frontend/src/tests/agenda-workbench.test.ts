@@ -13,6 +13,11 @@ const ActionContextProbe = defineComponent({
   template: '<output data-testid="action-context">{{ JSON.stringify(context.metadata) }}</output>',
 })
 
+const AgendaNotesAssistant = defineComponent({
+  emits: ['update:modelValue'],
+  template: '<button type="button" @click="$emit(\'update:modelValue\', \'## AI 整理后的议题记录\')">整理议题记录</button>',
+})
+
 function outcomeAssistantProbe(testId: string, label: string) {
   return defineComponent({
     props: ['modelValue', 'context', 'disabled'],
@@ -32,9 +37,10 @@ vi.mock('../api/client', async (importOriginal) => {
 })
 vi.mock('../components/MarkdownEditor.vue', () => ({
   default: defineComponent({
-    props: ['modelValue', 'label'],
+    props: ['modelValue', 'label', 'registerEditor'],
     emits: ['update:modelValue'],
     setup(props, { emit, expose }) {
+      props.registerEditor?.((markdown: string) => emit('update:modelValue', markdown))
       expose({
         flush: () => {
           const markdown = editorBuffer.value || props.modelValue
@@ -305,6 +311,13 @@ describe('agenda workbench', () => {
     expect(screen.getByTestId('outcome-actions')).not.toContainElement(screen.getByRole('button', { name: '完成议题并进入下一项' }))
   })
 
+  it('keeps the agenda notes label visible when no AI assistant is registered', () => {
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+
+    expect(screen.getByText('议题记录')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'AI 工具' })).not.toBeInTheDocument()
+  })
+
   it('places outcome assistants in every editor without treating editor clicks as assistant clicks', async () => {
     registerEditorAssistant('decision-composer', outcomeAssistantProbe('decision-assistant-clicks', 'AI 建议决策'))
     registerEditorAssistant('action-composer', outcomeAssistantProbe('action-assistant-clicks', 'AI 建议行动项'))
@@ -343,6 +356,27 @@ describe('agenda workbench', () => {
     expect(screen.getByTestId('question-assistant-clicks')).toHaveTextContent('0')
     await fireEvent.click(screen.getByRole('button', { name: 'AI 梳理开放问题' }))
     expect(screen.getByTestId('question-assistant-clicks')).toHaveTextContent('1')
+  })
+
+  it('keeps generated agenda notes local until the user explicitly saves the agenda', async () => {
+    registerEditorAssistant('agenda-notes-editor', AgendaNotesAssistant)
+    const item = meetingFixture().agenda_items[0]
+    apiMock.mockResolvedValueOnce({ ...item, notes_markdown: '## AI 整理后的议题记录', version: item.version + 1 })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+
+    const notes = screen.getByTestId('agenda-notes-editor')
+    expect(notes).toContainElement(screen.getByLabelText('议题记录'))
+    await fireEvent.click(within(notes).getByRole('button', { name: 'AI 工具' }))
+    await fireEvent.click(screen.getByRole('button', { name: '整理议题记录' }))
+
+    expect(screen.getByLabelText('议题记录')).toHaveValue('## AI 整理后的议题记录')
+    expect(apiMock).not.toHaveBeenCalledWith('/api/agenda-items/a1', expect.objectContaining({ method: 'PUT' }))
+
+    await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1', expect.objectContaining({
+      method: 'PUT',
+      body: expect.stringContaining('"notes_markdown":"## AI 整理后的议题记录"'),
+    })))
   })
 
   it('shows a useful guard when an agenda with outcomes cannot be deleted', async () => {

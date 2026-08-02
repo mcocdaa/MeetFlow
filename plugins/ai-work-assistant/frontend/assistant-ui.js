@@ -11,6 +11,14 @@ const assistantDefinitions = [
     targetType: 'meeting',
   },
   {
+    slot: 'agenda-notes-editor',
+    actionId: 'ai-work-assistant.agenda_notes',
+    menuTitle: 'AI 协助议题',
+    label: '整理议题记录',
+    busyLabel: '正在整理议题记录…',
+    targetType: 'agenda_item',
+  },
+  {
     slot: 'project-update-editor',
     actionId: 'ai-work-assistant.project_progress',
     menuTitle: 'AI 协助进展',
