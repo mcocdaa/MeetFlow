@@ -23,6 +23,7 @@ def test_ai_work_assistant_declares_editor_and_user_work_brief_actions(settings)
             "ai-work-assistant.action_suggestions",
             "ai-work-assistant.decision_suggestions",
             "ai-work-assistant.open_question_suggestions",
+            "ai-work-assistant.agenda_notes",
             "ai-work-assistant.user_work_brief",
         }
         assert actions["ai-work-assistant.meeting_summary"].target_types == (
@@ -30,6 +31,9 @@ def test_ai_work_assistant_declares_editor_and_user_work_brief_actions(settings)
         )
         assert actions["ai-work-assistant.project_progress"].target_types == (
             "project",
+        )
+        assert actions["ai-work-assistant.agenda_notes"].target_types == (
+            "agenda_item",
         )
         assert actions["ai-work-assistant.user_work_brief"].target_types == (
             "user",

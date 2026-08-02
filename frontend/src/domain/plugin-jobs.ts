@@ -4,8 +4,9 @@ export type PluginJob = {
   id: string
   plugin_id?: string
   action_id: string
-  target_type: 'meeting' | 'project'
+  target_type: 'meeting' | 'project' | 'agenda_item'
   target_id: string
+  meeting_id?: string | null
   status: PluginJobStatus
   result: { markdown?: string; candidates?: Array<{ content: string }> } | null
   error_message?: string | null

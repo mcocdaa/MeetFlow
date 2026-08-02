@@ -14,7 +14,14 @@ let poller: ReturnType<typeof setInterval> | undefined
 
 const active = computed(() => jobs.value.some((job) => job.status === 'queued' || job.status === 'requesting'))
 function source(job: PluginJob) {
-  return job.target_type === 'meeting' ? `/meetings/${job.target_id}` : `/projects/${job.target_id}`
+  if (job.target_type === 'meeting') return `/meetings/${job.target_id}`
+  if (job.target_type === 'agenda_item') return job.meeting_id ? `/meetings/${job.meeting_id}` : '/ai-tasks'
+  return `/projects/${job.target_id}`
+}
+
+function sourceLabel(job: PluginJob) {
+  if (job.target_type === 'meeting' || job.target_type === 'agenda_item') return '会议'
+  return '项目'
 }
 
 function statusLabel(job: PluginJob) {
@@ -80,7 +87,7 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
             </div>
           </div>
           <RouterLink class="text-link" :to="source(job)">
-            回到{{ job.target_type === 'meeting' ? '会议' : '项目' }}
+            回到{{ sourceLabel(job) }}
           </RouterLink>
         </header>
         <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>

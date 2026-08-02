@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agendas.models import AgendaItem
 from app.auth.dependencies import admin_user, current_user
 from app.auth.models import User
 from app.database import get_session
@@ -62,12 +63,20 @@ class StreamActionRequest(BaseModel):
 
 
 def serialize_job(job: PluginJob) -> dict[str, Any]:
+    meeting_id = None
+    if job.target_type == "agenda_item" and isinstance(job.context_snapshot, dict):
+        current_agenda_item = job.context_snapshot.get("current_agenda_item")
+        if isinstance(current_agenda_item, dict):
+            meeting_id = current_agenda_item.get("meeting_id")
+        if meeting_id is None:
+            meeting_id = job.context_snapshot.get("id")
     return {
         "id": job.id,
         "plugin_id": job.plugin_id,
         "action_id": job.action_id,
         "target_type": job.target_type,
         "target_id": job.target_id,
+        "meeting_id": meeting_id,
         "status": job.status,
         "result": job.result_json,
         "error_code": job.error_code,
@@ -94,6 +103,16 @@ def require_job_target_access(
     access = WorkspaceAccess(session)
     if job.target_type == "meeting":
         meeting = access.require_meeting_view(job.target_id, user)
+        if contribute:
+            access.require_project_contribute(meeting.project_id, user)
+        else:
+            access.require_project_view(meeting.project_id, user)
+        return
+    if job.target_type == "agenda_item":
+        agenda_item = session.get(AgendaItem, job.target_id)
+        if agenda_item is None:
+            raise AppError(404, "agenda_item_not_found", "议题不存在")
+        meeting = access.require_meeting_view(agenda_item.meeting_id, user)
         if contribute:
             access.require_project_contribute(meeting.project_id, user)
         else:
@@ -457,7 +476,7 @@ def apply_job(
 
 @jobs_router.get("")
 def list_jobs(
-    target_type: Literal["meeting", "project"] | None = None,
+    target_type: Literal["meeting", "agenda_item", "project"] | None = None,
     target_id: str | None = None,
     include_history: bool = False,
     user: User = Depends(current_user),

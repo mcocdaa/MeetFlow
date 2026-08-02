@@ -8,8 +8,10 @@ from typing import Any
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
+from app.agendas.models import AgendaItem
 from app.attention.service import AttentionService
 from app.auth.models import User
+from app.errors import AppError
 from app.meetings.service import MeetingService
 from app.projects.models import Project, ProjectMember, ProjectUpdate
 from app.projects.access import WorkspaceAccess
@@ -26,6 +28,28 @@ class PluginContextBuilder:
     def meeting(self, meeting_id: str, user: User) -> dict[str, Any]:
         WorkspaceAccess(self.session).require_meeting_view(meeting_id, user)
         return self._bounded(MeetingService(self.session).plugin_context(meeting_id, user))
+
+    def agenda_item(self, agenda_item_id: str, user: User) -> dict[str, Any]:
+        agenda_item = self.session.get(AgendaItem, agenda_item_id)
+        if agenda_item is None:
+            raise AppError(404, "agenda_item_not_found", "议题不存在")
+        WorkspaceAccess(self.session).require_meeting_view(
+            agenda_item.meeting_id, user
+        )
+        meeting_context = MeetingService(self.session).plugin_context(
+            agenda_item.meeting_id, user
+        )
+        current_agenda_item = next(
+            item
+            for item in meeting_context["agenda_items"]
+            if item["id"] == agenda_item.id
+        )
+        return self._bounded(
+            {
+                "current_agenda_item": current_agenda_item,
+                **meeting_context,
+            }
+        )
 
     def project(self, project_id: str, user: User) -> dict[str, Any]:
         return self._bounded(ProjectService(self.session).detail(project_id, user))

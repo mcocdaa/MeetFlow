@@ -49,3 +49,18 @@ it('keeps base task errors when no task extension is registered', async () => {
   await fireEvent.click(screen.getByText('查看技术详情'))
   expect(disclosure?.open).toBe(true)
 })
+
+it('returns agenda work to its owning meeting from the task history', async () => {
+  apiMock.mockResolvedValueOnce({
+    items: [{
+      id: 'job-3', action_id: 'ai-work-assistant.agenda_notes', target_type: 'agenda_item', target_id: 'agenda-1',
+      meeting_id: 'meeting-3', status: 'failed', result: null, created_at: '2026-08-02T00:00:00Z',
+      started_at: null, finished_at: '2026-08-02T00:00:01Z', error_message: '模型不可用', applied_at: null,
+    }],
+  })
+
+  render(AiTasksView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
+
+  const link = await screen.findByRole('link', { name: '回到会议' })
+  expect(link).toHaveAttribute('href', '/meetings/meeting-3')
+})

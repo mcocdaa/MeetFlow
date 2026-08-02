@@ -3,8 +3,10 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import { api, ApiError } from '../api/client'
 import type { AgendaDraft, AgendaItem, AgendaType, Meeting } from '../domain/meetings'
+import { assistantsForSlot } from '../plugins/registry'
 import MarkdownEditor from './MarkdownEditor.vue'
 import OutcomeComposer from './OutcomeComposer.vue'
+import PluginEditorSlot from './PluginEditorSlot.vue'
 import VersionConflictDialog from './VersionConflictDialog.vue'
 
 const props = defineProps<{ meeting: Meeting; item: AgendaItem; canContribute: boolean }>()
@@ -27,6 +29,7 @@ const composer = ref<'decision' | 'action' | 'question' | null>(null)
 const saving = ref(false)
 const error = ref('')
 const conflict = ref<{ version: number; server: string } | null>(null)
+const hasAgendaNotesAssistant = computed(() => assistantsForSlot('agenda-notes-editor').length > 0)
 
 function statusLabel(status: AgendaItem['status']) {
   return { planned: '待开始', in_progress: '进行中', completed: '已完成', skipped: '已跳过', canceled: '已取消' }[status]
@@ -105,7 +108,15 @@ async function complete() {
   <div class="agenda-detail" data-testid="agenda-detail">
     <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" :readonly="!canContribute" /></div><span class="status-pill" :data-status="item.status">{{ statusLabel(item.status) }}</span></header>
     <div class="agenda-meta-fields"><label>类型<select v-model="draft.agenda_type" :disabled="!canContribute"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label><label>预计时长<input v-model.number="draft.estimated_minutes" type="number" min="1" max="480" :disabled="!canContribute" /></label></div>
-    <label class="agenda-notes">议题记录<MarkdownEditor ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="!canContribute" /></label>
+    <div class="agenda-notes">
+      <span v-if="!canContribute || !hasAgendaNotesAssistant" class="agenda-notes-label">议题记录</span>
+      <PluginEditorSlot v-if="canContribute" v-model="draft.notes_markdown" editor-label="议题记录" data-testid="agenda-notes-editor" target-type="agenda_item" :target-id="item.id" slot="agenda-notes-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id }" @notice="error = $event">
+        <template #editor="{ disabled, registerEditor }">
+          <MarkdownEditor ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="saving || disabled" :register-editor="registerEditor" />
+        </template>
+      </PluginEditorSlot>
+      <MarkdownEditor v-else ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="true" />
+    </div>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
     <div v-if="canContribute" class="agenda-save-row"><span class="muted">保存后会同步识别记录中的 @决策:、@行动:、@开放问题:。</span><button class="button button-quiet" :disabled="saving || !draft.title.trim()" @click="save()">保存议题</button></div>
 

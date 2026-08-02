@@ -113,6 +113,53 @@ def test_action_suggestions_return_editable_markdown(
     }
 
 
+def test_agenda_notes_return_editable_markdown_from_current_agenda(
+    ai_work_assistant_backend, monkeypatch
+):
+    captured: dict = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "## 已整理的议题记录"}}]}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def post(self, _url, **kwargs):
+            captured.update(kwargs)
+            return Response()
+
+    monkeypatch.setattr(ai_work_assistant_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(
+        ai_work_assistant_backend.agenda_notes(
+            {
+                "title": "服务端会议上下文",
+                "current_agenda_item": {
+                    "title": "登录体验问题",
+                    "notes_markdown": "@决策: 先修复 SSO 回调",
+                },
+            },
+            {"current_markdown": "## 用户的议题草稿"},
+            {
+                "base_url": "https://example.test/v1",
+                "api_key": "test-key",
+                "model": "test-model",
+                "timeout_seconds": 10,
+            },
+        )
+    )
+
+    content = captured["json"]["messages"][1]["content"]
+    assert "只整理当前议题" in content
+    assert "登录体验问题" in content
+    assert result == {"markdown": "## 已整理的议题记录", "model": "test-model"}
+
+
 @pytest.mark.parametrize(
     ("generator_name", "expected_markdown"),
     [

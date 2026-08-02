@@ -74,6 +74,20 @@ async def meeting_summary(context, payload, config):
     return await _draft("整理为会议纪要，包含结论、待确认事项与后续行动。", context, payload, config)
 
 
+async def agenda_notes(context, payload, config):
+    return await _draft(
+        "只整理当前议题（current_agenda_item）的记录；可参考同一会议上下文核验，"
+        "不得整理、汇总或合并其他议题的记录。"
+        "输出可整体替换当前议题记录的完整、可编辑 Markdown。"
+        "只有资料明确支持时才保留具体事实及 @决策:、@行动:、@开放问题: 标签；"
+        "不得编造事实、标签、结论、行动或状态。"
+        "不要输出多个候选项、解释、检查过程、前言或其他附加说明。",
+        context,
+        payload,
+        config,
+    )
+
+
 async def project_progress(context, payload, config):
     return await _draft("整理为项目进展摘要，包含进展、风险、下一步。", context, payload, config)
 
@@ -194,6 +208,18 @@ def register(registry):
             output_schema=common_output,
             handler=meeting_summary,
             target_types=("meeting",),
+        )
+    )
+    registry.register_meeting_action(
+        MeetingAction(
+            action_id="ai-work-assistant.agenda_notes",
+            label="AI 整理议题记录",
+            description="基于当前议题和会议上下文整理可编辑议题记录",
+            admin_only=False,
+            input_schema=editor_input,
+            output_schema=common_output,
+            handler=agenda_notes,
+            target_types=("agenda_item",),
         )
     )
     registry.register_meeting_action(
