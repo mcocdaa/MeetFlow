@@ -4,7 +4,7 @@ version: 1.0.0
 api_version: 1
 backend_entry: backend.py
 frontend_entry: frontend/entry.js
-description: 生成可编辑的会议纪要、项目进展和行动项建议
+description: 生成可编辑的会议纪要、议题记录、项目进展与会议产出建议
 config_schema:
   fields:
     - key: base_url
