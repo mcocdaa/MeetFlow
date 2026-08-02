@@ -63,12 +63,20 @@ class StreamActionRequest(BaseModel):
 
 
 def serialize_job(job: PluginJob) -> dict[str, Any]:
+    meeting_id = None
+    if job.target_type == "agenda_item" and isinstance(job.context_snapshot, dict):
+        current_agenda_item = job.context_snapshot.get("current_agenda_item")
+        if isinstance(current_agenda_item, dict):
+            meeting_id = current_agenda_item.get("meeting_id")
+        if meeting_id is None:
+            meeting_id = job.context_snapshot.get("id")
     return {
         "id": job.id,
         "plugin_id": job.plugin_id,
         "action_id": job.action_id,
         "target_type": job.target_type,
         "target_id": job.target_id,
+        "meeting_id": meeting_id,
         "status": job.status,
         "result": job.result_json,
         "error_code": job.error_code,

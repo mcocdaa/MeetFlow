@@ -614,6 +614,7 @@ def test_list_jobs_can_be_scoped_to_one_agenda_item(
 
     assert first.status_code == 201
     assert second.status_code == 201
+    assert second.json()["meeting_id"] == plugin_meeting_id
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["items"]] == [
         second.json()["id"]
