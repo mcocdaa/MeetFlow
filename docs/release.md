@@ -22,6 +22,21 @@
 
 通过测试后，工作流使用 QEMU 和 Buildx 将公开镜像发布到 `ghcr.io/mcocdaa/meetflow`，目标是 `linux/amd64` 和 `linux/arm64`。发布过程附带构建来源证明（provenance）与 SBOM。
 
+镜像推送成功后，工作流还会创建或更新同名 GitHub Release，并上传一个名为 `meetflow-release-<tag>` 的 Actions artifact。两处都保留以下发布证据：
+
+```text
+release-metadata.json  精确镜像 digest、源提交、平台、标签和证明类型
+image-manifest.txt     从 GHCR 回读的 Buildx 多架构 manifest
+```
+
+provenance 与 SBOM 仍附着在 OCI 镜像上；发布证据的作用是让维护者保留和检索那个不可变镜像身份。需要按 digest 精确拉取时，使用：
+
+```bash
+docker pull ghcr.io/mcocdaa/meetflow@sha256:<digest>
+```
+
+GitHub Actions 只发布镜像和证据，不会连接或更新生产服务器；服务器仍由运维人员按[运维指南](operations.md)手动拉取、备份、替换并检查健康状态。
+
 稳定标签例如 `v1.4.2` 会创建：
 
 ```text
@@ -48,5 +63,5 @@ git push origin vX.Y.Z
 1. 确认 `main` 已包含要发布的提交，并且该提交对应的 CI 成功；tag 必须直接指向该历史中的提交。
 2. 确认版本号符合带 `v` 前缀的 SemVer，稳定版本不带预发布后缀。
 3. 确认用户 README 和相关 `docs/` 页面反映了这次可见的部署、配置或发布行为。
-4. 推送 tag 后，在 GitHub Actions 中确认 `Publish container` job 成功。
+4. 推送 tag 后，在 GitHub Actions 中确认 `Publish container` job 成功，并检查 GitHub Release 或 `meetflow-release-<tag>` artifact 中的 digest 与 manifest。
 5. 在目标架构的服务器上拉取精确 `vX.Y.Z` 镜像，并按[运维指南](operations.md)保留同一个 `./data/` 与 `APP_SECRET_KEY` 启动和检查健康接口。
