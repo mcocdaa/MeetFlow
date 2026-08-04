@@ -10,6 +10,7 @@ def test_release_workflow_publishes_the_public_multiarch_tag_contract():
     required_fragments = (
         "IMAGE_NAME: ghcr.io/mcocdaa/meetflow",
         "packages: write",
+        "contents: write",
         "fetch-depth: 0",
         'git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"',
         'tag_commit="$(git rev-list -n1 "$GITHUB_REF")"',
@@ -25,6 +26,17 @@ def test_release_workflow_publishes_the_public_multiarch_tag_contract():
         "platforms: linux/amd64,linux/arm64",
         "provenance: mode=max",
         "sbom: true",
+        "- id: build",
+        "steps.build.outputs.digest",
+        "scripts/write_release_metadata.py",
+        "docker buildx imagetools inspect",
+        "uses: actions/upload-artifact@v4",
+        "name: meetflow-release-${{ github.ref_name }}",
+        "if-no-files-found: error",
+        "gh release create",
+        "gh release edit",
+        "gh release upload",
+        "--prerelease",
     )
     missing = [fragment for fragment in required_fragments if fragment not in workflow]
     assert not missing, f"release workflow is missing: {missing}"
