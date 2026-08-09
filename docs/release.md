@@ -10,13 +10,15 @@
 - 前端依赖安装、测试与生产构建；
 - 依赖前两项成功的容器构建，并以受限权限实际启动新镜像。
 
+后端与前端测试步骤由可复用工作流 `.github/workflows/test-backend.yml` 和 `test-frontend.yml` 提供；`ci.yml` 与发布工作流共用这两份定义，避免测试命令分叉。修改测试步骤时只需改对应可复用工作流。
+
 容器 job 使用 `scripts/ci-container-smoke.sh` 检查镜像默认路径、只读启动、健康接口和宿主机绑定的 SQLite 持久化。它不会推送镜像。
 
 `ci.yml` 不支持手动派发。需要测试未发布提交时，推送 `main` 或创建 Pull Request；GitHub Actions 页面也可以重新运行已经存在的 CI 记录。
 
 ## 发布镜像
 
-`.github/workflows/release.yml` 只在 `v*` tag 推送时启动。工作流首先校验 tag 是带 `v` 前缀的 SemVer（可带预发布后缀），然后运行后端测试、前端测试和前端生产构建。
+`.github/workflows/release.yml` 只在 `v*` tag 推送时启动。工作流首先校验 tag 是带 `v` 前缀的 SemVer（可带预发布后缀），然后通过可复用测试工作流运行后端测试、前端测试和前端生产构建。
 
 发布 tag 必须指向 `main` 历史中的提交。GitHub 的 `main` 保护规则负责要求 PR 与 CI；发布工作流还会拉取 `main` 并拒绝任何不在该历史中的 tag，因此不能从未合并的功能分支发布镜像。
 
