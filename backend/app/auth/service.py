@@ -1,6 +1,11 @@
 from datetime import datetime, timezone
+import time
 
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from itsdangerous import (
+    BadSignature,
+    BadTimeSignature,
+    URLSafeTimedSerializer,
+)
 from pwdlib import PasswordHash
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +17,7 @@ from app.config import Settings
 class AuthService:
     cookie_name = "meetflow_session"
     cookie_max_age = 7 * 24 * 60 * 60
+    clock_skew_grace = 60
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -54,8 +60,11 @@ class AuthService:
 
     def read_cookie(self, value: str) -> tuple[str, int] | None:
         try:
-            payload = self.signer.loads(value, max_age=self.cookie_max_age)
-        except (BadSignature, SignatureExpired, TypeError):
+            payload, signed_at = self.signer.loads(value, return_timestamp=True)
+        except (BadSignature, BadTimeSignature, TypeError):
+            return None
+        age = time.time() - signed_at.timestamp()
+        if age > self.cookie_max_age or age < -self.clock_skew_grace:
             return None
         if not isinstance(payload, dict) or "uid" not in payload or "sv" not in payload:
             return None
