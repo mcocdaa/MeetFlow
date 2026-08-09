@@ -9,15 +9,12 @@ import AgendaQueue from './AgendaQueue.vue'
 const props = defineProps<{
   meeting: Meeting
   canContribute: boolean
-  initialSelectedId?: string
 }>()
 const emit = defineEmits<{ reload: [] }>()
 const selectedId = ref(props.meeting.agenda_items.find((item) => item.status === 'in_progress')?.id ?? props.meeting.agenda_items[0]?.id ?? '')
 const detail = ref<{ flushIfDirty: () => Promise<boolean> } | null>(null)
 const openingId = ref('')
 const openError = ref('')
-
-watch(() => props.initialSelectedId, (value) => { if (value) selectedId.value = value })
 
 watch(() => props.meeting.status, (status, previousStatus) => {
   if (status !== 'in_progress' || previousStatus === 'in_progress') return

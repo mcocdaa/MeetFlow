@@ -516,8 +516,3 @@ class MeetingEdit(StrictInput):
         ):
             raise ValueError("scheduled_end must be after scheduled_start")
         return self
-
-
-# Compatibility aliases used only by transitional routers/tests.
-SeriesParticipantWrite = ParticipantWrite
-StandingAgendaItemWrite = StandingAgendaWrite

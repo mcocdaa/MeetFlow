@@ -1,4 +1,4 @@
-import { computed, getCurrentInstance, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 import { api, ApiError } from '../api/client'
 import type { MeetingUpdate } from '../api/meetings'
@@ -22,7 +22,7 @@ function toLocalInput(value: string) {
   return local.toISOString().slice(0, 16)
 }
 
-export function draftFor(value: Meeting): MeetingDraft {
+function draftFor(value: Meeting): MeetingDraft {
   return {
     title: value.title,
     purpose_markdown: value.purpose_markdown,
@@ -36,11 +36,8 @@ export function draftFor(value: Meeting): MeetingDraft {
 export function useMeetingWorkspace(options: {
   initial?: Meeting
   request?: Requester
-  debounceMs?: number
-  autoSave?: boolean
 } = {}) {
   const request = options.request ?? api
-  const debounceMs = options.debounceMs ?? 800
   const meeting = ref<Meeting | null>(options.initial ?? null)
   const initialDraft = options.initial ? draftFor(options.initial) : {
     title: '', purpose_markdown: '', raw_notes_markdown: '', summary_markdown: '', scheduled_start: '', scheduled_end: '',
@@ -50,7 +47,6 @@ export function useMeetingWorkspace(options: {
   const saving = ref(false)
   const saveState = ref<SaveState>('idle')
   const conflict = ref<unknown | null>(null)
-  let saveTimer: ReturnType<typeof setTimeout> | undefined
 
   const dirty = computed(() => JSON.stringify(draft.value) !== JSON.stringify(acceptedDraft.value))
 
@@ -76,7 +72,6 @@ export function useMeetingWorkspace(options: {
 
   async function persistIfDirty(): Promise<boolean> {
     if (!meeting.value || !dirty.value) return false
-    if (saveTimer) clearTimeout(saveTimer)
     saving.value = true
     saveState.value = 'saving'
     try {
@@ -100,20 +95,6 @@ export function useMeetingWorkspace(options: {
     }
   }
 
-  function scheduleSave() {
-    if (!meeting.value || !dirty.value) return
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      saveTimer = undefined
-      void persistIfDirty().catch(() => undefined)
-    }, debounceMs)
-  }
-
-  if (options.autoSave !== false) watch(draft, scheduleSave, { deep: true })
-  if (getCurrentInstance()) {
-    onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
-  }
-
   return {
     meeting,
     draft,
@@ -124,6 +105,5 @@ export function useMeetingWorkspace(options: {
     dirty,
     accept,
     persistIfDirty,
-    scheduleSave,
   }
 }

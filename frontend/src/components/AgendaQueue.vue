@@ -23,16 +23,9 @@ const error = ref('')
 const guardedId = ref('')
 const menuId = ref('')
 
-function openAdd() {
-  if (!props.canContribute) return
-  adding.value = true
-}
-
 function statusLabel(status: AgendaItem['status']) {
   return { planned: '待开始', in_progress: '进行中', completed: '已完成', skipped: '已跳过', canceled: '已取消' }[status]
 }
-
-defineExpose({ openAdd })
 
 watch(() => props.meeting.agenda_items, (items) => {
   ordered.value = [...items].sort((a, b) => a.position - b.position)

@@ -7,11 +7,10 @@ import type { Attachment } from '../domain/meetings'
 const props = withDefaults(defineProps<{
   targetType?: 'project' | 'meeting' | 'agenda_item'
   targetId?: string
-  meetingId?: string
   attachments: Attachment[]
   canContribute: boolean
 }>(), { targetType: 'meeting' })
-const emit = defineEmits<{ changed: []; uploaded: [attachment: Attachment]; deleted: [id: string] }>()
+const emit = defineEmits<{ uploaded: [attachment: Attachment]; deleted: [id: string] }>()
 const selected = ref<File | null>(null)
 const busy = ref(false)
 const error = ref('')
@@ -22,7 +21,7 @@ function pick(event: Event) {
   error.value = ''
 }
 
-const targetId = () => props.targetId ?? props.meetingId ?? ''
+const targetId = () => props.targetId ?? ''
 function fileUrl(attachment: Attachment) { return attachment.download_url || `/api/attachments/${props.targetType}/${targetId()}/${attachment.id}` }
 
 function formatSize(bytes: number) {
@@ -45,7 +44,6 @@ async function upload() {
     const attachment = await api<Attachment>(`/api/attachments/${props.targetType}/${targetId()}`, { method: 'POST', body })
     selected.value = null
     emit('uploaded', attachment)
-    emit('changed')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '附件上传失败'
   } finally {
@@ -58,7 +56,6 @@ async function remove(attachment: Attachment) {
   if (!window.confirm(`确定删除附件“${attachment.original_name}”吗？`)) return
     await api(`/api/attachments/${attachment.target_type}/${attachment.target_id}/${attachment.id}`, { method: 'DELETE' })
   emit('deleted', attachment.id)
-  emit('changed')
 }
 </script>
 

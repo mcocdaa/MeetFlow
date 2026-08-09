@@ -20,7 +20,7 @@ const router = createRouter({
     { path: '/projects', component: ProjectsView },
     { path: '/projects/:id', component: ProjectDetailView },
     { path: '/meetings', component: () => import('./views/MeetingsView.vue') },
-    { path: '/meetings/:id', component: () => import('./views/MeetingDetailView.vue') },
+    { path: '/meetings/:id', component: () => import('./views/MeetingWorkspaceView.vue') },
     { path: '/actions', component: ActionsView },
     { path: '/decisions', component: DecisionsView },
     { path: '/inbox', component: WorkspacePlaceholderView },

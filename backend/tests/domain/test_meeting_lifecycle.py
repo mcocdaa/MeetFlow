@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.agendas.models import AgendaItem
-from app.agendas.schemas import AgendaCommand, AgendaWrite
+from app.agendas.schemas import AgendaWrite
 from app.agendas.service import AgendaService
 from app.auth.models import User, UserRole, UserStatus
 from app.domain.enums import AgendaStatus, MeetingStatus

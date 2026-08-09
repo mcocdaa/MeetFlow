@@ -36,7 +36,7 @@ from app.plugins.manager import (
 from app.plugins.context import PluginContextBuilder
 from app.plugins.models import PluginEvent, PluginEventStatus, PluginState
 from app.plugins.jobs import PluginJobService
-from app.plugins.models import PluginJob, PluginJobStatus
+from app.plugins.models import PluginJob
 from app.workspace.work_briefs import replace_work_brief
 
 admin_router = APIRouter(prefix="/api/admin/plugins", tags=["admin/plugins"])

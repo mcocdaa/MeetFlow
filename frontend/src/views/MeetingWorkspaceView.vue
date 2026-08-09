@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
 import { api } from '../api/client'
-import { downloadMeetingExport, getMeeting, runMeetingLifecycle } from '../api/meetings'
+import { downloadMeetingExport, getMeeting, runMeetingLifecycle, type LifecycleAction } from '../api/meetings'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
 import AttachmentPanel from '../components/AttachmentPanel.vue'
 import CompletedMeetingChain from '../components/CompletedMeetingChain.vue'
@@ -17,7 +17,6 @@ import PluginSlot from '../components/PluginSlot.vue'
 import type { Attachment, Meeting } from '../domain/meetings'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
 
-type LifecycleAction = 'start' | 'finish'
 type MarkdownEditorHandle = { flush: () => string }
 
 const route = useRoute()
@@ -35,7 +34,7 @@ const purposeEditor = ref<MarkdownEditorHandle | null>(null)
 const rawNotesEditor = ref<MarkdownEditorHandle | null>(null)
 const workbench = ref<{ flushCurrentDraft: () => Promise<boolean> } | null>(null)
 const exportAction = ref<string | null>(null)
-const workspace = useMeetingWorkspace({ autoSave: false })
+const workspace = useMeetingWorkspace()
 const meeting = workspace.meeting
 const draft = workspace.draft
 const acceptedDraft = workspace.acceptedDraft

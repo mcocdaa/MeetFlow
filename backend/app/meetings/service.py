@@ -200,9 +200,6 @@ class MeetingService:
             raise AppError(404, "meeting_not_found", "会议不存在")
         return meeting
 
-    # Transitional name used by attachment/plugin integration.
-    require = get_meeting
-
     @staticmethod
     def _series_participants(values: list[ParticipantWrite]) -> list[SeriesParticipant]:
         return [

@@ -7,7 +7,6 @@ import type { Meeting } from '../domain/meetings'
 import MentionTextarea from './MentionTextarea.vue'
 
 const props = defineProps<{ meeting: Meeting }>()
-const emit = defineEmits<{ changed: [count: number] }>()
 const comments = ref<MeetingComment[]>([])
 const body = ref('')
 const mentionIds = ref<string[]>([])
@@ -17,7 +16,7 @@ const editBody = ref('')
 const loading = ref(false)
 const error = ref('')
 
-async function load() { loading.value = true; try { comments.value = (await api<CommentPage>(`/api/comments?target_type=meeting&target_id=${props.meeting.id}`)).items.reverse(); emit('changed', comments.value.length) } catch (reason) { error.value = reason instanceof Error ? reason.message : '评论加载失败' } finally { loading.value = false } }
+async function load() { loading.value = true; try { comments.value = (await api<CommentPage>(`/api/comments?target_type=meeting&target_id=${props.meeting.id}`)).items.reverse() } catch (reason) { error.value = reason instanceof Error ? reason.message : '评论加载失败' } finally { loading.value = false } }
 async function submit() { if (!body.value.trim()) return; await api('/api/comments', { method: 'POST', body: JSON.stringify({ target_type: 'meeting', target_id: props.meeting.id, parent_id: replyTo.value, body_markdown: body.value, mention_user_ids: mentionIds.value }) }); body.value = ''; mentionIds.value = []; replyTo.value = null; await load() }
 async function toggle(comment: MeetingComment) { await api(`/api/comments/${comment.id}/${comment.resolved_at ? 'reopen' : 'resolve'}`, { method: 'POST', body: JSON.stringify({ expected_version: comment.version }) }); await load() }
 function beginEdit(comment: MeetingComment) { editingId.value = comment.id; editBody.value = comment.body_markdown ?? '' }
