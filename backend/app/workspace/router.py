@@ -15,6 +15,7 @@ from app.domain.enums import (
     DecisionStatus,
     MeetingStatus,
 )
+from app.http import utc_response
 from app.meetings.models import (
     Meeting,
     MeetingAmendment,
@@ -75,7 +76,7 @@ def global_actions(
         offset,
     )
     page["items"] = [OutcomeService.serialize(row) for row in page["items"]]
-    return page
+    return utc_response(page)
 
 
 @router.get("/api/decisions")
@@ -110,7 +111,7 @@ def global_decisions(
         offset,
     )
     page["items"] = [OutcomeService.serialize(row) for row in page["items"]]
-    return page
+    return utc_response(page)
 
 
 @router.get("/api/meetings")
@@ -205,25 +206,25 @@ def global_meetings(
         }
         for meeting, agendas, snapshots, amendments in rows
     ]
-    return {
+    return utc_response({
         "items": items,
         "total": session.scalar(count_statement.where(*filters)) or 0,
         "limit": limit,
         "offset": offset,
-    }
+    })
 
 
 @router.get("/api/attention")
 def attention(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
-) -> dict[str, Any]:
-    return AttentionService(session).for_user(user)
+):
+    return utc_response(AttentionService(session).for_user(user))
 
 
 @router.get("/api/work-brief")
 def work_brief(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
-) -> dict[str, Any]:
-    return current_work_brief(session, user.id)
+):
+    return utc_response(current_work_brief(session, user.id))

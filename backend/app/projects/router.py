@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
+from app.http import utc_response
 from app.projects.schemas import (
     ProjectEdit,
     ProjectUpdateEdit,
@@ -24,7 +25,7 @@ def list_projects(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    return ProjectService(session).list(user)
+    return utc_response(ProjectService(session).list(user))
 
 
 @router.post("", status_code=201)
@@ -34,7 +35,7 @@ def create_project(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = ProjectService(session)
-    return service.serialize(service.create(payload, user))
+    return utc_response(service.serialize(service.create(payload, user)), status_code=201)
 
 
 @router.get("/{project_id}")
@@ -43,7 +44,7 @@ def get_project(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    return ProjectService(session).detail(project_id, user)
+    return utc_response(ProjectService(session).detail(project_id, user))
 
 
 @router.put("/{project_id}")
@@ -54,7 +55,7 @@ def update_project(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = ProjectService(session)
-    return service.serialize(service.update(project_id, payload, user))
+    return utc_response(service.serialize(service.update(project_id, payload, user)))
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -74,9 +75,9 @@ def list_project_updates(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
-    return ProjectService(session).list_updates(
+    return utc_response(ProjectService(session).list_updates(
         project_id, user, limit=limit, offset=offset
-    )
+    ))
 
 
 @router.post("/{project_id}/updates", status_code=201)
@@ -87,9 +88,9 @@ def create_project_update(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = ProjectService(session)
-    return service.serialize_update(
+    return utc_response(service.serialize_update(
         service.create_update(project_id, payload, user)
-    )
+    ), status_code=201)
 
 
 @updates_router.put("/{update_id}")
@@ -100,4 +101,4 @@ def edit_project_update(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = ProjectService(session)
-    return service.serialize_update(service.edit_update(update_id, payload, user))
+    return utc_response(service.serialize_update(service.edit_update(update_id, payload, user)))

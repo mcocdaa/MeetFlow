@@ -1,14 +1,13 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
+from app.http import utc_response
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -22,28 +21,6 @@ from app.meetings.service import MeetingService
 from app.projects.access import WorkspaceAccess
 
 router = APIRouter(tags=["meetings"])
-
-
-def _utc_content(value: Any) -> Any:
-    if isinstance(value, datetime):
-        utc_value = (
-            value.replace(tzinfo=timezone.utc)
-            if value.tzinfo is None or value.utcoffset() is None
-            else value.astimezone(timezone.utc)
-        )
-        return utc_value.isoformat().replace("+00:00", "Z")
-    if isinstance(value, dict):
-        return {key: _utc_content(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_utc_content(item) for item in value]
-    return value
-
-
-def _utc_response(value: Any, *, status_code: int = 200) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content=jsonable_encoder(_utc_content(value)),
-    )
 
 
 def _meeting_payload(
@@ -76,7 +53,7 @@ def list_series(
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     WorkspaceAccess(session).require_project_view(project_id, user)
-    return _utc_response(MeetingService(session).list_series(project_id))
+    return utc_response(MeetingService(session).list_series(project_id))
 
 
 @router.post("/api/projects/{project_id}/meeting-series", status_code=201)
@@ -88,7 +65,7 @@ def create_series(
 ) -> dict[str, Any]:
     service = MeetingService(session)
     WorkspaceAccess(session).require_project_contribute(project_id, user)
-    return _utc_response(
+    return utc_response(
         service.serialize_series(service.create_series(project_id, payload, user)),
         status_code=201,
     )
@@ -103,7 +80,7 @@ def get_series(
     service = MeetingService(session)
     series = service.get_series(series_id)
     WorkspaceAccess(session).require_project_view(series.project_id, user)
-    return _utc_response(service.series_detail(series_id))
+    return utc_response(service.series_detail(series_id))
 
 
 @router.put("/api/meeting-series/{series_id}")
@@ -116,7 +93,7 @@ def update_series(
     service = MeetingService(session)
     series = service.get_series(series_id)
     WorkspaceAccess(session).require_project_contribute(series.project_id, user)
-    return _utc_response(service.serialize_series(service.update_series(series_id, payload, user)))
+    return utc_response(service.serialize_series(service.update_series(series_id, payload, user)))
 
 
 @router.post("/api/meeting-series/{series_id}/occurrences", status_code=201)
@@ -129,7 +106,7 @@ def create_occurrence(
     service = MeetingService(session)
     series = service.get_series(series_id)
     WorkspaceAccess(session).require_project_contribute(series.project_id, user)
-    return _utc_response(
+    return utc_response(
         service.serialize_meeting(service.create_occurrence(series_id, payload, user)),
         status_code=201,
     )
@@ -142,7 +119,7 @@ def list_meetings(
     session: Session = Depends(get_session),
 ) -> list[dict[str, Any]]:
     WorkspaceAccess(session).require_project_view(project_id, user)
-    return _utc_response(MeetingService(session).list_meetings(project_id))
+    return utc_response(MeetingService(session).list_meetings(project_id))
 
 
 @router.post("/api/projects/{project_id}/meetings", status_code=201)
@@ -155,7 +132,7 @@ def create_meeting(
     service = MeetingService(session)
     WorkspaceAccess(session).require_project_contribute(project_id, user)
     meeting = service.create_meeting(project_id, payload, user)
-    return _utc_response(
+    return utc_response(
         _meeting_payload(service, meeting, user),
         status_code=201,
     )
@@ -176,7 +153,7 @@ def get_meeting(
         "can_contribute": capabilities.can_contribute,
         "can_comment": capabilities.can_comment,
     }
-    return _utc_response(result)
+    return utc_response(result)
 
 
 @router.put("/api/meetings/{meeting_id}")
@@ -189,7 +166,7 @@ def update_meeting(
     service = MeetingService(session)
     _require_meeting_contribution(session, meeting_id, user)
     meeting = service.update_meeting(meeting_id, payload, user)
-    return _utc_response(_meeting_payload(service, meeting, user))
+    return utc_response(_meeting_payload(service, meeting, user))
 
 
 def _lifecycle_result(
@@ -202,7 +179,7 @@ def _lifecycle_result(
     service = MeetingService(session)
     _require_meeting_contribution(session, meeting_id, user)
     meeting = getattr(service, operation)(meeting_id, payload, user)
-    return _utc_response(_meeting_payload(service, meeting, user))
+    return utc_response(_meeting_payload(service, meeting, user))
 
 
 @router.post("/api/meetings/{meeting_id}/start")
@@ -255,7 +232,7 @@ def list_snapshots(
 ) -> list[dict[str, Any]]:
     service = MeetingService(session)
     WorkspaceAccess(session).require_meeting_view(meeting_id, user)
-    return _utc_response([
+    return utc_response([
         service.serialize_snapshot(row)
         for row in service.list_snapshots(meeting_id, limit=limit, offset=offset)
     ])
@@ -270,7 +247,7 @@ def add_amendment(
 ) -> dict[str, Any]:
     service = MeetingService(session)
     _require_meeting_contribution(session, meeting_id, user)
-    return _utc_response(
+    return utc_response(
         service.serialize_amendment(service.add_amendment(meeting_id, payload, user)),
         status_code=201,
     )

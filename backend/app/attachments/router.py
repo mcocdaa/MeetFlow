@@ -16,6 +16,7 @@ from app.auth.models import User, UserRole
 from app.collaboration.activity import ActivityRecorder
 from app.database import get_session
 from app.errors import AppError
+from app.http import utc_response
 from app.meetings.models import Meeting
 from app.projects.models import Project
 from app.projects.access import WorkspaceAccess
@@ -139,13 +140,13 @@ def list_attachments(
         .options(joinedload(Attachment.creator))
         .order_by(Attachment.created_at.desc(), Attachment.id.desc())
     )
-    return [
+    return utc_response([
         serialize(
             row,
             can_delete=attachment_delete_allowed(session, target, row, user),
         )
         for row in rows
-    ]
+    ])
 
 
 @router.post("/{target_type}/{target_id}", status_code=201)
@@ -197,7 +198,7 @@ async def upload_attachment(
         raise
     session.refresh(attachment)
     _ = attachment.creator
-    return serialize(attachment, can_delete=True)
+    return utc_response(serialize(attachment, can_delete=True), status_code=201)
 
 
 def attachment_file(request: Request, item: Attachment) -> Path:

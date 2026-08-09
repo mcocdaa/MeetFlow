@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/time'
 import { streamPluginAction } from '../api/plugin-stream'
 import AttentionCard, { type AttentionItem } from '../components/AttentionCard.vue'
 import MarkdownView from '../components/MarkdownView.vue'
@@ -147,7 +148,7 @@ onBeforeUnmount(cancelWorkBrief)
         </section>
         <aside class="workspace-section upcoming-panel" aria-labelledby="upcoming-meetings-title">
           <div class="section-heading"><div><p class="eyebrow">Next up</p><h2 id="upcoming-meetings-title">近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
-          <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }}</time></RouterLink>
+          <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ formatDateTime(item.scheduled_start) }}</time></RouterLink>
           <p v-if="!meetings.length" class="muted">未来七天没有需要你参加的会议。</p>
         </aside>
       </div>

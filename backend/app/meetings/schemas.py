@@ -324,7 +324,7 @@ class MeetingSeriesWrite(StrictInput):
 
 
 class MeetingSeriesEdit(StrictInput):
-    expected_version: int = Field(ge=0)
+    expected_version: int = Field(ge=1)
     title: str | None = Field(default=None, min_length=1, max_length=240)
     purpose_markdown: str | None = Field(default=None, max_length=100_000)
     recurrence_description: str | None = Field(default=None, max_length=500)
@@ -472,7 +472,7 @@ class MeetingWrite(_TimeWindow):
 
 
 class MeetingEdit(StrictInput):
-    expected_version: int = Field(ge=0)
+    expected_version: int = Field(ge=1)
     title: str | None = Field(default=None, min_length=1, max_length=240)
     purpose_markdown: str | None = Field(default=None, max_length=100_000)
     scheduled_start: datetime | None = None

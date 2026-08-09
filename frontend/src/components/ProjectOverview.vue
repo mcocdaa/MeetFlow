@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 
 import type { AttentionItem } from './AttentionCard.vue'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
+import { formatDate, formatDateTime } from '../utils/time'
 
 const props = defineProps<{
   project: ProjectDetail
@@ -52,7 +53,7 @@ function attentionLink(item: AttentionItem) {
       </div>
       <RouterLink v-if="project.next_meeting" class="next-meeting-card" :to="`/meetings/${project.next_meeting.id}`">
         <strong>{{ project.next_meeting.title }}</strong>
-        <time>{{ new Date(project.next_meeting.scheduled_start).toLocaleString('zh-CN') }}</time>
+        <time>{{ formatDateTime(project.next_meeting.scheduled_start) }}</time>
         <span>{{ project.next_meeting.status }} · 打开会议 →</span>
       </RouterLink>
       <p v-else class="muted">暂未安排下一次会议。</p>
@@ -85,7 +86,7 @@ function attentionLink(item: AttentionItem) {
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading"><h2>最近动态</h2><button class="text-link" @click="emit('openTab', 'activity')">查看全部</button></div>
       <div v-if="activityRows.length" class="project-dashboard-list">
-        <button v-for="item in activityRows" :key="item.id" class="compact-row compact-row-button" @click="emit('openTab', 'activity')"><strong>{{ item.content_markdown.slice(0, 52) }}</strong><span>{{ item.created_by.display_name }} · {{ new Date(item.created_at).toLocaleDateString('zh-CN') }}</span></button>
+        <button v-for="item in activityRows" :key="item.id" class="compact-row compact-row-button" @click="emit('openTab', 'activity')"><strong>{{ item.content_markdown.slice(0, 52) }}</strong><span>{{ item.created_by.display_name }} · {{ formatDate(item.created_at) }}</span></button>
       </div>
       <p v-else class="muted">尚无项目动态。</p>
     </section>

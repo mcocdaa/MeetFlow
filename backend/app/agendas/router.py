@@ -14,6 +14,7 @@ from app.agendas.service import AgendaService
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.database import get_session
+from app.http import utc_response
 
 router = APIRouter(tags=["agendas"])
 
@@ -27,7 +28,7 @@ def create_agenda_item(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = AgendaService(session)
-    return service.detail(
+    return utc_response(service.detail(
         service.create(
             meeting_id,
             payload,
@@ -35,7 +36,7 @@ def create_agenda_item(
             expected_meeting_version=expected_meeting_version,
         ).id,
         actor=user,
-    )
+    ), status_code=201)
 
 
 @router.put("/api/agenda-items/{item_id}")
@@ -46,7 +47,7 @@ def update_agenda_item(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = AgendaService(session)
-    return service.detail(service.update(item_id, payload, user).id, actor=user)
+    return utc_response(service.detail(service.update(item_id, payload, user).id, actor=user))
 
 
 @router.delete("/api/agenda-items/{item_id}", status_code=204)
@@ -75,7 +76,7 @@ def reorder_agenda_items(
 ) -> list[dict[str, Any]]:
     service = AgendaService(session)
     service.reorder(meeting_id, payload, user)
-    return service.ordered_detail(meeting_id, actor=user)
+    return utc_response(service.ordered_detail(meeting_id, actor=user))
 
 
 def _command(name: str):
@@ -87,7 +88,7 @@ def _command(name: str):
     ) -> dict[str, Any]:
         service = AgendaService(session)
         item = getattr(service, name)(item_id, payload, user)
-        return service.detail(item.id, actor=user)
+        return utc_response(service.detail(item.id, actor=user))
 
     return run
 
@@ -101,10 +102,10 @@ def complete_and_advance_agenda_item(
 ) -> dict[str, Any]:
     service = AgendaService(session)
     completed, next_agenda_item_id = service.complete_and_advance(item_id, payload, user)
-    return {
+    return utc_response({
         "agenda_item": service.detail(completed.id, actor=user),
         "next_agenda_item_id": next_agenda_item_id,
-    }
+    })
 
 
 router.add_api_route(
@@ -131,4 +132,4 @@ def move_agenda_item(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     service = AgendaService(session)
-    return service.detail(service.move(item_id, payload, user).id, actor=user)
+    return utc_response(service.detail(service.move(item_id, payload, user).id, actor=user))

@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/time'
 import AttachmentPanel from './AttachmentPanel.vue'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
 
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 
 const rows = ref<Array<MeetingRow | ProjectActionSummary | DecisionRow>>([])
 const loading = ref(false)
+const error = ref('')
 const occurrenceSeries = ref<SeriesRow | null>(null)
 const occurrenceTitle = ref('')
 const occurrenceStart = ref('')
@@ -41,9 +43,12 @@ function endpoint() {
 async function load() {
   if (props.tab === 'files') return
   loading.value = true
+  error.value = ''
   try {
     const value = await api<Page<typeof rows.value[number]>>(endpoint())
     rows.value = Array.isArray(value?.items) ? value.items : []
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '记录加载失败'
   } finally {
     loading.value = false
   }
@@ -106,11 +111,12 @@ onMounted(load)
         <label>开始时间<input v-model="occurrenceStart" type="datetime-local" required /></label>
         <label>结束时间<input v-model="occurrenceEnd" type="datetime-local" required /></label>
         <p v-if="occurrenceError" class="notice notice-error">{{ occurrenceError }}</p>
+        <p v-if="error" class="notice notice-error">{{ error }}</p>
         <div class="form-actions"><button class="button button-primary" :disabled="occurrenceSaving">{{ occurrenceSaving ? '添加中…' : '添加临时会议' }}</button></div>
       </form>
       <p v-if="loading" class="muted">正在加载会议…</p>
       <div class="project-record-list">
-        <RouterLink v-for="item in rows as MeetingRow[]" :key="item.id" class="project-record-row" :to="`/meetings/${item.id}`"><strong>{{ item.title }}</strong><span>{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }} · {{ item.status }}</span></RouterLink>
+        <RouterLink v-for="item in rows as MeetingRow[]" :key="item.id" class="project-record-row" :to="`/meetings/${item.id}`"><strong>{{ item.title }}</strong><span>{{ formatDateTime(item.scheduled_start) }} · {{ item.status }}</span></RouterLink>
       </div>
     </template>
 

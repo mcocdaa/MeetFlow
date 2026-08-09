@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+
+from app.http import _z_iso
 
 
 class NotificationActorRef(BaseModel):
@@ -22,6 +24,10 @@ class NotificationItem(BaseModel):
     data: dict[str, Any]
     read_at: datetime | None
     created_at: datetime
+
+    @field_serializer("read_at", "created_at")
+    def _z(self, value: datetime | None) -> str | None:
+        return _z_iso(value) if value is not None else None
 
 
 class InboxHistoryResponse(BaseModel):

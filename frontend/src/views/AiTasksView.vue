@@ -55,13 +55,23 @@ async function load() {
 }
 
 async function cancel(job: PluginJob) {
-  await api(`/api/plugin-jobs/${job.id}/cancel`, { method: 'POST' })
-  await load()
+  error.value = ''
+  try {
+    await api(`/api/plugin-jobs/${job.id}/cancel`, { method: 'POST' })
+    await load()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '任务取消失败'
+  }
 }
 
 async function rerun(job: PluginJob) {
-  await api(`/api/plugin-jobs/${job.id}/rerun`, { method: 'POST' })
-  await load()
+  error.value = ''
+  try {
+    await api(`/api/plugin-jobs/${job.id}/rerun`, { method: 'POST' })
+    await load()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '任务重跑失败'
+  }
 }
 
 onMounted(() => {

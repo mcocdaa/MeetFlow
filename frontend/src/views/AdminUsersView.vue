@@ -32,8 +32,13 @@ async function load() {
 }
 
 async function transition(id: string, action: 'approve' | 'reject' | 'disable' | 'restore') {
-  await api(`/api/admin/users/${id}/${action}`, { method: 'POST' })
-  await load()
+  error.value = ''
+  try {
+    await api(`/api/admin/users/${id}/${action}`, { method: 'POST' })
+    await load()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '状态变更失败'
+  }
 }
 
 async function createFixedAccount() {
@@ -53,9 +58,14 @@ async function createFixedAccount() {
 async function resetPassword(user: User) {
   const password = window.prompt(`为 ${user.display_name} 设置至少 12 位的新密码`)
   if (!password || password.length < 12) return
-  await api(`/api/admin/users/${user.id}/reset-password`, {
-    method: 'POST', body: JSON.stringify({ password }),
-  })
+  error.value = ''
+  try {
+    await api(`/api/admin/users/${user.id}/reset-password`, {
+      method: 'POST', body: JSON.stringify({ password }),
+    })
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '密码重置失败'
+  }
 }
 
 onMounted(load)

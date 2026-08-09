@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -13,8 +12,9 @@ from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.activity import ActivityRecorder
 from app.domain.versioning import require_version
 from app.errors import AppError
-from app.meetings.models import Meeting
-from app.meetings.models import MeetingSeries
+from app.domain.enums import MeetingStatus
+from app.meetings.models import Meeting, MeetingSeries
+from app.meetings.service import utcnow
 from app.attachments.models import Attachment
 from app.outcomes.models import ActionItem, Decision
 from app.outcomes.service import OutcomeService
@@ -422,13 +422,15 @@ class ProjectService:
         result = self.serialize(
             project, updates=self._updates(project_id, limit=20), actor=actor
         )
-        now = datetime.now(timezone.utc)
+        now = utcnow()
         next_meeting = self.session.scalar(
             select(Meeting)
             .where(
                 Meeting.project_id == project_id,
                 Meeting.scheduled_start >= now,
-                Meeting.status.in_(["draft", "ready", "in_progress"]),
+                Meeting.status.in_(
+                    [MeetingStatus.draft, MeetingStatus.ready, MeetingStatus.in_progress]
+                ),
             )
             .order_by(Meeting.scheduled_start, Meeting.id)
             .limit(1)

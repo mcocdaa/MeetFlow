@@ -4,6 +4,7 @@ import { X } from '@lucide/vue'
 import { RouterLink, useRouter } from 'vue-router'
 
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/time'
 import type { Page, UserRef } from '../api/contracts'
 import { session } from '../auth/session'
 import type { MeetingStatus } from '../domain/meetings'
@@ -108,6 +109,6 @@ onMounted(load)
       </section>
     </section>
     <p v-if="error" class="notice notice-error">{{ error }}</p><p v-if="loading" class="empty-state">正在加载会议…</p>
-    <template v-else><section v-for="group in groups" :key="group.id" class="meeting-group"><header><h2>{{ group.title }}</h2><span>{{ group.items.length }}</span></header><div v-if="group.items.length" class="meeting-workspace-list"><RouterLink v-for="item in group.items" :key="item.id" :to="`/meetings/${item.id}`" class="workspace-section meeting-workspace-row"><time>{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }}</time><div><div class="tag-row"><span class="tag tag-project">{{ item.project.name }}</span><span v-if="item.series" class="tag">{{ item.series.title }}</span><span v-if="item.occurrence_kind === 'manual'" class="tag">临时</span><span class="status-pill" :data-status="item.status">{{ item.status }}</span></div><h3>{{ item.title }}</h3><p>{{ item.purpose_markdown || '尚未填写会议目的' }}</p></div><dl><div><dt>议题</dt><dd>{{ item.agenda_count }}</dd></div><div><dt>快照</dt><dd>{{ item.snapshot_count }}</dd></div><div><dt>更正</dt><dd>{{ item.amendment_count }}</dd></div></dl></RouterLink></div><p v-else class="empty-inline">暂无{{ group.title }}</p></section></template>
+    <template v-else><section v-for="group in groups" :key="group.id" class="meeting-group"><header><h2>{{ group.title }}</h2><span>{{ group.items.length }}</span></header><div v-if="group.items.length" class="meeting-workspace-list"><RouterLink v-for="item in group.items" :key="item.id" :to="`/meetings/${item.id}`" class="workspace-section meeting-workspace-row"><time>{{ formatDateTime(item.scheduled_start) }}</time><div><div class="tag-row"><span class="tag tag-project">{{ item.project.name }}</span><span v-if="item.series" class="tag">{{ item.series.title }}</span><span v-if="item.occurrence_kind === 'manual'" class="tag">临时</span><span class="status-pill" :data-status="item.status">{{ item.status }}</span></div><h3>{{ item.title }}</h3><p>{{ item.purpose_markdown || '尚未填写会议目的' }}</p></div><dl><div><dt>议题</dt><dd>{{ item.agenda_count }}</dd></div><div><dt>快照</dt><dd>{{ item.snapshot_count }}</dd></div><div><dt>更正</dt><dd>{{ item.amendment_count }}</dd></div></dl></RouterLink></div><p v-else class="empty-inline">暂无{{ group.title }}</p></section></template>
   </main>
 </template>

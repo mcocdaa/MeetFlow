@@ -16,6 +16,7 @@ import PluginEditorSlot from '../components/PluginEditorSlot.vue'
 import PluginSlot from '../components/PluginSlot.vue'
 import type { Attachment, Meeting } from '../domain/meetings'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
+import { formatDateTime, parseUtcTimestamp } from '../utils/time'
 
 type MarkdownEditorHandle = { flush: () => string }
 
@@ -55,10 +56,6 @@ const liveElapsed = computed(() => {
   const seconds = elapsedSeconds % 60
   return `${hours ? `${hours}:` : ''}${String(minutes).padStart(hours ? 2 : 1, '0')}:${String(seconds).padStart(2, '0')}`
 })
-
-function parseUtcTimestamp(value: string) {
-  return new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`)
-}
 
 function acceptMeeting(value: Meeting, resetDraft: boolean) {
   workspace.accept(value, resetDraft)
@@ -201,7 +198,7 @@ onBeforeUnmount(() => {
   <main class="workspace-page meeting-workspace" :class="{ 'meeting-live': meeting?.status === 'in_progress' }">
     <p v-if="loading" class="empty-state">正在打开会议工作区…</p>
     <template v-else-if="meeting">
-      <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${new Date(meeting.scheduled_start).toLocaleString('zh-CN')} · ${meeting.participants.length} 位参与者`">
+      <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${formatDateTime(meeting.scheduled_start)} · ${meeting.participants.length} 位参与者`">
         <template #meta>
           <div class="project-context">
             <span class="status-pill" :data-status="meeting.status">{{ meeting.status === 'draft' || meeting.status === 'ready' ? '待开始' : meeting.status === 'in_progress' ? '会议进行中' : '会议已完成' }}</span>

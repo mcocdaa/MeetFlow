@@ -74,7 +74,7 @@ class ProjectWrite(BaseModel):
 
 
 class ProjectEdit(BaseModel):
-    expected_version: int = Field(ge=0)
+    expected_version: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=160)
     slug: str | None = Field(
         default=None,

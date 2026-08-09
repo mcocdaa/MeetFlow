@@ -17,6 +17,7 @@ from app.inbox.models import Notification
 from app.inbox.access import NotificationScope
 from app.inbox.service import InboxService
 from app.meetings.models import Meeting, MeetingParticipant
+from app.meetings.service import as_utc
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.projects.models import Project
 
@@ -73,8 +74,7 @@ def _add_reason(item: dict[str, Any], reason: str) -> None:
 def _temporal_order(item: dict[str, Any]) -> float:
     value = item.get("due_date") or item.get("scheduled_start")
     if isinstance(value, datetime):
-        aware = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-        return aware.timestamp()
+        return as_utc(value).timestamp()
     if isinstance(value, date):
         return datetime.combine(value, time.min, tzinfo=timezone.utc).timestamp()
     return float("inf")
@@ -302,9 +302,7 @@ class AttentionService:
         return loaded
 
     def for_user(self, user: User, now: datetime | None = None) -> dict[str, Any]:
-        current = now or datetime.now(timezone.utc)
-        if current.tzinfo is None:
-            current = current.replace(tzinfo=timezone.utc)
+        current = as_utc(now or datetime.now(timezone.utc))
         today = current.date()
         horizon = today + timedelta(days=7)
         upcoming = current + timedelta(days=7)

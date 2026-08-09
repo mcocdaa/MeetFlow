@@ -47,14 +47,14 @@ export function useMeetingWorkspace(options: {
   const saving = ref(false)
   const saveState = ref<SaveState>('idle')
   const conflict = ref<unknown | null>(null)
+  let persistToken = 0
 
   const dirty = computed(() => JSON.stringify(draft.value) !== JSON.stringify(acceptedDraft.value))
 
   function accept(value: Meeting, resetDraft = true) {
     meeting.value = value
-    if (!resetDraft) return
     const next = draftFor(value)
-    draft.value = next
+    if (resetDraft) draft.value = next
     acceptedDraft.value = { ...next }
     conflict.value = null
     saveState.value = 'idle'
@@ -62,16 +62,22 @@ export function useMeetingWorkspace(options: {
 
   function updatePayload(): MeetingUpdate {
     if (!meeting.value) throw new Error('meeting_not_loaded')
+    const scheduled_start = new Date(draft.value.scheduled_start)
+    const scheduled_end = new Date(draft.value.scheduled_end)
+    if (Number.isNaN(scheduled_start.getTime()) || Number.isNaN(scheduled_end.getTime())) {
+      throw new Error('invalid_meeting_time')
+    }
     return {
       expected_version: meeting.value.version,
       ...draft.value,
-      scheduled_start: new Date(draft.value.scheduled_start).toISOString(),
-      scheduled_end: new Date(draft.value.scheduled_end).toISOString(),
+      scheduled_start: scheduled_start.toISOString(),
+      scheduled_end: scheduled_end.toISOString(),
     }
   }
 
   async function persistIfDirty(): Promise<boolean> {
     if (!meeting.value || !dirty.value) return false
+    const token = ++persistToken
     saving.value = true
     saveState.value = 'saving'
     try {
@@ -79,19 +85,22 @@ export function useMeetingWorkspace(options: {
         method: 'PUT',
         body: JSON.stringify(updatePayload()),
       })
+      if (token !== persistToken) return false
       accept(value)
       saveState.value = 'saved'
       return true
     } catch (caught) {
+      if (token !== persistToken) throw caught
       conflict.value = caught
+      const body = caught as { status?: unknown; code?: unknown } | null
       const isConflict = caught instanceof ApiError
         ? caught.status === 409
-        : Boolean(caught && typeof caught === 'object' && ('status' in caught || 'code' in caught)
-          && ((caught as { status?: number }).status === 409 || (caught as { code?: string }).code === 'version_conflict'))
+        : Boolean(body && typeof body === 'object'
+          && (body.status === 409 || body.code === 'version_conflict'))
       saveState.value = isConflict ? 'conflict' : 'error'
       throw caught
     } finally {
-      saving.value = false
+      if (token === persistToken) saving.value = false
     }
   }
 
