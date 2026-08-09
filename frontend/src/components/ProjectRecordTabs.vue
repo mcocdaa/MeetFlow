@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
 import { formatDateTime } from '../utils/time'
 import AttachmentPanel from './AttachmentPanel.vue'
+import type { Page } from '../api/contracts'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
 
 type Tab = 'meetings' | 'actions' | 'decisions' | 'files'
-type Page<T> = { items: T[] }
 type MeetingRow = { id: string; title: string; scheduled_start: string; status: string }
 type SeriesRow = { id: string; title: string; recurrence_description: string; status: string }
 type DecisionRow = { id: string; title: string; status: string; meeting_id: string | null }
@@ -48,7 +49,7 @@ async function load() {
     const value = await api<Page<typeof rows.value[number]>>(endpoint())
     rows.value = Array.isArray(value?.items) ? value.items : []
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '记录加载失败'
+    error.value = errorMessage(reason, '记录加载失败')
   } finally {
     loading.value = false
   }
@@ -79,7 +80,7 @@ async function createOccurrence() {
     occurrenceSeries.value = null
     await load()
   } catch (reason) {
-    occurrenceError.value = reason instanceof Error ? reason.message : '临时会议添加失败'
+    occurrenceError.value = errorMessage(reason, '临时会议添加失败')
   } finally {
     occurrenceSaving.value = false
   }

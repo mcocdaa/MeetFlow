@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { useRoute } from 'vue-router'
 
 import { api } from '../api/client'
@@ -88,7 +89,7 @@ async function load() {
     openActions.value = Array.isArray(actionValue?.items) ? actionValue.items : []
     syncEdit(value)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '项目加载失败'
+    error.value = errorMessage(reason, '项目加载失败')
   } finally {
     loading.value = false
   }
@@ -110,7 +111,7 @@ async function saveProject() {
     syncEdit(project.value)
     editing.value = false
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '项目保存失败'
+    error.value = errorMessage(reason, '项目保存失败')
   } finally {
     saving.value = false
   }

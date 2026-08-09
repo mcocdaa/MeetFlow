@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 
@@ -24,7 +25,7 @@ async function submit() {
     })
     submitted.value = true
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '注册失败'
+    error.value = errorMessage(reason, '注册失败')
   } finally {
     submitting.value = false
   }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
@@ -51,7 +52,7 @@ async function loadWorkBriefCapability(revision: number) {
   } catch (reason) {
     if (!isCurrentWorkBriefRevision(revision)) return
     workBriefEnabled.value = false
-    workBriefError.value = reason instanceof Error ? reason.message : 'AI 插件状态读取失败'
+    workBriefError.value = errorMessage(reason, 'AI 插件状态读取失败')
   }
 }
 
@@ -63,7 +64,7 @@ async function loadWorkBrief(revision: number) {
   } catch (reason) {
     if (!isCurrentWorkBriefRevision(revision)) return
     if (!workBriefError.value) {
-      workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报读取失败'
+      workBriefError.value = errorMessage(reason, 'AI 工作简报读取失败')
     }
   }
 }
@@ -82,7 +83,7 @@ async function load() {
   try {
     await loadAttention()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '工作区加载失败'
+    error.value = errorMessage(reason, '工作区加载失败')
   } finally {
     loading.value = false
   }
@@ -115,7 +116,7 @@ async function generateWorkBrief() {
     }
   } catch (reason) {
     if (!controller.signal.aborted && isCurrentWorkBriefRevision(revision) && workBriefController.value === controller) {
-      workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报生成失败，请稍后重试'
+      workBriefError.value = errorMessage(reason, 'AI 工作简报生成失败，请稍后重试')
     }
   } finally {
     if (workBriefController.value === controller) workBriefController.value = null

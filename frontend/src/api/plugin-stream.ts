@@ -1,18 +1,3 @@
-function streamErrorMessage(payload: unknown): string {
-  if (
-    payload
-    && typeof payload === 'object'
-    && 'error' in payload
-    && payload.error
-    && typeof payload.error === 'object'
-    && 'message' in payload.error
-    && typeof payload.error.message === 'string'
-  ) {
-    return payload.error.message
-  }
-  return '请求失败，请稍后重试'
-}
-
 function consumeEvent(block: string, onDelta: (text: string) => void): boolean {
   const lines = block.split('\n')
   const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? 'message'
@@ -43,6 +28,7 @@ function consumeEvent(block: string, onDelta: (text: string) => void): boolean {
   return event === 'done'
 }
 
+import { apiErrorMessage, dispatchAuthExpired } from './client'
 export async function streamPluginAction(
   actionId: string,
   onDelta: (text: string) => void,
@@ -57,10 +43,8 @@ export async function streamPluginAction(
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
-    if (response.status === 401 && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('meetflow:auth-expired'))
-    }
-    throw new Error(streamErrorMessage(payload))
+    if (response.status === 401) dispatchAuthExpired()
+    throw new Error(apiErrorMessage(payload, 'AI 工作简报请求失败，请稍后重试'))
   }
   if (!response.body) throw new Error('AI 工作简报未返回流式内容')
 

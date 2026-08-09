@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { AgendaItem, Meeting } from '../domain/meetings'
@@ -43,7 +44,7 @@ async function openAgenda(itemId: string) {
     selectedId.value = itemId
     emit('reload')
   } catch (caught) {
-    openError.value = caught instanceof Error ? caught.message : '议题开始失败'
+    openError.value = errorMessage(caught, '议题开始失败')
   } finally {
     openingId.value = ''
   }

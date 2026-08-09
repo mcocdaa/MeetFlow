@@ -10,18 +10,36 @@ export class ApiError extends Error {
   }
 }
 
-async function throwApiError(response: Response): Promise<never> {
-  const payload = await response.json().catch(() => ({
-    error: { code: 'request_failed', message: '请求失败，请稍后重试' },
-  })) as { error?: { code?: string; message?: string; details?: Record<string, unknown> } }
-  if (response.status === 401 && typeof window !== 'undefined') {
+export function apiErrorMessage(payload: unknown, fallback = '请求失败，请稍后重试'): string {
+  if (
+    payload
+    && typeof payload === 'object'
+    && 'error' in payload
+    && payload.error
+    && typeof payload.error === 'object'
+    && 'message' in payload.error
+    && typeof payload.error.message === 'string'
+  ) {
+    return payload.error.message
+  }
+  return fallback
+}
+
+export function dispatchAuthExpired() {
+  if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('meetflow:auth-expired'))
   }
+}
+
+async function throwApiError(response: Response): Promise<never> {
+  const payload = await response.json().catch(() => null)
+  if (response.status === 401) dispatchAuthExpired()
+  const error = payload as { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null
   throw new ApiError(
     response.status,
-    payload.error?.code ?? 'request_failed',
-    payload.error?.message ?? '请求失败，请稍后重试',
-    payload.error?.details,
+    error?.error?.code ?? 'request_failed',
+    apiErrorMessage(payload),
+    error?.error?.details,
   )
 }
 

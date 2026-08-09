@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { Meeting } from '../domain/meetings'
@@ -131,7 +132,7 @@ async function addAmendment() {
     reason.value = ''
     content.value = ''
     emit('reload')
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '更正保存失败' }
+  } catch (caught) { error.value = errorMessage(caught, '更正保存失败') }
   finally { saving.value = false }
 }
 
@@ -143,7 +144,7 @@ async function reopen() {
   try {
     await api(`/api/meetings/${props.meeting.id}/reopen`, { method: 'POST', body: JSON.stringify({ expected_version: props.meeting.version }) })
     emit('reload')
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议重新打开失败' }
+  } catch (caught) { error.value = errorMessage(caught, '会议重新打开失败') }
   finally { saving.value = false }
 }
 </script>

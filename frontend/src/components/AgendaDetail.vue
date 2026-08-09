@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { agendaStatusLabel } from '../utils/status'
+import { errorMessage } from '../utils/errors'
 
 import { api, ApiError } from '../api/client'
 import type { AgendaDraft, AgendaItem, AgendaType, Meeting } from '../domain/meetings'
 import { assistantsForSlot } from '../plugins/registry'
 import MarkdownEditor from './MarkdownEditor.vue'
+import type { MarkdownEditorHandle } from './MarkdownEditor.vue'
 import OutcomeComposer from './OutcomeComposer.vue'
 import PluginEditorSlot from './PluginEditorSlot.vue'
 import VersionConflictDialog from './VersionConflictDialog.vue'
 
 const props = defineProps<{ meeting: Meeting; item: AgendaItem; canContribute: boolean }>()
 const emit = defineEmits<{ changed: []; advance: [nextId: string | null] }>()
-type MarkdownEditorHandle = { flush: () => string }
 type AgendaAdvanceResult = { next_agenda_item_id: string | null }
 function draftFor(item: AgendaItem): AgendaDraft {
   return { title: item.title, agenda_type: item.agenda_type, notes_markdown: item.notes_markdown, estimated_minutes: item.estimated_minutes }
@@ -30,10 +32,6 @@ const saving = ref(false)
 const error = ref('')
 const conflict = ref<{ version: number; server: string } | null>(null)
 const hasAgendaNotesAssistant = computed(() => assistantsForSlot('agenda-notes-editor').length > 0)
-
-function statusLabel(status: AgendaItem['status']) {
-  return { planned: '待开始', in_progress: '进行中', completed: '已完成', skipped: '已跳过', canceled: '已取消' }[status]
-}
 
 watch(() => props.item, (item) => {
   const next = draftFor(item)
@@ -61,7 +59,7 @@ async function persistIfDirty(expectedVersion = currentVersion.value): Promise<b
   } catch (caught) {
     if (caught instanceof ApiError && caught.code === 'version_conflict') {
       conflict.value = { version: Number(caught.details?.actual_version ?? currentVersion.value), server: props.item.notes_markdown }
-    } else error.value = caught instanceof Error ? caught.message : '议题保存失败'
+    } else error.value = errorMessage(caught, '议题保存失败')
     throw caught
   } finally {
     saving.value = false
@@ -97,7 +95,7 @@ async function complete() {
     })
     emit('advance', result.next_agenda_item_id)
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '议题状态更新失败'
+    error.value = errorMessage(caught, '议题状态更新失败')
   } finally {
     saving.value = false
   }
@@ -106,7 +104,7 @@ async function complete() {
 
 <template>
   <div class="agenda-detail" data-testid="agenda-detail">
-    <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" :readonly="!canContribute" /></div><span class="status-pill" :data-status="item.status">{{ statusLabel(item.status) }}</span></header>
+    <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" :readonly="!canContribute" /></div><span class="status-pill" :data-status="item.status">{{ agendaStatusLabel(props.item.status) }}</span></header>
     <div class="agenda-meta-fields"><label>类型<select v-model="draft.agenda_type" :disabled="!canContribute"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label><label>预计时长<input v-model.number="draft.estimated_minutes" type="number" min="1" max="480" :disabled="!canContribute" /></label></div>
     <div class="agenda-notes">
       <span v-if="!canContribute || !hasAgendaNotesAssistant" class="agenda-notes-label">议题记录</span>

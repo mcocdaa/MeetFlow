@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 
@@ -25,7 +26,7 @@ async function load() {
   try {
     users.value = await api<User[]>('/api/admin/users')
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '用户列表加载失败'
+    error.value = errorMessage(reason, '用户列表加载失败')
   } finally {
     loading.value = false
   }
@@ -37,7 +38,7 @@ async function transition(id: string, action: 'approve' | 'reject' | 'disable' |
     await api(`/api/admin/users/${id}/${action}`, { method: 'POST' })
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '状态变更失败'
+    error.value = errorMessage(reason, '状态变更失败')
   }
 }
 
@@ -49,7 +50,7 @@ async function createFixedAccount() {
     form.value = { username: '', display_name: '', password: '' }
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '账号创建失败'
+    error.value = errorMessage(reason, '账号创建失败')
   } finally {
     saving.value = false
   }
@@ -64,7 +65,7 @@ async function resetPassword(user: User) {
       method: 'POST', body: JSON.stringify({ password }),
     })
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '密码重置失败'
+    error.value = errorMessage(reason, '密码重置失败')
   }
 }
 

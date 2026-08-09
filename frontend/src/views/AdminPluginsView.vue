@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 
@@ -57,7 +58,7 @@ async function load() {
       // Keep failedEvents from /api/admin/plugins as the fallback.
     }
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '插件列表加载失败'
+    error.value = errorMessage(reason, '插件列表加载失败')
   }
 }
 
@@ -93,7 +94,7 @@ async function toggle(plugin: PluginInfo) {
     await load()
   } catch (reason) {
     plugin.enabled = !plugin.enabled
-    error.value = reason instanceof Error ? reason.message : '插件状态更新失败'
+    error.value = errorMessage(reason, '插件状态更新失败')
   }
 }
 
@@ -104,7 +105,7 @@ async function retryEvent(eventId: string) {
     await api(`/api/admin/plugins/events/${encodeURIComponent(eventId)}/retry`, { method: 'POST' })
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '插件事件重试失败'
+    error.value = errorMessage(reason, '插件事件重试失败')
   } finally {
     retryingEvent.value = ''
   }

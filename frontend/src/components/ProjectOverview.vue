@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 
 import type { AttentionItem } from './AttentionCard.vue'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
+import { subjectHref } from '../utils/links'
 import { formatDate, formatDateTime } from '../utils/time'
 
 const props = defineProps<{
@@ -22,11 +23,7 @@ const actionRows = computed(() => props.openActions.slice(0, 5))
 const decisionRows = computed(() => props.project.recent_decisions.slice(0, 3))
 const activityRows = computed(() => props.project.updates.slice(0, 5))
 
-function attentionLink(item: AttentionItem) {
-  return item.subject_type === 'meeting'
-    ? `/meetings/${item.subject_id}`
-    : `/${item.subject_type}s?highlight=${item.subject_id}`
-}
+const attentionLink = (item: AttentionItem) => subjectHref(item.subject_type, item.subject_id)
 </script>
 
 <template>

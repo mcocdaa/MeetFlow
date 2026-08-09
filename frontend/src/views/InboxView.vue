@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
@@ -48,7 +49,7 @@ async function load() {
     nextCursor.value = value.next_cursor
     unreadCount.value = value.unread_count
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '通知加载失败'
+    error.value = errorMessage(reason, '通知加载失败')
   } finally {
     loading.value = false
   }
@@ -65,7 +66,7 @@ async function loadMore() {
     items.value.push(...value.items)
     nextCursor.value = value.next_cursor
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '通知加载失败'
+    error.value = errorMessage(reason, '通知加载失败')
   } finally {
     loadingMore.value = false
   }
@@ -80,7 +81,7 @@ async function markRead(item: NotificationItem) {
   } catch (reason) {
     item.read_at = null
     unreadCount.value += 1
-    error.value = reason instanceof Error ? reason.message : '标记已读失败'
+    error.value = errorMessage(reason, '标记已读失败')
   }
 }
 
@@ -92,7 +93,7 @@ async function readAll() {
     items.value.forEach((item) => { item.read_at = item.read_at ?? new Date().toISOString() })
     unreadCount.value = 0
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '全部已读失败'
+    error.value = errorMessage(reason, '全部已读失败')
   }
 }
 

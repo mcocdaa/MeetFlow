@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
@@ -36,7 +37,7 @@ async function load() {
     const page = await api<Page<DecisionRow>>(query())
     rows.value = page.items
     total.value = page.total
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '决策加载失败' }
+  } catch (caught) { error.value = errorMessage(caught, '决策加载失败') }
   finally { loading.value = false }
 }
 

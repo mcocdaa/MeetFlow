@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
@@ -32,7 +33,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try { projects.value = await api<Project[]>('/api/projects') }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : '项目加载失败' }
+  catch (reason) { error.value = errorMessage(reason, '项目加载失败') }
   finally { loading.value = false }
 }
 
@@ -52,7 +53,7 @@ async function createProject() {
     form.value = { name: '', slug: '', summary: '' }
     createOpen.value = false
     await load()
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : '项目创建失败' }
+  } catch (reason) { error.value = errorMessage(reason, '项目创建失败') }
   finally { creating.value = false }
 }
 

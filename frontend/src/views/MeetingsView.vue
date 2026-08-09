@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { X } from '@lucide/vue'
 import { RouterLink, useRouter } from 'vue-router'
 
@@ -64,7 +65,7 @@ async function load() {
     projects.value = projectRows
     meetings.value = page.items
     if (!form.value.project_id && projectRows.length) form.value.project_id = projectRows[0].id
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议加载失败' }
+  } catch (caught) { error.value = errorMessage(caught, '会议加载失败') }
   finally { loading.value = false }
 }
 
@@ -75,7 +76,7 @@ async function createMeeting() {
   try {
     const created = await api<{ id: string }>(`/api/projects/${form.value.project_id}/meetings`, { method: 'POST', body: JSON.stringify({ title: form.value.title.trim(), purpose_markdown: form.value.purpose_markdown, scheduled_start: new Date(form.value.scheduled_start).toISOString(), scheduled_end: new Date(form.value.scheduled_end).toISOString(), host_user_id: session.user.id, recorder_user_id: session.user.id, summary_markdown: '', raw_notes_markdown: '', participants: [{ user_id: session.user.id, participation_role: 'host' }] }) })
     await router.push(`/meetings/${created.id}`)
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议创建失败' }
+  } catch (caught) { error.value = errorMessage(caught, '会议创建失败') }
   finally { creating.value = false }
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
@@ -31,7 +32,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try { const page = await api<Page<ActionRow>>(query()); rows.value = page.items; total.value = page.total }
-  catch (caught) { error.value = caught instanceof Error ? caught.message : '行动项加载失败' }
+  catch (caught) { error.value = errorMessage(caught, '行动项加载失败') }
   finally { loading.value = false }
 }
 

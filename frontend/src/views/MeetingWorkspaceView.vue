@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
 import { api } from '../api/client'
@@ -10,6 +11,7 @@ import CompletedMeetingChain from '../components/CompletedMeetingChain.vue'
 import ContextDrawer from '../components/ContextDrawer.vue'
 import MeetingCommentsPanel from '../components/MeetingCommentsPanel.vue'
 import MarkdownEditor from '../components/MarkdownEditor.vue'
+import type { MarkdownEditorHandle } from '../components/MarkdownEditor.vue'
 import SaveStateIndicator from '../components/meeting/SaveStateIndicator.vue'
 import PageHeader from '../components/PageHeader.vue'
 import PluginEditorSlot from '../components/PluginEditorSlot.vue'
@@ -18,7 +20,6 @@ import type { Attachment, Meeting } from '../domain/meetings'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
 import { formatDateTime, parseUtcTimestamp } from '../utils/time'
 
-type MarkdownEditorHandle = { flush: () => string }
 
 const route = useRoute()
 const loading = ref(true)
@@ -82,30 +83,25 @@ async function load() {
   try {
     const value = await getMeeting(String(route.params.id))
     acceptMeeting(value, true)
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议加载失败' }
+  } catch (caught) { error.value = errorMessage(caught, '会议加载失败') }
   finally { loading.value = false }
 }
 
 async function saveMeeting() {
-  if (!meeting.value || !canContribute.value) return
+  if (!meeting.value || !canContribute.value) return false
   saving.value = true
   error.value = ''
   try {
     await persistMeetingDraft()
     preparationOpen.value = false
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议保存失败' }
+    return true
+  } catch (caught) { error.value = errorMessage(caught, '会议保存失败') }
   finally { saving.value = false }
+  return false
 }
 
 async function saveMinutes() {
-  if (!meeting.value || !canContribute.value) return
-  saving.value = true
-  error.value = ''
-  try {
-    await persistMeetingDraft()
-    minutesSaved.value = true
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议纪要保存失败' }
-  finally { saving.value = false }
+  if (await saveMeeting()) minutesSaved.value = true
 }
 
 watch(() => draft.value.summary_markdown, () => {
@@ -146,7 +142,7 @@ async function lifecycle(action: LifecycleAction) {
     const value = await runMeetingLifecycle(meeting.value.id, action, meeting.value.version)
     acceptMeeting(value, true)
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '会议状态更新失败'
+    error.value = errorMessage(caught, '会议状态更新失败')
   } finally { lifecycleAction.value = null }
 }
 
@@ -157,7 +153,7 @@ async function refreshAgenda(): Promise<boolean> {
     acceptMeeting(value, false)
     return true
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '议题刷新失败'
+    error.value = errorMessage(caught, '议题刷新失败')
     return false
   }
 }
@@ -178,7 +174,7 @@ async function downloadExport(exporterId: string) {
     anchor.remove()
     URL.revokeObjectURL(url)
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '会议导出失败'
+    error.value = errorMessage(caught, '会议导出失败')
   } finally { exportAction.value = null }
 }
 

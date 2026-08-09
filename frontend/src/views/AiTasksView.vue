@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
@@ -48,7 +49,7 @@ async function load() {
     const value = await api<{ items: PluginJob[] }>('/api/plugin-jobs?include_history=true')
     jobs.value = value.items
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : 'AI 任务加载失败'
+    error.value = errorMessage(reason, 'AI 任务加载失败')
   } finally {
     loading.value = false
   }
@@ -60,7 +61,7 @@ async function cancel(job: PluginJob) {
     await api(`/api/plugin-jobs/${job.id}/cancel`, { method: 'POST' })
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '任务取消失败'
+    error.value = errorMessage(reason, '任务取消失败')
   }
 }
 
@@ -70,7 +71,7 @@ async function rerun(job: PluginJob) {
     await api(`/api/plugin-jobs/${job.id}/rerun`, { method: 'POST' })
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '任务重跑失败'
+    error.value = errorMessage(reason, '任务重跑失败')
   }
 }
 

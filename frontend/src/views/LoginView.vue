@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { SessionUser } from '../auth/session'
@@ -30,7 +31,7 @@ async function submit() {
     })
     emit('loggedIn', user)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '登录失败'
+    error.value = errorMessage(reason, '登录失败')
   } finally {
     submitting.value = false
   }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
+import { subjectHref } from '../utils/links'
 
 export type AttentionItem = {
   subject_type: 'action' | 'decision' | 'meeting' | string
@@ -27,11 +28,7 @@ const reasonLabels: Record<string, string> = {
   meeting_upcoming: '即将开始',
 }
 
-const href = computed(() => {
-  if (props.item.subject_type === 'meeting') return `/meetings/${props.item.subject_id}`
-  if (props.item.subject_type === 'decision') return `/decisions?highlight=${props.item.subject_id}`
-  return `/actions?highlight=${props.item.subject_id}`
-})
+const href = computed(() => subjectHref(props.item.subject_type, props.item.subject_id))
 </script>
 
 <template>

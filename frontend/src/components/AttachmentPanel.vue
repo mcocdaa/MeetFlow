@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { Attachment } from '../domain/meetings'
@@ -45,7 +46,7 @@ async function upload() {
     selected.value = null
     emit('uploaded', attachment)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '附件上传失败'
+    error.value = errorMessage(reason, '附件上传失败')
   } finally {
     busy.value = false
   }
