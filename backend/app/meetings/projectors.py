@@ -3,19 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from app.attachments.models import Attachment
+from app.refs import project_ref, serialize_attachment as serialize_attachment_ref, user_ref
 from app.auth.models import User
 from app.meetings.models import MeetingAmendment, MeetingSnapshot
 from app.projects.models import Project
-
-
-def user_ref(user: User | None) -> dict[str, str] | None:
-    if user is None:
-        return None
-    return {"id": user.id, "username": user.username, "display_name": user.display_name}
-
-
-def project_ref(project: Project) -> dict[str, str]:
-    return {"id": project.id, "name": project.name, "slug": project.slug}
 
 
 def serialize_snapshot(item: MeetingSnapshot) -> dict[str, Any]:
@@ -45,16 +36,6 @@ def serialize_amendment(item: MeetingAmendment) -> dict[str, Any]:
 def serialize_attachment(
     item: Attachment, *, can_delete: bool = False
 ) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "target_type": item.target_type,
-        "target_id": item.target_id,
-        "original_name": item.original_name,
-        "mime_type": item.mime_type,
-        "size": item.size,
-        "attachment_type": item.attachment_type,
-        "created_by": user_ref(item.creator),
-        "created_at": item.created_at,
-        "download_url": f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}",
-        "can_delete": can_delete,
-    }
+    result = serialize_attachment_ref(item)
+    result["can_delete"] = can_delete
+    return result

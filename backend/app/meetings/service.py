@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.lifecycle import actual_duration_seconds, start_planned_item
+from app.refs import project_ref, user_ref
+from app.validation import require_active
+from app.time_utils import as_utc, utcnow
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.activity import ActivityRecorder
@@ -36,11 +39,9 @@ from app.domain.unit_of_work import UnitOfWork
 from app.meetings.lifecycle import MeetingLifecycleCommands
 from app.meetings.policies import LifecyclePolicy
 from app.meetings.projectors import (
-    project_ref as projector_project_ref,
     serialize_amendment as projector_serialize_amendment,
     serialize_attachment as projector_serialize_attachment,
     serialize_snapshot as projector_serialize_snapshot,
-    user_ref as projector_user_ref,
 )
 from app.meetings.queries import MeetingQueries
 from app.outcomes.models import ActionItem, DecisionReviewer, OpenQuestion
@@ -62,15 +63,7 @@ from app.projects.models import Project
 from app.projects.access import WorkspaceAccess
 
 
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 MAX_RECURRENCE_BACKFILL = timedelta(days=90)
-
-
-user_ref = projector_user_ref
-project_ref = projector_project_ref
 
 
 def dedupe_participants(values: Iterable[ParticipantWrite]) -> list[ParticipantWrite]:
@@ -82,13 +75,6 @@ def dedupe_participants(values: Iterable[ParticipantWrite]) -> list[ParticipantW
             seen.add(value.user_id)
             result.append(value)
     return result
-
-
-def as_utc(value: datetime) -> datetime:
-    """Normalize SQLite's naive round-trip as UTC and convert aware values to UTC."""
-    if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def series_relationship_options():
@@ -137,10 +123,6 @@ class MeetingService:
     def __init__(self, session: Session):
         self.session = session
 
-    @staticmethod
-    def _require_active(actor: User) -> None:
-        if actor.status != UserStatus.ACTIVE:
-            raise AppError(403, "active_user_required", "账号尚未启用")
 
     def _project(self, project_id: str) -> Project:
         project = self.session.get(Project, project_id)
@@ -248,7 +230,7 @@ class MeetingService:
     def create_series(
         self, project_id: str, payload: MeetingSeriesWrite, actor: User
     ) -> MeetingSeries:
-        self._require_active(actor)
+        require_active(actor)
         self._project(project_id)
         participants = dedupe_participants(payload.participants)
         self._validate_series_references(
@@ -288,7 +270,7 @@ class MeetingService:
     def update_series(
         self, series_id: str, payload: MeetingSeriesEdit, actor: User
     ) -> MeetingSeries:
-        self._require_active(actor)
+        require_active(actor)
         series = self.get_series(series_id)
         require_version(payload.expected_version, series.version)
         changes = payload.model_dump(
@@ -347,7 +329,7 @@ class MeetingService:
     def create_occurrence(
         self, series_id: str, payload: OccurrenceWrite, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         series = self.get_series(series_id)
         participants = [
             ParticipantWrite(
@@ -570,7 +552,7 @@ class MeetingService:
     def create_meeting(
         self, project_id: str, payload: MeetingWrite, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         self._project(project_id)
         participants = dedupe_participants(payload.participants)
         self._users(
@@ -617,7 +599,7 @@ class MeetingService:
     def update_meeting(
         self, meeting_id: str, payload: MeetingEdit, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         if meeting.status in {MeetingStatus.completed, MeetingStatus.canceled}:
             raise AppError(409, "meeting_locked", "已结束的会议不可直接修改")
@@ -704,7 +686,7 @@ class MeetingService:
     def mark_ready(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.draft:
@@ -717,7 +699,7 @@ class MeetingService:
     def mark_draft(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.ready:
@@ -735,7 +717,7 @@ class MeetingService:
     def _start_impl(
         self, meeting_id: str, payload: LifecycleCommand, actor: User, *, commit: bool = True
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         LifecyclePolicy.require(
@@ -807,7 +789,7 @@ class MeetingService:
     def cancel(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status not in {
@@ -825,7 +807,7 @@ class MeetingService:
     def reopen(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.completed:
@@ -1113,7 +1095,7 @@ class MeetingService:
     def _finish_impl(
         self, meeting_id: str, payload: LifecycleCommand, actor: User, *, commit: bool = True
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self._meeting_for_snapshot(meeting_id)
         require_version(payload.expected_version, meeting.version)
         LifecyclePolicy.require(
@@ -1196,7 +1178,7 @@ class MeetingService:
     def add_amendment(
         self, meeting_id: str, payload: AmendmentWrite, actor: User
     ) -> MeetingAmendment:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.completed:

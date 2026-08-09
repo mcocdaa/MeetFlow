@@ -5,14 +5,11 @@ import logging
 from datetime import datetime, timezone
 
 from app.database import Database
+from app.time_utils import utcnow
 from app.meetings.service import MeetingService
 
 
 logger = logging.getLogger(__name__)
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class MeetingSeriesScheduler:

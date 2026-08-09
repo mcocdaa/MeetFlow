@@ -3,11 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.agendas.models import AgendaItem
+from app.time_utils import as_utc
 from app.domain.enums import AgendaStatus
-
-
-def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 def actual_duration_seconds(item: AgendaItem, finished_at: datetime) -> int:
@@ -15,7 +12,7 @@ def actual_duration_seconds(item: AgendaItem, finished_at: datetime) -> int:
         return 0
     return max(
         0,
-        int((_as_utc(finished_at) - _as_utc(item.started_at)).total_seconds()),
+        int((as_utc(finished_at) - as_utc(item.started_at)).total_seconds()),
     )
 
 

@@ -17,6 +17,7 @@ from app.inbox.models import Notification
 from app.inbox.access import NotificationScope
 from app.inbox.service import InboxService
 from app.meetings.models import Meeting, MeetingParticipant
+from app.refs import project_ref
 from app.meetings.service import as_utc
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.projects.models import Project
@@ -45,10 +46,6 @@ REASON_PRIORITY = {
 }
 
 
-def _project_ref(project: Project) -> dict[str, str]:
-    return {"id": project.id, "name": project.name, "slug": project.slug}
-
-
 def _item(
     subject_type: str,
     subject_id: str,
@@ -59,7 +56,7 @@ def _item(
     return {
         "subject_type": subject_type,
         "subject_id": subject_id,
-        "project": _project_ref(project),
+        "project": project_ref(project),
         "title": title,
         "reasons": [],
         **values,

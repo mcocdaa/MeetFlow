@@ -16,7 +16,7 @@ from app.collaboration.service import CommentService
 from app.database import get_session
 from app.http import utc_response
 from app.projects.access import WorkspaceAccess
-from app.projects.service import user_ref
+from app.refs import user_ref
 
 router = APIRouter(prefix="/api/projects", tags=["collaboration"])
 comments_router = APIRouter(prefix="/api/comments", tags=["comments"])

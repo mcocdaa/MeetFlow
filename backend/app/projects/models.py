@@ -5,6 +5,7 @@ from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
+from app.time_utils import utcnow
 from app.database import Base
 from app.domain.enums import (
     ProjectHealth,
@@ -12,10 +13,6 @@ from app.domain.enums import (
     ProjectStatus,
     ProjectUpdateSource,
 )
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class Project(Base):

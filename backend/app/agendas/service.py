@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.lifecycle import actual_duration_seconds, complete_item, start_planned_item
+from app.time_utils import as_utc, utcnow
+from app.validation import fetch_users, require_active
 from app.agendas.models import AgendaItem
 from app.agendas.outcome_tags import TaggedOutcome, parse_outcome_tags
 from app.agendas.schemas import (
@@ -23,17 +25,9 @@ from app.domain.enums import AgendaStatus, MeetingStatus, OpenQuestionStatus
 from app.domain.versioning import require_version
 from app.errors import AppError
 from app.meetings.models import Meeting
-from app.meetings.service import user_ref
+from app.refs import user_ref
 from app.outcomes.models import ActionItem, Decision, OpenQuestion
 from app.projects.access import WorkspaceAccess
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _aware(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 class AgendaService:
@@ -51,10 +45,6 @@ class AgendaService:
             payload={"title": item.title},
         )
 
-    @staticmethod
-    def _require_active(actor: User) -> None:
-        if actor.status != UserStatus.ACTIVE:
-            raise AppError(403, "active_user_required", "账号尚未启用")
 
     def _meeting(self, meeting_id: str) -> Meeting:
         meeting = self.session.get(Meeting, meeting_id)
@@ -82,21 +72,7 @@ class AgendaService:
             raise AppError(409, "meeting_immutable", "当前会议状态不可修改议程")
 
     def _users(self, user_ids: Iterable[str | None]) -> None:
-        ids = list(dict.fromkeys(user_id for user_id in user_ids if user_id))
-        if not ids:
-            return
-        users = {
-            user.id: user
-            for user in self.session.scalars(select(User).where(User.id.in_(ids)))
-        }
-        missing = [user_id for user_id in ids if user_id not in users]
-        if missing:
-            raise AppError(
-                422,
-                "user_not_found",
-                "议题关联用户不存在",
-                details={"user_ids": missing},
-            )
+        fetch_users(self.session, user_ids, message="议题关联用户不存在")
 
     def get(self, item_id: str) -> AgendaItem:
         item = self.session.get(AgendaItem, item_id)
@@ -314,7 +290,7 @@ class AgendaService:
         *,
         expected_meeting_version: int,
     ) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self._meeting(meeting_id)
         self._require_meeting_contribution(meeting, actor)
         self._require_mutable(meeting)
@@ -354,7 +330,7 @@ class AgendaService:
         return item
 
     def update(self, item_id: str, payload: AgendaEdit, actor: User) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
         self._require_meeting_contribution(meeting, actor)
@@ -398,7 +374,7 @@ class AgendaService:
     def reorder(
         self, meeting_id: str, payload: AgendaReorder, actor: User
     ) -> list[AgendaItem]:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self._meeting(meeting_id)
         self._require_meeting_contribution(meeting, actor)
         self._require_mutable(meeting)
@@ -449,7 +425,7 @@ class AgendaService:
         actor: User,
         target: AgendaStatus,
     ) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
         self._require_meeting_contribution(meeting, actor)
@@ -494,7 +470,7 @@ class AgendaService:
     def complete_and_advance(
         self, item_id: str, payload: AgendaCommand, actor: User
     ) -> tuple[AgendaItem, str | None]:
-        self._require_active(actor)
+        require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
         self._require_meeting_contribution(meeting, actor)
@@ -537,7 +513,7 @@ class AgendaService:
         return item, next_item.id if next_item is not None else None
 
     def start(self, item_id: str, payload: AgendaCommand, actor: User) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
         self._require_meeting_contribution(meeting, actor)
@@ -571,7 +547,7 @@ class AgendaService:
         return self._transition(item_id, payload, actor, AgendaStatus.canceled)
 
     def move(self, item_id: str, payload: AgendaMove, actor: User) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         item = self.get(item_id)
         source = item.meeting
         target = self._meeting(payload.target_meeting_id)
@@ -614,9 +590,9 @@ class AgendaService:
             earliest = utcnow()
             if carried_question.meeting is not None:
                 earliest = max(
-                    earliest, _aware(carried_question.meeting.scheduled_start)
+                    earliest, as_utc(carried_question.meeting.scheduled_start)
                 )
-            if _aware(target.scheduled_start) <= earliest:
+            if as_utc(target.scheduled_start) <= earliest:
                 raise AppError(422, "meeting_not_future", "开放问题只能排入之后的会议")
         if item.copied_from_agenda_item_id:
             duplicate = self.session.scalar(
@@ -697,7 +673,7 @@ class AgendaService:
         *,
         expected_meeting_version: int,
     ) -> None:
-        self._require_active(actor)
+        require_active(actor)
         item = self.get(item_id)
         meeting = item.meeting
         self._require_meeting_contribution(meeting, actor)

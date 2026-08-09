@@ -7,13 +7,10 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth.models import User
+from app.time_utils import utcnow
 from app.errors import AppError
 from app.inbox.access import NotificationScope
 from app.inbox.models import Notification
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 @dataclass(frozen=True)

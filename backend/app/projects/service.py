@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -14,29 +13,20 @@ from app.domain.versioning import require_version
 from app.errors import AppError
 from app.domain.enums import MeetingStatus
 from app.meetings.models import Meeting, MeetingSeries
-from app.meetings.service import utcnow
 from app.attachments.models import Attachment
 from app.outcomes.models import ActionItem, Decision
 from app.outcomes.service import OutcomeService
 from app.projects.models import Project, ProjectMember, ProjectUpdate
 from app.projects.access import WorkspaceAccess
+from app.refs import user_ref
+from app.time_utils import utcnow
+from app.validation import fetch_users, require_active
 from app.projects.schemas import (
     ProjectEdit,
     ProjectUpdateEdit,
     ProjectUpdateWrite,
     ProjectWrite,
 )
-
-
-def user_ref(user: User | None) -> dict[str, str] | None:
-    if user is None:
-        return None
-    return {
-        "id": user.id,
-        "username": user.username,
-        "display_name": user.display_name,
-        "avatar_color": user.avatar_color,
-    }
 
 
 def unique_ids(values: list[str]) -> list[str]:
@@ -59,28 +49,8 @@ class ProjectService:
             raise AppError(404, "project_update_not_found", "项目进展不存在")
         return update
 
-    @staticmethod
-    def _require_active(actor: User) -> None:
-        if actor.status != UserStatus.ACTIVE:
-            raise AppError(403, "active_user_required", "账号尚未启用")
-
     def _users(self, user_ids: list[str]) -> dict[str, User]:
-        ids = unique_ids(user_ids)
-        if not ids:
-            return {}
-        users = {
-            user.id: user
-            for user in self.session.scalars(select(User).where(User.id.in_(ids)))
-        }
-        missing = [user_id for user_id in ids if user_id not in users]
-        if missing:
-            raise AppError(
-                422,
-                "user_not_found",
-                "项目成员不存在",
-                details={"user_ids": missing},
-            )
-        return users
+        return fetch_users(self.session, user_ids, message="项目成员不存在")
 
     def _validate_user_references(
         self, lead_user_id: str | None, member_ids: list[str]
@@ -98,7 +68,7 @@ class ProjectService:
         ]
 
     def create(self, payload: ProjectWrite, actor: User) -> Project:
-        self._require_active(actor)
+        require_active(actor)
         member_ids = self._validate_user_references(
             payload.lead_user_id, unique_ids([*payload.member_ids, actor.id])
         )

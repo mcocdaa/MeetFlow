@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.auth.models import User
+from app.validation import require_active
 from app.domain.unit_of_work import UnitOfWork
 from app.meetings.schemas import LifecycleCommand
 from sqlalchemy.exc import IntegrityError
@@ -26,7 +27,7 @@ class MeetingLifecycleCommands:
         self.uow = uow
 
     def start(self, meeting_id: str, payload: LifecycleCommand, actor: User) -> Meeting:
-        self.service._require_active(actor)
+        require_active(actor)
         try:
             meeting = self.uow.execute(
                 lambda _session: self.service._start_impl(
@@ -38,7 +39,7 @@ class MeetingLifecycleCommands:
         return self.service._reload_meeting(meeting.id)
 
     def finish(self, meeting_id: str, payload: LifecycleCommand, actor: User) -> Meeting:
-        self.service._require_active(actor)
+        require_active(actor)
         try:
             meeting = self.uow.execute(
                 lambda _session: self.service._finish_impl(

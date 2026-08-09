@@ -14,15 +14,12 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
+from app.time_utils import utcnow
 from app.database import Base
 from app.domain.enums import AgendaStatus, AgendaType
 
 if TYPE_CHECKING:
     from app.meetings.models import Meeting
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class AgendaItem(Base):

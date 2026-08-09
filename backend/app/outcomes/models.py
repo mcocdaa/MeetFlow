@@ -16,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
+from app.time_utils import utcnow
 from app.database import Base
 from app.domain.enums import (
     ActionPriority,
@@ -29,10 +30,6 @@ if TYPE_CHECKING:
     from app.agendas.models import AgendaItem
     from app.meetings.models import Meeting
     from app.projects.models import Project
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class Decision(Base):

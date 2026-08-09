@@ -17,6 +17,7 @@ from app.collaboration.activity import ActivityRecorder
 from app.database import get_session
 from app.errors import AppError
 from app.http import utc_response
+from app.refs import serialize_attachment as serialize_attachment_ref
 from app.meetings.models import Meeting
 from app.projects.models import Project
 from app.projects.access import WorkspaceAccess
@@ -101,28 +102,9 @@ def attachment_delete_allowed(
 
 
 def serialize(item: Attachment, *, can_delete: bool = False) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "target_type": item.target_type,
-        "target_id": item.target_id,
-        "original_name": item.original_name,
-        "mime_type": item.mime_type,
-        "size": item.size,
-        "attachment_type": item.attachment_type,
-        "created_by": {
-            "id": item.creator.id,
-            "username": item.creator.username,
-            "display_name": item.creator.display_name,
-        },
-        "created_at": item.created_at,
-        "download_url": (
-            f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}"
-        ),
-        "preview_url": (
-            f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}/preview"
-        ),
-        "can_delete": can_delete,
-    }
+    result = serialize_attachment_ref(item)
+    result["can_delete"] = can_delete
+    return result
 
 
 @router.get("/{target_type}/{target_id}")
