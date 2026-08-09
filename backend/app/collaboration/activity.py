@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.pagination import slice_page
 from app.collaboration.models import ActivityEvent
 
 
@@ -64,7 +65,5 @@ class ActivityRecorder:
                 .limit(limit + 1)
             )
         )
-        has_more = len(rows) > limit
-        items = rows[:limit]
-        next_cursor = items[-1].id if has_more and items else None
+        items, next_cursor, _ = slice_page(rows, limit=limit)
         return ActivityPage(items=items, next_cursor=next_cursor)

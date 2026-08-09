@@ -7,6 +7,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth.models import User
+from app.pagination import slice_page
 from app.time_utils import utcnow
 from app.errors import AppError
 from app.inbox.access import NotificationScope
@@ -102,12 +103,8 @@ class InboxService:
                 .limit(limit + 1)
             )
         )
-        has_more = len(rows) > limit
-        items = rows[:limit]
-        return InboxHistoryPage(
-            items=items,
-            next_cursor=items[-1].id if has_more and items else None,
-        )
+        items, next_cursor, _ = slice_page(rows, limit=limit)
+        return InboxHistoryPage(items=items, next_cursor=next_cursor)
 
     def changes(
         self, user: User, *, cursor: int = 0, limit: int = 50

@@ -22,7 +22,8 @@ from app.meetings.models import (
     MeetingParticipant,
     MeetingSnapshot,
 )
-from app.meetings.service import as_utc, project_ref, user_ref
+from app.meetings.queries import MeetingQueries
+from app.meetings.service import MeetingService
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.outcomes.service import OutcomeService
 from app.projects.access import WorkspaceAccess
@@ -126,92 +127,19 @@ def global_meetings(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    agenda_count = (
-        select(func.count(AgendaItem.id))
-        .where(AgendaItem.meeting_id == Meeting.id)
-        .correlate(Meeting)
-        .scalar_subquery()
-    )
-    snapshot_count = (
-        select(func.count(MeetingSnapshot.id))
-        .where(MeetingSnapshot.meeting_id == Meeting.id)
-        .correlate(Meeting)
-        .scalar_subquery()
-    )
-    amendment_count = (
-        select(func.count(MeetingAmendment.id))
-        .where(MeetingAmendment.meeting_id == Meeting.id)
-        .correlate(Meeting)
-        .scalar_subquery()
-    )
-    statement = select(Meeting, agenda_count, snapshot_count, amendment_count)
-    count_statement = select(func.count()).select_from(Meeting)
-    filters = []
     visible_project_ids = WorkspaceAccess(session).visible_project_ids(user)
-    if visible_project_ids is not None:
-        participant_meeting_ids = select(MeetingParticipant.meeting_id).where(
-            MeetingParticipant.user_id == user.id
-        )
-        filters.append(
-            or_(
-                Meeting.project_id.in_(visible_project_ids),
-                Meeting.id.in_(participant_meeting_ids),
-            )
-        )
-    if project_id:
-        filters.append(Meeting.project_id == project_id)
-    if status:
-        filters.append(Meeting.status == status)
-    if start_after:
-        filters.append(Meeting.scheduled_start >= start_after)
-    if start_before:
-        filters.append(Meeting.scheduled_start <= start_before)
-    if participant_user_id:
-        statement = statement.join(MeetingParticipant)
-        count_statement = count_statement.join(MeetingParticipant)
-        filters.append(MeetingParticipant.user_id == participant_user_id)
-    rows = session.execute(
-        statement.where(*filters)
-        .options(
-            joinedload(Meeting.project),
-            joinedload(Meeting.series),
-            joinedload(Meeting.host),
-            joinedload(Meeting.recorder),
-        )
-        .order_by(Meeting.scheduled_start.desc(), Meeting.id)
-        .limit(limit)
-        .offset(offset)
-    ).all()
-    items = [
-        {
-            "id": meeting.id,
-            "project": project_ref(meeting.project),
-            "series": (
-                {"id": meeting.series.id, "title": meeting.series.title}
-                if meeting.series is not None
-                else None
-            ),
-            "title": meeting.title,
-            "purpose_markdown": meeting.purpose_markdown,
-            "scheduled_start": as_utc(meeting.scheduled_start),
-            "scheduled_end": as_utc(meeting.scheduled_end),
-            "status": meeting.status,
-            "host": user_ref(meeting.host),
-            "recorder": user_ref(meeting.recorder),
-            "version": meeting.version,
-            "agenda_count": agendas,
-            "snapshot_count": snapshots,
-            "amendment_count": amendments,
-            "updated_at": meeting.updated_at,
-        }
-        for meeting, agendas, snapshots, amendments in rows
-    ]
-    return utc_response({
-        "items": items,
-        "total": session.scalar(count_statement.where(*filters)) or 0,
-        "limit": limit,
-        "offset": offset,
-    })
+    page = MeetingQueries(MeetingService(session)).list_meetings(
+        include_details=True,
+        status=status,
+        participant_user_id=participant_user_id,
+        start_after=start_after,
+        start_before=start_before,
+        limit=limit,
+        offset=offset,
+        visible_project_ids=visible_project_ids,
+        access_user_id=user.id,
+    )
+    return utc_response(page)
 
 
 @router.get("/api/attention")

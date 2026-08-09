@@ -10,6 +10,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
 from app.validation import require_active
+from app.pagination import slice_page
 from app.refs import user_ref
 from app.time_utils import utcnow
 from app.auth.models import User, UserRole, UserStatus
@@ -450,9 +451,7 @@ class CommentService:
                 .limit(limit + 1)
             )
         )
-        has_more = len(roots) > limit
-        items = roots[:limit]
-        next_cursor = items[-1].id if has_more and items else None
+        items, next_cursor, _ = slice_page(roots, limit=limit)
         reply_rows_by_parent = {item.id: [] for item in items}
         root_ids = [item.id for item in items]
         if root_ids:
