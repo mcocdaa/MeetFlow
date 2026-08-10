@@ -174,9 +174,36 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .user-row .grow { display: grid; gap: 3px; }
 .user-row .muted { font-size: .76rem; }
 .status-pill { display: inline-flex; width: fit-content; padding: 5px 8px; border-radius: 99px; color: #59615c; background: #e9e9e4; font-size: .68rem; font-weight: 850; }
-.status-pill[data-status="active"] { color: var(--green-dark); background: var(--green-soft); }
-.status-pill[data-status="pending"] { color: #785318; background: #f8e8c8; }
-.status-pill[data-status="rejected"], .status-pill[data-status="disabled"] { color: #8d312a; background: #f6deda; }
+/* 进行中 / 生效中 —— 绿色系 */
+.status-pill[data-status="active"], .status-pill[data-status="in_progress"],
+.status-pill[data-status="final"], .status-pill[data-status="done"],
+.status-pill[data-status="resolved"], .status-pill[data-status="applied"] {
+  color: var(--green-dark); background: var(--green-soft);
+}
+/* 待办 / 草稿 —— 琥珀色系 */
+.status-pill[data-status="pending"], .status-pill[data-status="draft"],
+.status-pill[data-status="ready"], .status-pill[data-status="planned"],
+.status-pill[data-status="open"], .status-pill[data-status="proposed"],
+.status-pill[data-status="scheduled"], .status-pill[data-status="queued"],
+.status-pill[data-status="requesting"] {
+  color: #785318; background: #f8e8c8;
+}
+/* 已完成 / 已跳过 —— 浅绿 */
+.status-pill[data-status="completed"], .status-pill[data-status="skipped"],
+.status-pill[data-status="succeeded"], .status-pill[data-status="interrupted"] {
+  color: #4c7566; background: #ddefe8;
+}
+/* 取消 / 撤回 / 异常 —— 红 / 灰 */
+.status-pill[data-status="rejected"], .status-pill[data-status="disabled"],
+.status-pill[data-status="canceled"], .status-pill[data-status="withdrawn"],
+.status-pill[data-status="superseded"], .status-pill[data-status="dropped"],
+.status-pill[data-status="failed"], .status-pill[data-status="dismissed"] {
+  color: #8d312a; background: #f6deda;
+}
+/* 优先级 tag 配色 */
+.tag[data-priority="urgent"] { color: #8d312a; background: #f6deda; }
+.tag[data-priority="high"] { color: #785318; background: #f8e8c8; }
+.tag[data-priority="low"] { color: #66727f; background: #e9e9e4; }
 .ai-task-status[data-status="ready"], .ai-task-status[data-status="applied"] { color: var(--green-dark); background: var(--green-soft); }
 .ai-task-status[data-status="processing"] { color: #785318; background: #f8e8c8; }
 .ai-task-status[data-status="failed"] { color: #8d312a; background: #f6deda; }

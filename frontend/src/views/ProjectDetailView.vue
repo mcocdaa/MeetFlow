@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import StatusPill from '../components/StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 import { useRoute } from 'vue-router'
 
@@ -48,13 +49,6 @@ const healthLabels: Record<ProjectHealth, string> = {
   at_risk: '存在风险',
   off_track: '偏离计划',
   unset: '未设置',
-}
-const statusLabels: Record<ProjectStatus, string> = {
-  planned: '计划中',
-  active: '进行中',
-  paused: '已暂停',
-  completed: '已完成',
-  canceled: '已取消',
 }
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'overview', label: '概览' },
@@ -152,7 +146,7 @@ onMounted(load)
       <PageHeader eyebrow="Project workspace" :title="project.name" :summary="project.summary">
         <template #meta>
           <div class="project-context">
-            <span class="status-pill">{{ statusLabels[project.status] }}</span>
+            <StatusPill :status="project.status" kind="project" />
             <span><i class="health-dot" :data-health="project.health"></i>{{ healthLabels[project.health] }}</span>
             <span>负责人：{{ project.lead?.display_name ?? '未指定' }}</span>
             <span>成员：{{ project.memberships.length }}</span>

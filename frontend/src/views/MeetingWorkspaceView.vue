@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import StatusPill from '../components/StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
@@ -197,7 +198,7 @@ onBeforeUnmount(() => {
       <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${formatDateTime(meeting.scheduled_start)} · ${meeting.participants.length} 位参与者`">
         <template #meta>
           <div class="project-context">
-            <span class="status-pill" :data-status="meeting.status">{{ meeting.status === 'draft' || meeting.status === 'ready' ? '待开始' : meeting.status === 'in_progress' ? '会议进行中' : '会议已完成' }}</span>
+            <StatusPill :status="meeting.status" kind="meeting" />
             <span v-if="meeting.status === 'in_progress' && liveElapsed" class="meeting-live-clock">进行 {{ liveElapsed }}</span>
             <span>主持：{{ meeting.host?.display_name ?? '未指定' }}</span>
             <span>记录：{{ meeting.recorder?.display_name ?? '未指定' }}</span>

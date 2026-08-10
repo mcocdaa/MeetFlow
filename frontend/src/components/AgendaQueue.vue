@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { agendaStatusLabel } from '../utils/status'
+import { statusLabel } from '../utils/labels'
 import { errorMessage } from '../utils/errors'
 
 import { api, ApiError } from '../api/client'
@@ -129,7 +129,7 @@ async function remove(item: AgendaItem) {
     <p v-if="error || openError" class="notice notice-error">{{ error || openError }}</p>
     <div class="agenda-queue-list">
       <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" :draggable="canContribute" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
-        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ agendaStatusLabel(item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
+        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
         <div v-if="canContribute" class="agenda-menu"><button class="agenda-menu-trigger" :aria-label="`议题“${item.title}”的更多操作`" :aria-expanded="menuId === item.id" @click="menuId = menuId === item.id ? '' : item.id">•••</button><div v-if="menuId === item.id"><button @click="emit('select', item.id); menuId = ''">编辑详情</button><button @click="command(item, 'cancel')">取消议题</button><button class="danger-link" @click="remove(item)">删除议题</button></div></div>
         <div v-if="canContribute && guardedId === item.id" class="agenda-guard"><button class="button button-small button-danger" @click="command(item, 'cancel')">改为取消</button><span>产出迁移将在会议工作台中处理</span></div>
       </article>

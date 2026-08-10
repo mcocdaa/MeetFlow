@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { agendaStatusLabel } from '../utils/status'
+import StatusPill from './StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 
 import { api, ApiError } from '../api/client'
@@ -104,7 +104,7 @@ async function complete() {
 
 <template>
   <div class="agenda-detail" data-testid="agenda-detail">
-    <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" :readonly="!canContribute" /></div><span class="status-pill" :data-status="item.status">{{ agendaStatusLabel(props.item.status) }}</span></header>
+    <header class="agenda-detail-header"><div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" :readonly="!canContribute" /></div><StatusPill :status="props.item.status" kind="agenda" /></header>
     <div class="agenda-meta-fields"><label>类型<select v-model="draft.agenda_type" :disabled="!canContribute"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label><label>预计时长<input v-model.number="draft.estimated_minutes" type="number" min="1" max="480" :disabled="!canContribute" /></label></div>
     <div class="agenda-notes">
       <span v-if="!canContribute || !hasAgendaNotesAssistant" class="agenda-notes-label">议题记录</span>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import StatusPill from '../components/StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
@@ -16,10 +17,6 @@ const pendingCount = computed(() => users.value.filter((user) => user.status ===
 const activeUsers = computed(() => users.value.filter((user) => user.status === 'active'))
 const applicationUsers = computed(() => users.value.filter((user) => user.status === 'pending' || user.status === 'rejected'))
 const archivedUsers = computed(() => users.value.filter((user) => user.status === 'disabled'))
-const statusLabel: Record<UserStatus, string> = {
-  pending: '待审批', active: '已启用', rejected: '已拒绝', disabled: '已归档',
-}
-
 async function load() {
   loading.value = true
   error.value = ''
@@ -99,7 +96,7 @@ onMounted(load)
         <article v-for="user in activeUsers" :key="user.id" class="user-row">
           <div class="avatar">{{ user.display_name.slice(0, 1).toUpperCase() }}</div>
           <div class="grow"><strong>{{ user.display_name }}</strong><span class="muted">@{{ user.username }} · {{ user.role === 'admin' ? '管理员' : '成员' }}</span></div>
-          <span class="status-pill" :data-status="user.status">{{ statusLabel[user.status] }}</span>
+          <StatusPill :status="user.status" kind="user" />
           <div class="row-actions">
             <button v-if="user.role !== 'admin'" class="button button-small button-danger" @click="transition(user.id, 'disable')">归档成员</button>
             <button v-if="user.role !== 'admin'" class="button button-small button-quiet" @click="resetPassword(user)">重置密码</button>
@@ -113,7 +110,7 @@ onMounted(load)
         <article v-for="user in applicationUsers" :key="user.id" class="user-row">
           <div class="avatar">{{ user.display_name.slice(0, 1).toUpperCase() }}</div>
           <div class="grow"><strong>{{ user.display_name }}</strong><span class="muted">@{{ user.username }} · 成员</span></div>
-          <span class="status-pill" :data-status="user.status">{{ statusLabel[user.status] }}</span>
+          <StatusPill :status="user.status" kind="user" />
           <div class="row-actions">
             <button v-if="user.status === 'pending'" class="button button-small" @click="transition(user.id, 'approve')">批准</button>
             <button v-if="user.status === 'pending'" class="button button-small button-quiet" @click="transition(user.id, 'reject')">拒绝</button>
@@ -128,7 +125,7 @@ onMounted(load)
         <article v-for="user in archivedUsers" :key="user.id" class="user-row">
           <div class="avatar">{{ user.display_name.slice(0, 1).toUpperCase() }}</div>
           <div class="grow"><strong>{{ user.display_name }}</strong><span class="muted">@{{ user.username }} · 成员</span></div>
-          <span class="status-pill" :data-status="user.status">{{ statusLabel[user.status] }}</span>
+          <StatusPill :status="user.status" kind="user" />
           <div class="row-actions"><button class="button button-small" @click="transition(user.id, 'restore')">恢复成员</button></div>
         </article>
       </div>

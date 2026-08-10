@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import StatusPill from './StatusPill.vue'
 import { RouterLink } from 'vue-router'
 
 import type { AttentionItem } from './AttentionCard.vue'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
 import { subjectHref } from '../utils/links'
+import { priorityLabel } from '../utils/labels'
 import { formatDate, formatDateTime } from '../utils/time'
 
 const props = defineProps<{
@@ -51,7 +53,7 @@ const attentionLink = (item: AttentionItem) => subjectHref(item.subject_type, it
       <RouterLink v-if="project.next_meeting" class="next-meeting-card" :to="`/meetings/${project.next_meeting.id}`">
         <strong>{{ project.next_meeting.title }}</strong>
         <time>{{ formatDateTime(project.next_meeting.scheduled_start) }}</time>
-        <span>{{ project.next_meeting.status }} · 打开会议 →</span>
+        <span><StatusPill :status="project.next_meeting.status" kind="meeting" /> · 打开会议 →</span>
       </RouterLink>
       <p v-else class="muted">暂未安排下一次会议。</p>
     </section>
@@ -67,7 +69,7 @@ const attentionLink = (item: AttentionItem) => subjectHref(item.subject_type, it
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading"><h2>近期行动项</h2><button class="text-link" @click="emit('openTab', 'actions')">查看全部</button></div>
       <div v-if="actionRows.length" class="project-dashboard-list">
-        <RouterLink v-for="item in actionRows" :key="item.id" class="compact-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/actions?highlight=${item.id}`"><strong>{{ item.content }}</strong><span>{{ item.due_date ? `截止 ${item.due_date}` : '未设截止日期' }} · {{ item.priority }}</span></RouterLink>
+        <RouterLink v-for="item in actionRows" :key="item.id" class="compact-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/actions?highlight=${item.id}`"><strong>{{ item.content }}</strong><span>{{ item.due_date ? `截止 ${item.due_date}` : '未设截止日期' }} · {{ priorityLabel(item.priority) }}</span></RouterLink>
       </div>
       <p v-else class="muted">没有未完成行动项。</p>
     </section>
@@ -75,7 +77,7 @@ const attentionLink = (item: AttentionItem) => subjectHref(item.subject_type, it
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading"><h2>近期决策</h2><button class="text-link" @click="emit('openTab', 'decisions')">查看全部</button></div>
       <div v-if="decisionRows.length" class="project-dashboard-list">
-        <RouterLink v-for="item in decisionRows" :key="item.id" class="compact-row" :to="`/decisions?highlight=${item.id}`"><strong>{{ item.title }}</strong><span>{{ item.status }}</span></RouterLink>
+        <RouterLink v-for="item in decisionRows" :key="item.id" class="compact-row" :to="`/decisions?highlight=${item.id}`"><strong>{{ item.title }}</strong><span><StatusPill :status="item.status" kind="decision" /></span></RouterLink>
       </div>
       <p v-else class="muted">尚未形成项目决策。</p>
     </section>
