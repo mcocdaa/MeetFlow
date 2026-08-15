@@ -17,13 +17,6 @@ export function getMeeting(id: string) {
   return api<Meeting>(`/api/meetings/${id}`)
 }
 
-export function updateMeeting(id: string, body: MeetingUpdate) {
-  return api<Meeting>(`/api/meetings/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
-}
-
 export function runMeetingLifecycle(id: string, action: LifecycleAction, expectedVersion: number) {
   return api<Meeting>(`/api/meetings/${id}/${action}`, {
     method: 'POST',

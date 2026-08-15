@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import StatusPill from '../components/StatusPill.vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 
@@ -57,7 +59,7 @@ async function load() {
       // Keep failedEvents from /api/admin/plugins as the fallback.
     }
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '插件列表加载失败'
+    error.value = errorMessage(reason, '插件列表加载失败')
   }
 }
 
@@ -93,7 +95,7 @@ async function toggle(plugin: PluginInfo) {
     await load()
   } catch (reason) {
     plugin.enabled = !plugin.enabled
-    error.value = reason instanceof Error ? reason.message : '插件状态更新失败'
+    error.value = errorMessage(reason, '插件状态更新失败')
   }
 }
 
@@ -104,7 +106,7 @@ async function retryEvent(eventId: string) {
     await api(`/api/admin/plugins/events/${encodeURIComponent(eventId)}/retry`, { method: 'POST' })
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '插件事件重试失败'
+    error.value = errorMessage(reason, '插件事件重试失败')
   } finally {
     retryingEvent.value = ''
   }
@@ -125,7 +127,7 @@ onMounted(load)
     <p v-if="restartRequired" class="notice notice-warning">插件启用状态已保存，重启后生效。</p>
     <div v-if="plugins.length" class="plugin-grid">
       <article v-for="plugin in plugins" :key="plugin.id" class="panel plugin-card">
-        <div class="plugin-card-heading"><div class="plugin-icon">⌁</div><div class="grow"><div class="tag-row"><span class="tag">v{{ plugin.version }}</span><span v-if="plugin.load_error" class="status-pill" data-status="rejected">加载失败</span></div><h2>{{ plugin.name }}</h2><p>{{ plugin.description || plugin.id }}</p></div><label class="switch"><input :checked="plugin.enabled" type="checkbox" :aria-label="`启用 ${plugin.name}`" @change="toggle(plugin)" /><span></span></label></div>
+        <div class="plugin-card-heading"><div class="plugin-icon">⌁</div><div class="grow"><div class="tag-row"><span class="tag">v{{ plugin.version }}</span><StatusPill v-if="plugin.load_error" status="rejected" label="加载失败" /></div><h2>{{ plugin.name }}</h2><p>{{ plugin.description || plugin.id }}</p></div><label class="switch"><input :checked="plugin.enabled" type="checkbox" :aria-label="`启用 ${plugin.name}`" @change="toggle(plugin)" /><span></span></label></div>
         <p v-if="plugin.load_error" class="notice notice-error">{{ plugin.load_error }}</p>
         <div v-if="plugin.capabilities" class="plugin-capabilities" aria-label="插件能力">
           <span class="tag">API v{{ plugin.api_version ?? 1 }}</span>
@@ -141,7 +143,7 @@ onMounted(load)
             <input v-else v-model="drafts[plugin.id][field.key]" type="text" :required="field.required" />
             <small v-if="field.description">{{ field.description }}</small>
           </label>
-          <div v-for="field in plugin.config_schema.secrets ?? []" :key="field.key" class="secret-field"><label>{{ field.label || field.key }}<input v-model="drafts[plugin.id][field.key]" type="password" autocomplete="new-password" :placeholder="secretConfigured(plugin, field.key) ? '留空则保持不变' : '尚未配置'" /></label><div class="secret-state"><span v-if="secretConfigured(plugin, field.key)" class="status-pill" data-status="active">已配置</span><button v-if="secretConfigured(plugin, field.key)" type="button" class="button button-small button-danger" @click="clearSecret(plugin, field.key)">清除</button></div></div>
+          <div v-for="field in plugin.config_schema.secrets ?? []" :key="field.key" class="secret-field"><label>{{ field.label || field.key }}<input v-model="drafts[plugin.id][field.key]" type="password" autocomplete="new-password" :placeholder="secretConfigured(plugin, field.key) ? '留空则保持不变' : '尚未配置'" /></label><div class="secret-state"><StatusPill v-if="secretConfigured(plugin, field.key)" status="active" label="已配置" /><button v-if="secretConfigured(plugin, field.key)" type="button" class="button button-small button-danger" @click="clearSecret(plugin, field.key)">清除</button></div></div>
           <button class="button button-primary" :disabled="saving === plugin.id">{{ saving === plugin.id ? '保存中…' : '保存配置' }}</button>
         </form>
       </article>

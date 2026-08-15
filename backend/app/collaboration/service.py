@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
+from app.validation import require_active
+from app.pagination import slice_page
+from app.refs import user_ref
+from app.time_utils import utcnow
 from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.activity import ActivityRecorder
 from app.collaboration.models import Comment, CommentMention
@@ -28,19 +32,6 @@ SUPPORTED_TARGETS = {
     "decision": Decision,
     "action_item": ActionItem,
 }
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def user_ref(user: User) -> dict[str, str]:
-    return {
-        "id": user.id,
-        "username": user.username,
-        "display_name": user.display_name,
-        "avatar_color": user.avatar_color,
-    }
 
 
 def comment_options():
@@ -71,10 +62,6 @@ class CommentService:
     def __init__(self, session: Session):
         self.session = session
 
-    @staticmethod
-    def _require_active(actor: User) -> None:
-        if actor.status != UserStatus.ACTIVE:
-            raise AppError(403, "active_user_required", "账号尚未启用")
 
     def _target_context(
         self, target_type: str, target_id: str
@@ -199,7 +186,7 @@ class CommentService:
         ) from exc
 
     def create(self, payload: CommentWrite, actor: User) -> Comment:
-        self._require_active(actor)
+        require_active(actor)
         project_id, meeting_id = self._target_context(
             payload.target_type, payload.target_id
         )
@@ -287,7 +274,7 @@ class CommentService:
         return self._get_loaded(comment_id)
 
     def update(self, comment_id: str, payload: CommentEdit, actor: User) -> Comment:
-        self._require_active(actor)
+        require_active(actor)
         comment = self._get_loaded(comment_id)
         self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
@@ -333,7 +320,7 @@ class CommentService:
         return self._get_loaded(comment_id)
 
     def delete(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
-        self._require_active(actor)
+        require_active(actor)
         comment = self._get_loaded(comment_id)
         self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.created_by != actor.id and actor.role != UserRole.ADMIN:
@@ -359,7 +346,7 @@ class CommentService:
         return self._get_loaded(comment_id)
 
     def resolve(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
-        self._require_active(actor)
+        require_active(actor)
         comment = self._get_loaded(comment_id)
         self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.parent_id is not None:
@@ -384,7 +371,7 @@ class CommentService:
         return self._get_loaded(comment_id)
 
     def reopen(self, comment_id: str, payload: CommentCommand, actor: User) -> Comment:
-        self._require_active(actor)
+        require_active(actor)
         comment = self._get_loaded(comment_id)
         self._require_comment_access(comment.project_id, comment.meeting_id, actor)
         if comment.parent_id is not None:
@@ -464,9 +451,7 @@ class CommentService:
                 .limit(limit + 1)
             )
         )
-        has_more = len(roots) > limit
-        items = roots[:limit]
-        next_cursor = items[-1].id if has_more and items else None
+        items, next_cursor, _ = slice_page(roots, limit=limit)
         reply_rows_by_parent = {item.id: [] for item in items}
         root_ids = [item.id for item in items]
         if root_ids:

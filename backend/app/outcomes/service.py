@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
+from app.time_utils import as_utc, utcnow
+from app.validation import fetch_users, require_active
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
 from app.domain.enums import (
@@ -49,14 +51,6 @@ from app.outcomes.schemas import (
 )
 from app.projects.access import WorkspaceAccess
 from app.projects.models import Project
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _aware(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 class OutcomeService:
@@ -152,10 +146,6 @@ class OutcomeService:
             "scheduled_meeting_id": question.scheduled_meeting_id,
         }
 
-    @staticmethod
-    def _require_active(actor: User) -> None:
-        if actor.status != UserStatus.ACTIVE:
-            raise AppError(403, "active_user_required", "账号尚未启用")
 
     def _project(self, project_id: str) -> Project:
         project = self.session.get(Project, project_id)
@@ -164,26 +154,12 @@ class OutcomeService:
         return project
 
     def _users(self, user_ids: Iterable[str | None]) -> None:
-        ids = list(dict.fromkeys(value for value in user_ids if value))
-        if not ids:
-            return
-        found = {
-            user.id: user
-            for user in self.session.scalars(select(User).where(User.id.in_(ids)))
-        }
-        missing = [value for value in ids if value not in found]
-        inactive = [
-            value
-            for value in ids
-            if value in found and found[value].status != UserStatus.ACTIVE
-        ]
-        if missing or inactive:
-            raise AppError(
-                422,
-                "user_not_found",
-                "关联用户不存在或未启用",
-                details={"user_ids": missing + inactive},
-            )
+        fetch_users(
+            self.session,
+            user_ids,
+            message="关联用户不存在或未启用",
+            check_active=True,
+        )
 
     def require_source_chain(
         self,
@@ -209,7 +185,6 @@ class OutcomeService:
     def _commit(
         self,
         *,
-        entity: str = "outcome",
         model: type | None = None,
         entity_id: str | None = None,
         expected_version: int | None = None,
@@ -238,7 +213,7 @@ class OutcomeService:
                 if actual is not None:
                     require_version(expected_version, actual)
             raise AppError(
-                409, "version_conflict", f"{entity}已更新，请刷新后重试"
+                409, "version_conflict", "记录已被其他操作更新，请刷新后重试"
             ) from exc
 
     def _touch_meetings(self, actor: User, *meeting_ids: str | None) -> dict[str, int]:
@@ -265,7 +240,7 @@ class OutcomeService:
     def create_decision(
         self, project_id: str, payload: DecisionWrite, actor: User
     ) -> Decision:
-        self._require_active(actor)
+        require_active(actor)
         self._require_project_contribution(project_id, actor)
         _, meeting, _ = self.require_source_chain(
             project_id, payload.meeting_id, payload.agenda_item_id
@@ -296,13 +271,13 @@ class OutcomeService:
         )
         self._notify_decision_review(decision, actor, payload.reviewer_ids)
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
-        self._commit(entity="决策", meeting_versions=meeting_versions)
+        self._commit(meeting_versions=meeting_versions)
         return self._decision(decision.id)
 
     def update_decision(
         self, decision_id: str, payload: DecisionEdit, actor: User
     ) -> Decision:
-        self._require_active(actor)
+        require_active(actor)
         decision = self._decision(decision_id)
         self._require_project_contribution(decision.project_id, actor)
         if decision.source_agenda_item_id is not None:
@@ -352,7 +327,6 @@ class OutcomeService:
                     set(reviewer_ids) - existing_reviewer_ids,
                 )
             self._commit(
-                entity="决策",
                 model=Decision,
                 entity_id=decision.id,
                 expected_version=payload.expected_version,
@@ -363,7 +337,7 @@ class OutcomeService:
     def review_decision(
         self, decision_id: str, payload: DecisionReviewWrite, actor: User
     ) -> Decision:
-        self._require_active(actor)
+        require_active(actor)
         decision = self._decision(decision_id)
         self._require_project_contribution(decision.project_id, actor)
         require_version(payload.expected_version, decision.version)
@@ -391,7 +365,6 @@ class OutcomeService:
             payload={"title": decision.title, "status": payload.status},
         )
         self._commit(
-            entity="决策",
             model=Decision,
             entity_id=decision.id,
             expected_version=payload.expected_version,
@@ -402,7 +375,7 @@ class OutcomeService:
     def finalize_decision(
         self, decision_id: str, payload: DecisionFinalizeWrite, actor: User
     ) -> Decision:
-        self._require_active(actor)
+        require_active(actor)
         decision = self._decision(decision_id)
         self._require_project_contribution(decision.project_id, actor)
         require_version(payload.expected_version, decision.version)
@@ -422,7 +395,6 @@ class OutcomeService:
             payload={"title": decision.title},
         )
         self._commit(
-            entity="决策",
             model=Decision,
             entity_id=decision.id,
             expected_version=payload.expected_version,
@@ -433,7 +405,7 @@ class OutcomeService:
     def withdraw_decision(
         self, decision_id: str, payload: DecisionFinalizeWrite, actor: User
     ) -> Decision:
-        self._require_active(actor)
+        require_active(actor)
         decision = self._decision(decision_id)
         self._require_project_contribution(decision.project_id, actor)
         require_version(payload.expected_version, decision.version)
@@ -452,7 +424,6 @@ class OutcomeService:
             payload={"title": decision.title},
         )
         self._commit(
-            entity="决策",
             model=Decision,
             entity_id=decision.id,
             expected_version=payload.expected_version,
@@ -463,7 +434,7 @@ class OutcomeService:
     def supersede_decision(
         self, decision_id: str, payload: DecisionSupersedeWrite, actor: User
     ) -> Decision:
-        self._require_active(actor)
+        require_active(actor)
         old = self._decision(decision_id)
         new = self._decision(payload.new_decision_id)
         self._require_project_contribution(old.project_id, actor)
@@ -494,22 +465,22 @@ class OutcomeService:
             subject_id=old.id,
             payload={"title": old.title, "replacement_id": new.id},
         )
-        self._commit(entity="决策", meeting_versions=meeting_versions)
+        self._commit(meeting_versions=meeting_versions)
         return self._decision(new.id)
 
     def _action(self, action_id: str) -> ActionItem:
         action = self.session.get(ActionItem, action_id)
         if action is None:
-            raise AppError(404, "action_not_found", "行动项不存在")
+            raise AppError(404, "action_not_found", "不存在")
         return action
 
     def create_action(
         self, project_id: str, payload: ActionWrite, actor: User
     ) -> ActionItem:
-        self._require_active(actor)
+        require_active(actor)
         self._require_project_contribution(project_id, actor)
         if payload.project_id != project_id:
-            raise AppError(422, "source_mismatch", "行动项项目与路径项目不匹配")
+            raise AppError(422, "source_mismatch", "项目与路径项目不匹配")
         _, meeting, _ = self.require_source_chain(
             project_id, payload.meeting_id, payload.agenda_item_id
         )
@@ -534,14 +505,14 @@ class OutcomeService:
         )
         self._notify_action_assignment(action, actor)
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
-        self._commit(entity="行动项", meeting_versions=meeting_versions)
+        self._commit(meeting_versions=meeting_versions)
         self.session.refresh(action)
         return action
 
     def update_action(
         self, action_id: str, payload: ActionEdit, actor: User
     ) -> ActionItem:
-        self._require_active(actor)
+        require_active(actor)
         action = self._action(action_id)
         self._require_project_contribution(action.project_id, actor)
         if action.source_agenda_item_id is not None:
@@ -593,7 +564,6 @@ class OutcomeService:
             ):
                 self._notify_action_assignment(action, actor)
             self._commit(
-                entity="行动项",
                 model=ActionItem,
                 entity_id=action.id,
                 expected_version=payload.expected_version,
@@ -605,13 +575,13 @@ class OutcomeService:
     def _question(self, question_id: str) -> OpenQuestion:
         question = self.session.get(OpenQuestion, question_id)
         if question is None:
-            raise AppError(404, "question_not_found", "开放问题不存在")
+            raise AppError(404, "question_not_found", "不存在")
         return question
 
     def create_question(
         self, project_id: str, payload: QuestionWrite, actor: User
     ) -> OpenQuestion:
-        self._require_active(actor)
+        require_active(actor)
         self._require_project_contribution(project_id, actor)
         _, meeting, _ = self.require_source_chain(
             project_id, payload.meeting_id, payload.agenda_item_id
@@ -632,14 +602,14 @@ class OutcomeService:
             payload=self._question_payload(question),
         )
         meeting_versions = self._touch_meetings(actor, meeting.id if meeting else None)
-        self._commit(entity="开放问题", meeting_versions=meeting_versions)
+        self._commit(meeting_versions=meeting_versions)
         self.session.refresh(question)
         return question
 
     def update_question(
         self, question_id: str, payload: QuestionEdit, actor: User
     ) -> OpenQuestion:
-        self._require_active(actor)
+        require_active(actor)
         question = self._question(question_id)
         self._require_project_contribution(question.project_id, actor)
         if question.source_agenda_item_id is not None:
@@ -663,7 +633,6 @@ class OutcomeService:
                 payload=self._question_payload(question),
             )
             self._commit(
-                entity="开放问题",
                 model=OpenQuestion,
                 entity_id=question.id,
                 expected_version=payload.expected_version,
@@ -683,7 +652,7 @@ class OutcomeService:
     def schedule_question(
         self, question_id: str, payload: QuestionScheduleWrite, actor: User
     ) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         question = self._question(question_id)
         self._require_project_contribution(question.project_id, actor)
         require_version(payload.expected_version, question.version)
@@ -691,9 +660,9 @@ class OutcomeService:
             question.status == OpenQuestionStatus.scheduled
             or question.scheduled_meeting_id
         ):
-            raise AppError(409, "question_already_scheduled", "开放问题已排入会议")
+            raise AppError(409, "question_already_scheduled", "已排入会议")
         if question.status != OpenQuestionStatus.open:
-            raise AppError(409, "question_not_open", "开放问题当前不可排期")
+            raise AppError(409, "question_not_open", "当前不可排期")
         meeting = self.session.get(Meeting, payload.meeting_id)
         if meeting is None:
             raise AppError(404, "source_not_found", "目标会议不存在")
@@ -701,13 +670,13 @@ class OutcomeService:
         require_version(payload.expected_meeting_version, meeting.version)
         self._mutable_meeting(meeting)
         if meeting.project_id != question.project_id:
-            raise AppError(422, "source_mismatch", "目标会议与开放问题不属于同一项目")
+            raise AppError(422, "source_mismatch", "目标会议与不属于同一项目")
         origin = question.meeting
         earliest = utcnow()
         if origin is not None:
-            earliest = max(earliest, _aware(origin.scheduled_start))
-        if _aware(meeting.scheduled_start) <= earliest:
-            raise AppError(422, "meeting_not_future", "开放问题只能排入之后的会议")
+            earliest = max(earliest, as_utc(origin.scheduled_start))
+        if as_utc(meeting.scheduled_start) <= earliest:
+            raise AppError(422, "meeting_not_future", "只能排入之后的会议")
         position = (
             self.session.scalar(
                 select(func.count())
@@ -739,19 +708,19 @@ class OutcomeService:
             subject_id=question.id,
             payload=self._question_payload(question),
         )
-        self._commit(entity="开放问题或会议", meeting_versions=meeting_versions)
+        self._commit(meeting_versions=meeting_versions)
         self.session.refresh(item)
         return item
 
     def resolve_question(
         self, question_id: str, payload: QuestionResolveWrite, actor: User
     ) -> OpenQuestion:
-        self._require_active(actor)
+        require_active(actor)
         question = self._question(question_id)
         self._require_project_contribution(question.project_id, actor)
         require_version(payload.expected_version, question.version)
         if question.status in {OpenQuestionStatus.resolved, OpenQuestionStatus.dropped}:
-            raise AppError(409, "question_already_closed", "开放问题已关闭")
+            raise AppError(409, "question_already_closed", "已关闭")
         if payload.decision_id:
             decision = self._decision(payload.decision_id)
             self._require_project_contribution(decision.project_id, actor)
@@ -776,7 +745,6 @@ class OutcomeService:
             payload=self._question_payload(question),
         )
         self._commit(
-            entity="开放问题",
             model=OpenQuestion,
             entity_id=question.id,
             expected_version=payload.expected_version,
@@ -798,7 +766,7 @@ class OutcomeService:
     def migrate_agenda_outcomes(
         self, source_id: str, payload: AgendaOutcomeMigrationWrite, actor: User
     ) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         source = self.session.get(AgendaItem, source_id)
         target = self.session.get(AgendaItem, payload.target_agenda_item_id)
         if source is None or target is None:
@@ -892,13 +860,13 @@ class OutcomeService:
                 "outcome_ids": [row["id"] for row in moved_rows],
             },
         )
-        self._commit(entity="议题产物", meeting_versions=meeting_versions)
+        self._commit(meeting_versions=meeting_versions)
         return target
 
     def convert_agenda_to_question(
         self, source_id: str, payload: AgendaConvertWrite, actor: User
     ) -> OpenQuestion:
-        self._require_active(actor)
+        require_active(actor)
         source = self.session.get(AgendaItem, source_id)
         if source is None:
             raise AppError(404, "source_not_found", "源议题不存在")
@@ -909,13 +877,13 @@ class OutcomeService:
             )
         )
         if existing is not None:
-            raise AppError(409, "agenda_already_converted", "议题已转为开放问题")
+            raise AppError(409, "agenda_already_converted", "议题已转为")
         require_version(payload.expected_source_version, source.version)
         source_meeting = source.meeting
         require_version(payload.expected_source_meeting_version, source_meeting.version)
         self._mutable_meeting(source_meeting)
         if source.status != AgendaStatus.skipped:
-            raise AppError(409, "agenda_not_skipped", "只有跳过的议题可转为开放问题")
+            raise AppError(409, "agenda_not_skipped", "只有跳过的议题可转为")
         question = OpenQuestion(
             id=str(uuid.uuid4()),
             project_id=source_meeting.project_id,
@@ -950,12 +918,12 @@ class OutcomeService:
             )
             if duplicate is not None:
                 raise AppError(
-                    409, "agenda_already_converted", "议题已转为开放问题"
+                    409, "agenda_already_converted", "议题已转为"
                 ) from exc
             raise AppError(
                 409,
                 "outcome_integrity_conflict",
-                "开放问题写入违反数据完整性约束",
+                "写入违反数据完整性约束",
             ) from exc
         except StaleDataError as exc:
             self.session.rollback()
@@ -976,7 +944,7 @@ class OutcomeService:
     def copy_agenda_to_meeting(
         self, source_id: str, payload: AgendaCopyWrite, actor: User
     ) -> AgendaItem:
-        self._require_active(actor)
+        require_active(actor)
         source = self.session.get(AgendaItem, source_id)
         target = self.session.get(Meeting, payload.target_meeting_id)
         if source is None or target is None:
@@ -1001,8 +969,8 @@ class OutcomeService:
         self._mutable_meeting(target)
         if target.project_id != source_meeting.project_id:
             raise AppError(422, "source_mismatch", "目标会议不属于同一项目")
-        if _aware(target.scheduled_start) <= max(
-            utcnow(), _aware(source_meeting.scheduled_start)
+        if as_utc(target.scheduled_start) <= max(
+            utcnow(), as_utc(source_meeting.scheduled_start)
         ):
             raise AppError(422, "meeting_not_future", "议题只能复制到之后的会议")
         question = self.session.scalar(

@@ -503,7 +503,7 @@ def test_serialized_project_comment_actions_require_current_contribution(
             ),
             member,
         )
-        reply = service.create(
+        service.create(
             CommentWrite(
                 target_type="project",
                 target_id=context["project_id"],

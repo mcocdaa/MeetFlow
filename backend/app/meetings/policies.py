@@ -16,18 +16,6 @@ class LifecyclePolicy:
         return status == MeetingStatus.in_progress
 
     @staticmethod
-    def can_cancel(status: MeetingStatus) -> bool:
-        return status in {
-            MeetingStatus.draft,
-            MeetingStatus.ready,
-            MeetingStatus.in_progress,
-        }
-
-    @staticmethod
-    def can_reopen(status: MeetingStatus) -> bool:
-        return status == MeetingStatus.completed
-
-    @staticmethod
     def require(status: MeetingStatus, target: MeetingStatus, allowed: bool) -> None:
         if allowed:
             return

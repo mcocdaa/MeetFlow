@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import StatusPill from '../components/StatusPill.vue'
+import { errorMessage } from '../utils/errors'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
 import { api } from '../api/client'
-import { downloadMeetingExport, getMeeting, runMeetingLifecycle } from '../api/meetings'
+import { downloadMeetingExport, getMeeting, runMeetingLifecycle, type LifecycleAction } from '../api/meetings'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
 import AttachmentPanel from '../components/AttachmentPanel.vue'
 import CompletedMeetingChain from '../components/CompletedMeetingChain.vue'
 import ContextDrawer from '../components/ContextDrawer.vue'
 import MeetingCommentsPanel from '../components/MeetingCommentsPanel.vue'
 import MarkdownEditor from '../components/MarkdownEditor.vue'
+import type { MarkdownEditorHandle } from '../components/MarkdownEditor.vue'
 import SaveStateIndicator from '../components/meeting/SaveStateIndicator.vue'
 import PageHeader from '../components/PageHeader.vue'
 import PluginEditorSlot from '../components/PluginEditorSlot.vue'
 import PluginSlot from '../components/PluginSlot.vue'
 import type { Attachment, Meeting } from '../domain/meetings'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
+import { formatDateTime, parseUtcTimestamp } from '../utils/time'
 
-type LifecycleAction = 'start' | 'finish'
-type MarkdownEditorHandle = { flush: () => string }
 
 const route = useRoute()
 const loading = ref(true)
@@ -35,7 +37,7 @@ const purposeEditor = ref<MarkdownEditorHandle | null>(null)
 const rawNotesEditor = ref<MarkdownEditorHandle | null>(null)
 const workbench = ref<{ flushCurrentDraft: () => Promise<boolean> } | null>(null)
 const exportAction = ref<string | null>(null)
-const workspace = useMeetingWorkspace({ autoSave: false })
+const workspace = useMeetingWorkspace()
 const meeting = workspace.meeting
 const draft = workspace.draft
 const acceptedDraft = workspace.acceptedDraft
@@ -56,10 +58,6 @@ const liveElapsed = computed(() => {
   const seconds = elapsedSeconds % 60
   return `${hours ? `${hours}:` : ''}${String(minutes).padStart(hours ? 2 : 1, '0')}:${String(seconds).padStart(2, '0')}`
 })
-
-function parseUtcTimestamp(value: string) {
-  return new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`)
-}
 
 function acceptMeeting(value: Meeting, resetDraft: boolean) {
   workspace.accept(value, resetDraft)
@@ -86,30 +84,25 @@ async function load() {
   try {
     const value = await getMeeting(String(route.params.id))
     acceptMeeting(value, true)
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议加载失败' }
+  } catch (caught) { error.value = errorMessage(caught, '会议加载失败') }
   finally { loading.value = false }
 }
 
 async function saveMeeting() {
-  if (!meeting.value || !canContribute.value) return
+  if (!meeting.value || !canContribute.value) return false
   saving.value = true
   error.value = ''
   try {
     await persistMeetingDraft()
     preparationOpen.value = false
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议保存失败' }
+    return true
+  } catch (caught) { error.value = errorMessage(caught, '会议保存失败') }
   finally { saving.value = false }
+  return false
 }
 
 async function saveMinutes() {
-  if (!meeting.value || !canContribute.value) return
-  saving.value = true
-  error.value = ''
-  try {
-    await persistMeetingDraft()
-    minutesSaved.value = true
-  } catch (caught) { error.value = caught instanceof Error ? caught.message : '会议纪要保存失败' }
-  finally { saving.value = false }
+  if (await saveMeeting()) minutesSaved.value = true
 }
 
 watch(() => draft.value.summary_markdown, () => {
@@ -150,7 +143,7 @@ async function lifecycle(action: LifecycleAction) {
     const value = await runMeetingLifecycle(meeting.value.id, action, meeting.value.version)
     acceptMeeting(value, true)
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '会议状态更新失败'
+    error.value = errorMessage(caught, '会议状态更新失败')
   } finally { lifecycleAction.value = null }
 }
 
@@ -161,7 +154,7 @@ async function refreshAgenda(): Promise<boolean> {
     acceptMeeting(value, false)
     return true
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '议题刷新失败'
+    error.value = errorMessage(caught, '议题刷新失败')
     return false
   }
 }
@@ -182,7 +175,7 @@ async function downloadExport(exporterId: string) {
     anchor.remove()
     URL.revokeObjectURL(url)
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '会议导出失败'
+    error.value = errorMessage(caught, '会议导出失败')
   } finally { exportAction.value = null }
 }
 
@@ -202,10 +195,10 @@ onBeforeUnmount(() => {
   <main class="workspace-page meeting-workspace" :class="{ 'meeting-live': meeting?.status === 'in_progress' }">
     <p v-if="loading" class="empty-state">正在打开会议工作区…</p>
     <template v-else-if="meeting">
-      <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${new Date(meeting.scheduled_start).toLocaleString('zh-CN')} · ${meeting.participants.length} 位参与者`">
+      <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${formatDateTime(meeting.scheduled_start)} · ${meeting.participants.length} 位参与者`">
         <template #meta>
           <div class="project-context">
-            <span class="status-pill" :data-status="meeting.status">{{ meeting.status === 'draft' || meeting.status === 'ready' ? '待开始' : meeting.status === 'in_progress' ? '会议进行中' : '会议已完成' }}</span>
+            <StatusPill :status="meeting.status" kind="meeting" />
             <span v-if="meeting.status === 'in_progress' && liveElapsed" class="meeting-live-clock">进行 {{ liveElapsed }}</span>
             <span>主持：{{ meeting.host?.display_name ?? '未指定' }}</span>
             <span>记录：{{ meeting.recorder?.display_name ?? '未指定' }}</span>

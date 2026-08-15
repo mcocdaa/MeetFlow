@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.meetings.models import utcnow
+from app.time_utils import utcnow
 from app.plugins.models import PluginEvent, PluginEventStatus
 
 

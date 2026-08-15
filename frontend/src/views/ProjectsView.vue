@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import StatusPill from '../components/StatusPill.vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
@@ -15,7 +17,6 @@ const createOpen = ref(false)
 const creating = ref(false)
 const form = ref({ name: '', slug: '', summary: '' })
 
-const statusLabels: Record<ProjectStatus, string> = { planned: '计划中', active: '进行中', paused: '已暂停', completed: '已完成', canceled: '已取消' }
 const healthLabels: Record<ProjectHealth, string> = { on_track: '进展正常', at_risk: '存在风险', off_track: '偏离计划', unset: '未设置' }
 const filtered = computed(() => projects.value.filter((project) => (!status.value || project.status === status.value) && (!health.value || project.health === health.value)))
 
@@ -32,7 +33,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try { projects.value = await api<Project[]>('/api/projects') }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : '项目加载失败' }
+  catch (reason) { error.value = errorMessage(reason, '项目加载失败') }
   finally { loading.value = false }
 }
 
@@ -52,7 +53,7 @@ async function createProject() {
     form.value = { name: '', slug: '', summary: '' }
     createOpen.value = false
     await load()
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : '项目创建失败' }
+  } catch (reason) { error.value = errorMessage(reason, '项目创建失败') }
   finally { creating.value = false }
 }
 
@@ -70,7 +71,7 @@ onMounted(load)
     <p v-if="loading" class="empty-state">正在加载项目…</p>
     <section v-else-if="filtered.length" class="project-grid">
       <RouterLink v-for="project in filtered" :key="project.id" class="project-card" :to="`/projects/${project.id}`">
-        <div class="project-card-top"><span class="health-dot" :data-health="project.health"></span><span>{{ healthLabels[project.health] }}</span><span class="status-pill">{{ statusLabels[project.status] }}</span></div>
+        <div class="project-card-top"><span class="health-dot" :data-health="project.health"></span><span>{{ healthLabels[project.health] }}</span><StatusPill :status="project.status" kind="project" /></div>
         <h2>{{ project.name }}</h2><p>{{ project.summary || '尚未填写项目说明' }}</p>
         <dl><div><dt>负责人</dt><dd>{{ project.lead?.display_name ?? '未指定' }}</dd></div><div><dt>目标日期</dt><dd>{{ project.target_date ?? '未设置' }}</dd></div><div><dt>成员</dt><dd>{{ project.memberships.length }}</dd></div></dl>
         <span class="text-link">打开项目 →</span>

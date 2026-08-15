@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
 
@@ -14,20 +14,15 @@ const meeting = {
 } as any
 
 describe('useMeetingWorkspace', () => {
-  beforeEach(() => vi.useFakeTimers())
-
-  it('debounces meeting draft saves and flushes before lifecycle', async () => {
+  it('persists the dirty draft with the meeting PUT and accepts the response', async () => {
     const request = vi.fn().mockResolvedValue({ ...meeting, raw_notes_markdown: 'new notes', version: 2 })
-    const workspace = useMeetingWorkspace({ initial: meeting, request, debounceMs: 800 })
+    const workspace = useMeetingWorkspace({ initial: meeting, request })
 
     workspace.draft.value.raw_notes_markdown = 'new notes'
-    await vi.advanceTimersByTimeAsync(799)
-    expect(request).not.toHaveBeenCalled()
+    expect(await workspace.persistIfDirty()).toBe(true)
 
-    await vi.advanceTimersByTimeAsync(1)
     expect(request).toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' }))
     expect(workspace.meeting.value?.version).toBe(2)
-    vi.useRealTimers()
   })
 
   it('keeps the draft and exposes conflict when the server rejects its version', async () => {

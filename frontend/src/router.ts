@@ -8,7 +8,6 @@ import ProjectDetailView from './views/ProjectDetailView.vue'
 import ProjectsView from './views/ProjectsView.vue'
 import ActionsView from './views/ActionsView.vue'
 import DecisionsView from './views/DecisionsView.vue'
-import WorkspacePlaceholderView from './views/WorkspacePlaceholderView.vue'
 import AiTasksView from './views/AiTasksView.vue'
 
 const router = createRouter({
@@ -20,10 +19,10 @@ const router = createRouter({
     { path: '/projects', component: ProjectsView },
     { path: '/projects/:id', component: ProjectDetailView },
     { path: '/meetings', component: () => import('./views/MeetingsView.vue') },
-    { path: '/meetings/:id', component: () => import('./views/MeetingDetailView.vue') },
+    { path: '/meetings/:id', component: () => import('./views/MeetingWorkspaceView.vue') },
     { path: '/actions', component: ActionsView },
     { path: '/decisions', component: DecisionsView },
-    { path: '/inbox', component: WorkspacePlaceholderView },
+    { path: '/inbox', component: () => import('./views/InboxView.vue') },
     { path: '/ai-tasks', component: AiTasksView },
     { path: '/account', component: () => import('./views/AccountView.vue') },
     { path: '/admin/users', component: () => import('./views/AdminUsersView.vue'), meta: { admin: true } },

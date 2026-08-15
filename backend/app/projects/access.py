@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.validation import require_active
 from app.auth.models import User, UserRole, UserStatus
 from app.domain.enums import ProjectMemberRole
 from app.errors import AppError
@@ -22,10 +23,6 @@ class WorkspaceAccess:
     def __init__(self, session: Session):
         self.session = session
 
-    @staticmethod
-    def _require_active(actor: User) -> None:
-        if actor.status != UserStatus.ACTIVE:
-            raise AppError(403, "active_user_required", "账号尚未启用")
 
     def _project(self, project_id: str) -> Project:
         project = self.session.scalar(
@@ -80,19 +77,19 @@ class WorkspaceAccess:
     def _project_capability_context(
         self, project_id: str, actor: User
     ) -> tuple[Project, WorkspaceCapabilities]:
-        self._require_active(actor)
+        require_active(actor)
         project = self._project(project_id)
         return project, self.project_capabilities(project, actor)
 
     def _meeting_capability_context(
         self, meeting_id: str, actor: User
     ) -> tuple[Meeting, WorkspaceCapabilities]:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self._meeting(meeting_id)
         return meeting, self.meeting_capabilities(meeting, actor)
 
     def visible_project_ids(self, actor: User):
-        self._require_active(actor)
+        require_active(actor)
         if actor.role == UserRole.ADMIN:
             return None
         return select(ProjectMember.project_id).where(

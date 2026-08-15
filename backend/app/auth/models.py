@@ -6,12 +6,9 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.time_utils import utcnow
 
 DEFAULT_AVATAR_COLOR = "#64748b"
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class UserRole(str, enum.Enum):

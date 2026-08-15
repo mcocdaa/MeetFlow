@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.lifecycle import actual_duration_seconds, start_planned_item
+from app.refs import project_ref, user_ref
+from app.validation import require_active
+from app.time_utils import as_utc, utcnow
 from app.agendas.models import AgendaItem
 from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.activity import ActivityRecorder
@@ -32,15 +35,11 @@ from app.meetings.models import (
     StandingAgendaItem,
 )
 from app.meetings.recurrence import RecurrenceRule
-from app.domain.unit_of_work import UnitOfWork
-from app.meetings.lifecycle import MeetingLifecycleCommands
 from app.meetings.policies import LifecyclePolicy
 from app.meetings.projectors import (
-    project_ref as projector_project_ref,
     serialize_amendment as projector_serialize_amendment,
     serialize_attachment as projector_serialize_attachment,
     serialize_snapshot as projector_serialize_snapshot,
-    user_ref as projector_user_ref,
 )
 from app.meetings.queries import MeetingQueries
 from app.outcomes.models import ActionItem, DecisionReviewer, OpenQuestion
@@ -62,15 +61,7 @@ from app.projects.models import Project
 from app.projects.access import WorkspaceAccess
 
 
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 MAX_RECURRENCE_BACKFILL = timedelta(days=90)
-
-
-user_ref = projector_user_ref
-project_ref = projector_project_ref
 
 
 def dedupe_participants(values: Iterable[ParticipantWrite]) -> list[ParticipantWrite]:
@@ -82,13 +73,6 @@ def dedupe_participants(values: Iterable[ParticipantWrite]) -> list[ParticipantW
             seen.add(value.user_id)
             result.append(value)
     return result
-
-
-def as_utc(value: datetime) -> datetime:
-    """Normalize SQLite's naive round-trip as UTC and convert aware values to UTC."""
-    if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def series_relationship_options():
@@ -137,10 +121,6 @@ class MeetingService:
     def __init__(self, session: Session):
         self.session = session
 
-    @staticmethod
-    def _require_active(actor: User) -> None:
-        if actor.status != UserStatus.ACTIVE:
-            raise AppError(403, "active_user_required", "账号尚未启用")
 
     def _project(self, project_id: str) -> Project:
         project = self.session.get(Project, project_id)
@@ -200,9 +180,6 @@ class MeetingService:
             raise AppError(404, "meeting_not_found", "会议不存在")
         return meeting
 
-    # Transitional name used by attachment/plugin integration.
-    require = get_meeting
-
     @staticmethod
     def _series_participants(values: list[ParticipantWrite]) -> list[SeriesParticipant]:
         return [
@@ -251,7 +228,7 @@ class MeetingService:
     def create_series(
         self, project_id: str, payload: MeetingSeriesWrite, actor: User
     ) -> MeetingSeries:
-        self._require_active(actor)
+        require_active(actor)
         self._project(project_id)
         participants = dedupe_participants(payload.participants)
         self._validate_series_references(
@@ -291,7 +268,7 @@ class MeetingService:
     def update_series(
         self, series_id: str, payload: MeetingSeriesEdit, actor: User
     ) -> MeetingSeries:
-        self._require_active(actor)
+        require_active(actor)
         series = self.get_series(series_id)
         require_version(payload.expected_version, series.version)
         changes = payload.model_dump(
@@ -350,7 +327,7 @@ class MeetingService:
     def create_occurrence(
         self, series_id: str, payload: OccurrenceWrite, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         series = self.get_series(series_id)
         participants = [
             ParticipantWrite(
@@ -573,7 +550,7 @@ class MeetingService:
     def create_meeting(
         self, project_id: str, payload: MeetingWrite, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         self._project(project_id)
         participants = dedupe_participants(payload.participants)
         self._users(
@@ -620,7 +597,7 @@ class MeetingService:
     def update_meeting(
         self, meeting_id: str, payload: MeetingEdit, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         if meeting.status in {MeetingStatus.completed, MeetingStatus.canceled}:
             raise AppError(409, "meeting_locked", "已结束的会议不可直接修改")
@@ -707,7 +684,7 @@ class MeetingService:
     def mark_ready(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.draft:
@@ -720,7 +697,7 @@ class MeetingService:
     def mark_draft(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.ready:
@@ -731,14 +708,24 @@ class MeetingService:
         return self._commit_meeting_command(meeting, payload.expected_version)
 
     def start(self, meeting_id: str, payload: LifecycleCommand, actor: User) -> Meeting:
-        return MeetingLifecycleCommands(self, UnitOfWork(self.session)).start(
-            meeting_id, payload, actor
-        )
+        require_active(actor)
+        return self._start_impl(meeting_id, payload, actor)
 
     def _start_impl(
-        self, meeting_id: str, payload: LifecycleCommand, actor: User, *, commit: bool = True
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
+        try:
+            return self._start_in_session(meeting_id, payload, actor)
+        except (StaleDataError, IntegrityError) as exc:
+            self._raise_meeting_stale(meeting_id, payload.expected_version, exc)
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def _start_in_session(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
+    ) -> Meeting:
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         LifecyclePolicy.require(
@@ -803,14 +790,12 @@ class MeetingService:
                 payload={"title": first_planned.title},
             )
         self._record_meeting(meeting, actor, "meeting.started")
-        return self._commit_meeting_command(
-            meeting, payload.expected_version, commit=commit
-        )
+        return self._commit_meeting_command(meeting, payload.expected_version)
 
     def cancel(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status not in {
@@ -828,7 +813,7 @@ class MeetingService:
     def reopen(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.completed:
@@ -1109,14 +1094,24 @@ class MeetingService:
     def finish(
         self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        return MeetingLifecycleCommands(self, UnitOfWork(self.session)).finish(
-            meeting_id, payload, actor
-        )
+        require_active(actor)
+        return self._finish_impl(meeting_id, payload, actor)
 
     def _finish_impl(
-        self, meeting_id: str, payload: LifecycleCommand, actor: User, *, commit: bool = True
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
     ) -> Meeting:
-        self._require_active(actor)
+        require_active(actor)
+        try:
+            return self._finish_in_session_impl(meeting_id, payload, actor)
+        except (StaleDataError, IntegrityError) as exc:
+            self._raise_meeting_stale(meeting_id, payload.expected_version, exc)
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def _finish_in_session_impl(
+        self, meeting_id: str, payload: LifecycleCommand, actor: User
+    ) -> Meeting:
         meeting = self._meeting_for_snapshot(meeting_id)
         require_version(payload.expected_version, meeting.version)
         LifecyclePolicy.require(
@@ -1126,8 +1121,6 @@ class MeetingService:
         )
         self._finish_in_session(meeting, actor=actor, now=utcnow())
         meeting_id = meeting.id
-        if not commit:
-            return meeting
         try:
             self.session.commit()
         except (StaleDataError, IntegrityError) as exc:
@@ -1199,7 +1192,7 @@ class MeetingService:
     def add_amendment(
         self, meeting_id: str, payload: AmendmentWrite, actor: User
     ) -> MeetingAmendment:
-        self._require_active(actor)
+        require_active(actor)
         meeting = self.get_meeting(meeting_id)
         require_version(payload.expected_version, meeting.version)
         if meeting.status != MeetingStatus.completed:
@@ -1465,73 +1458,10 @@ class MeetingService:
         return [self.serialize_series(item) for item in self.session.scalars(statement)]
 
     def list_meetings(self, project_id: str) -> list[dict[str, Any]]:
-        return MeetingQueries(self).list_meetings(project_id)
-
-    def _list_meetings_impl(self, project_id: str) -> list[dict[str, Any]]:
         self._project(project_id)
         self.materialize_due_occurrences(now=utcnow(), project_id=project_id)
-        agenda_count = (
-            select(func.count(AgendaItem.id))
-            .where(AgendaItem.meeting_id == Meeting.id)
-            .correlate(Meeting)
-            .scalar_subquery()
-        )
-        snapshot_count = (
-            select(func.count(MeetingSnapshot.id))
-            .where(MeetingSnapshot.meeting_id == Meeting.id)
-            .correlate(Meeting)
-            .scalar_subquery()
-        )
-        amendment_count = (
-            select(func.count(MeetingAmendment.id))
-            .where(MeetingAmendment.meeting_id == Meeting.id)
-            .correlate(Meeting)
-            .scalar_subquery()
-        )
-        statement = (
-            select(Meeting, agenda_count, snapshot_count, amendment_count)
-            .where(Meeting.project_id == project_id)
-            .options(
-                joinedload(Meeting.project),
-                joinedload(Meeting.series),
-                joinedload(Meeting.host),
-                joinedload(Meeting.recorder),
-            )
-            .order_by(Meeting.scheduled_start.desc(), Meeting.id)
-        )
-        return [
-            {
-                "id": meeting.id,
-                "project": project_ref(meeting.project),
-                "series": (
-                    {"id": meeting.series.id, "title": meeting.series.title}
-                    if meeting.series is not None
-                    else None
-                ),
-                "title": meeting.title,
-                "occurrence_kind": meeting.occurrence_kind.value,
-                "series_slot_at": (
-                    as_utc(meeting.series_slot_at)
-                    if meeting.series_slot_at is not None
-                    else None
-                ),
-                "scheduled_start": as_utc(meeting.scheduled_start),
-                "scheduled_end": as_utc(meeting.scheduled_end),
-                "status": meeting.status,
-                "host": user_ref(meeting.host),
-                "recorder": user_ref(meeting.recorder),
-                "current_snapshot_id": meeting.current_snapshot_id,
-                "version": meeting.version,
-                "started_at": meeting.started_at,
-                "completed_at": meeting.completed_at,
-                "agenda_count": agenda_total,
-                "snapshot_count": snapshot_total,
-                "amendment_count": amendment_total,
-            }
-            for meeting, agenda_total, snapshot_total, amendment_total in self.session.execute(
-                statement
-            )
-        ]
+        page = MeetingQueries(self).list_meetings(project_id=project_id)
+        return page["items"]
 
     def series_detail(self, series_id: str) -> dict[str, Any]:
         return MeetingQueries(self).series_detail(series_id)

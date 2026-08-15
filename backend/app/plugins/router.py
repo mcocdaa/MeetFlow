@@ -36,7 +36,8 @@ from app.plugins.manager import (
 from app.plugins.context import PluginContextBuilder
 from app.plugins.models import PluginEvent, PluginEventStatus, PluginState
 from app.plugins.jobs import PluginJobService
-from app.plugins.models import PluginJob, PluginJobStatus
+from app.plugins.models import PluginJob
+from app.http import utc_response
 from app.workspace.work_briefs import replace_work_brief
 
 admin_router = APIRouter(prefix="/api/admin/plugins", tags=["admin/plugins"])
@@ -247,7 +248,7 @@ def list_plugin_events(
     ).limit(min(max(limit, 1), 200))
     if status is not None:
         statement = statement.where(PluginEvent.status == status)
-    return {"items": [serialize_event(event) for event in session.scalars(statement)]}
+    return utc_response({"items": [serialize_event(event) for event in session.scalars(statement)]})
 
 
 @admin_router.post("/events/{event_id}/retry")
@@ -494,13 +495,13 @@ def list_jobs(
             PluginJob.applied_at.is_(None), PluginJob.dismissed_at.is_(None)
         )
     jobs = session.scalars(statement.order_by(PluginJob.created_at.desc(), PluginJob.id.desc()))
-    return {
+    return utc_response({
         "items": [
             serialize_job(job)
             for job in jobs
             if can_view_job_target(session, job, user)
         ]
-    }
+    })
 
 
 @meeting_actions_router.post("/{meeting_id}/plugin-actions/{action_id}")

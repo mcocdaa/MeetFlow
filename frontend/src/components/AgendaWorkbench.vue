@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { AgendaItem, Meeting } from '../domain/meetings'
@@ -9,15 +10,12 @@ import AgendaQueue from './AgendaQueue.vue'
 const props = defineProps<{
   meeting: Meeting
   canContribute: boolean
-  initialSelectedId?: string
 }>()
 const emit = defineEmits<{ reload: [] }>()
 const selectedId = ref(props.meeting.agenda_items.find((item) => item.status === 'in_progress')?.id ?? props.meeting.agenda_items[0]?.id ?? '')
 const detail = ref<{ flushIfDirty: () => Promise<boolean> } | null>(null)
 const openingId = ref('')
 const openError = ref('')
-
-watch(() => props.initialSelectedId, (value) => { if (value) selectedId.value = value })
 
 watch(() => props.meeting.status, (status, previousStatus) => {
   if (status !== 'in_progress' || previousStatus === 'in_progress') return
@@ -46,7 +44,7 @@ async function openAgenda(itemId: string) {
     selectedId.value = itemId
     emit('reload')
   } catch (caught) {
-    openError.value = caught instanceof Error ? caught.message : '议题开始失败'
+    openError.value = errorMessage(caught, '议题开始失败')
   } finally {
     openingId.value = ''
   }

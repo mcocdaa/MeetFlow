@@ -16,6 +16,8 @@ from app.auth.models import User, UserRole
 from app.collaboration.activity import ActivityRecorder
 from app.database import get_session
 from app.errors import AppError
+from app.http import utc_response
+from app.refs import serialize_attachment as serialize_attachment_ref
 from app.meetings.models import Meeting
 from app.projects.models import Project
 from app.projects.access import WorkspaceAccess
@@ -100,28 +102,9 @@ def attachment_delete_allowed(
 
 
 def serialize(item: Attachment, *, can_delete: bool = False) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "target_type": item.target_type,
-        "target_id": item.target_id,
-        "original_name": item.original_name,
-        "mime_type": item.mime_type,
-        "size": item.size,
-        "attachment_type": item.attachment_type,
-        "created_by": {
-            "id": item.creator.id,
-            "username": item.creator.username,
-            "display_name": item.creator.display_name,
-        },
-        "created_at": item.created_at,
-        "download_url": (
-            f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}"
-        ),
-        "preview_url": (
-            f"/api/attachments/{item.target_type}/{item.target_id}/{item.id}/preview"
-        ),
-        "can_delete": can_delete,
-    }
+    result = serialize_attachment_ref(item)
+    result["can_delete"] = can_delete
+    return result
 
 
 @router.get("/{target_type}/{target_id}")
@@ -139,13 +122,13 @@ def list_attachments(
         .options(joinedload(Attachment.creator))
         .order_by(Attachment.created_at.desc(), Attachment.id.desc())
     )
-    return [
+    return utc_response([
         serialize(
             row,
             can_delete=attachment_delete_allowed(session, target, row, user),
         )
         for row in rows
-    ]
+    ])
 
 
 @router.post("/{target_type}/{target_id}", status_code=201)
@@ -197,7 +180,7 @@ async def upload_attachment(
         raise
     session.refresh(attachment)
     _ = attachment.creator
-    return serialize(attachment, can_delete=True)
+    return utc_response(serialize(attachment, can_delete=True), status_code=201)
 
 
 def attachment_file(request: Request, item: Attachment) -> Path:

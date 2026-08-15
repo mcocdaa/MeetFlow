@@ -14,8 +14,9 @@ from app.collaboration.schemas import (
 )
 from app.collaboration.service import CommentService
 from app.database import get_session
+from app.http import utc_response
 from app.projects.access import WorkspaceAccess
-from app.projects.service import user_ref
+from app.refs import user_ref
 
 router = APIRouter(prefix="/api/projects", tags=["collaboration"])
 comments_router = APIRouter(prefix="/api/comments", tags=["comments"])
@@ -72,7 +73,7 @@ def list_comments(
         limit=limit,
         reply_limit=reply_limit,
     )
-    return {
+    return utc_response({
         "items": [
             service.serialize(
                 comment,
@@ -84,7 +85,7 @@ def list_comments(
             for comment in page.items
         ],
         "next_cursor": page.next_cursor,
-    }
+    })
 
 
 @comments_router.get("/{comment_id}/replies")
@@ -97,13 +98,13 @@ def list_comment_replies(
 ) -> dict:
     service = CommentService(session)
     page = service.list_replies(comment_id, actor=user, after=after, limit=limit)
-    return {
+    return utc_response({
         "items": [
             service.serialize(comment, user, can_change=page.can_change)
             for comment in page.items
         ],
         "next_cursor": page.next_cursor,
-    }
+    })
 
 
 @comments_router.post("", status_code=201)
@@ -113,7 +114,7 @@ def create_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(service.create(payload, user), user, can_change=True)
+    return utc_response(service.serialize(service.create(payload, user), user, can_change=True), status_code=201)
 
 
 @comments_router.put("/{comment_id}")
@@ -124,9 +125,9 @@ def update_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(
+    return utc_response(service.serialize(
         service.update(comment_id, payload, user), user, can_change=True
-    )
+    ))
 
 
 @comments_router.post("/{comment_id}/resolve")
@@ -137,9 +138,9 @@ def resolve_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(
+    return utc_response(service.serialize(
         service.resolve(comment_id, payload, user), user, can_change=True
-    )
+    ))
 
 
 @comments_router.post("/{comment_id}/reopen")
@@ -150,9 +151,9 @@ def reopen_comment(
     session: Session = Depends(get_session),
 ) -> dict:
     service = CommentService(session)
-    return service.serialize(
+    return utc_response(service.serialize(
         service.reopen(comment_id, payload, user), user, can_change=True
-    )
+    ))
 
 
 @comments_router.delete("/{comment_id}", status_code=204)

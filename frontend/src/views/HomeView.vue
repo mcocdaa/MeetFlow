@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
+import { formatDateTime } from '../utils/time'
 import { streamPluginAction } from '../api/plugin-stream'
 import AttentionCard, { type AttentionItem } from '../components/AttentionCard.vue'
 import MarkdownView from '../components/MarkdownView.vue'
@@ -50,7 +52,7 @@ async function loadWorkBriefCapability(revision: number) {
   } catch (reason) {
     if (!isCurrentWorkBriefRevision(revision)) return
     workBriefEnabled.value = false
-    workBriefError.value = reason instanceof Error ? reason.message : 'AI 插件状态读取失败'
+    workBriefError.value = errorMessage(reason, 'AI 插件状态读取失败')
   }
 }
 
@@ -62,7 +64,7 @@ async function loadWorkBrief(revision: number) {
   } catch (reason) {
     if (!isCurrentWorkBriefRevision(revision)) return
     if (!workBriefError.value) {
-      workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报读取失败'
+      workBriefError.value = errorMessage(reason, 'AI 工作简报读取失败')
     }
   }
 }
@@ -81,7 +83,7 @@ async function load() {
   try {
     await loadAttention()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '工作区加载失败'
+    error.value = errorMessage(reason, '工作区加载失败')
   } finally {
     loading.value = false
   }
@@ -114,7 +116,7 @@ async function generateWorkBrief() {
     }
   } catch (reason) {
     if (!controller.signal.aborted && isCurrentWorkBriefRevision(revision) && workBriefController.value === controller) {
-      workBriefError.value = reason instanceof Error ? reason.message : 'AI 工作简报生成失败，请稍后重试'
+      workBriefError.value = errorMessage(reason, 'AI 工作简报生成失败，请稍后重试')
     }
   } finally {
     if (workBriefController.value === controller) workBriefController.value = null
@@ -147,7 +149,7 @@ onBeforeUnmount(cancelWorkBrief)
         </section>
         <aside class="workspace-section upcoming-panel" aria-labelledby="upcoming-meetings-title">
           <div class="section-heading"><div><p class="eyebrow">Next up</p><h2 id="upcoming-meetings-title">近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
-          <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }}</time></RouterLink>
+          <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ formatDateTime(item.scheduled_start) }}</time></RouterLink>
           <p v-if="!meetings.length" class="muted">未来七天没有需要你参加的会议。</p>
         </aside>
       </div>

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -34,8 +34,9 @@ from app.outcomes.schemas import (
 from app.outcomes.service import OutcomeService
 from app.projects.schemas import ProjectWrite
 from app.projects.service import ProjectService
+from app.time_utils import utcnow
 
-START = datetime(2026, 8, 3, 9, tzinfo=timezone.utc)
+START = utcnow() - timedelta(days=3)
 
 
 @pytest.fixture

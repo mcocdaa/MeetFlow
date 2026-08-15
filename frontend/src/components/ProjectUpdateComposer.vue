@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { ProjectHealth } from '../domain/projects'
@@ -25,7 +26,7 @@ async function submit() {
     content.value = ''
     emit('saved')
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '进展发布失败'
+    error.value = errorMessage(reason, '进展发布失败')
   } finally {
     saving.value = false
   }

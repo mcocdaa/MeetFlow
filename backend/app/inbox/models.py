@@ -13,11 +13,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User
+from app.time_utils import utcnow
 from app.database import Base
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class Notification(Base):

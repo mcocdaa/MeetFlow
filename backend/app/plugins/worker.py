@@ -7,7 +7,7 @@ import httpx
 from sqlalchemy import or_, select, update
 
 from app.database import Database
-from app.meetings.models import utcnow
+from app.time_utils import utcnow
 from app.plugins.manager import (
     PluginConfigurationError,
     PluginInputError,

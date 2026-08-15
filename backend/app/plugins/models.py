@@ -7,7 +7,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, Stri
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
-from app.meetings.models import utcnow
+from app.time_utils import utcnow
 
 
 class PluginState(Base):

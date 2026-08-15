@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { errorMessage } from '../utils/errors'
 import { useRouter } from 'vue-router'
 
 import { api } from '../api/client'
@@ -22,7 +23,7 @@ async function changePassword() {
     clearSession()
     await router.push('/login')
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '修改失败'
+    error.value = errorMessage(reason, '修改失败')
   } finally {
     saving.value = false
   }

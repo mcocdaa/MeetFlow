@@ -17,6 +17,8 @@ from app.inbox.models import Notification
 from app.inbox.access import NotificationScope
 from app.inbox.service import InboxService
 from app.meetings.models import Meeting, MeetingParticipant
+from app.refs import project_ref
+from app.meetings.service import as_utc
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.projects.models import Project
 
@@ -44,10 +46,6 @@ REASON_PRIORITY = {
 }
 
 
-def _project_ref(project: Project) -> dict[str, str]:
-    return {"id": project.id, "name": project.name, "slug": project.slug}
-
-
 def _item(
     subject_type: str,
     subject_id: str,
@@ -58,7 +56,7 @@ def _item(
     return {
         "subject_type": subject_type,
         "subject_id": subject_id,
-        "project": _project_ref(project),
+        "project": project_ref(project),
         "title": title,
         "reasons": [],
         **values,
@@ -73,8 +71,7 @@ def _add_reason(item: dict[str, Any], reason: str) -> None:
 def _temporal_order(item: dict[str, Any]) -> float:
     value = item.get("due_date") or item.get("scheduled_start")
     if isinstance(value, datetime):
-        aware = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-        return aware.timestamp()
+        return as_utc(value).timestamp()
     if isinstance(value, date):
         return datetime.combine(value, time.min, tzinfo=timezone.utc).timestamp()
     return float("inf")
@@ -302,9 +299,7 @@ class AttentionService:
         return loaded
 
     def for_user(self, user: User, now: datetime | None = None) -> dict[str, Any]:
-        current = now or datetime.now(timezone.utc)
-        if current.tzinfo is None:
-            current = current.replace(tzinfo=timezone.utc)
+        current = as_utc(now or datetime.now(timezone.utc))
         today = current.date()
         horizon = today + timedelta(days=7)
         upcoming = current + timedelta(days=7)

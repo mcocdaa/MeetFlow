@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+
+from app.http import _z_iso
 
 
 class ActivityActorRef(BaseModel):
@@ -25,6 +27,10 @@ class ActivityItem(BaseModel):
     subject: ActivitySubjectRef
     payload: dict[str, Any]
     created_at: datetime
+
+    @field_serializer("created_at")
+    def _z(self, value: datetime) -> str:
+        return _z_iso(value)
 
 
 class ActivityPageResponse(BaseModel):

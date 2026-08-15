@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 import { api } from '../api/client'
 import { session } from '../auth/session'
+import type { RecurrenceFrequency } from '../domain/meetings'
 import type { ProjectDetail } from '../domain/projects'
 
 type Kind = 'meeting' | 'series' | 'decision' | 'action'
@@ -12,12 +13,11 @@ const title = ref('')
 const content = ref('')
 const start = ref('')
 const end = ref('')
-type RecurrenceFrequency = '' | 'daily' | 'weekly' | 'monthly' | 'yearly'
 function todayLocalDate(): string {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
-const recurrenceFrequency = ref<RecurrenceFrequency>('weekly')
+const recurrenceFrequency = ref<RecurrenceFrequency | ''>('weekly')
 const recurrenceInterval = ref(1)
 const recurrenceWeekday = ref(0)
 const recurrenceMonthDay = ref(1)

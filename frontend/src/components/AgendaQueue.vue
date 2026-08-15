@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { statusLabel } from '../utils/labels'
+import { errorMessage } from '../utils/errors'
 
 import { api, ApiError } from '../api/client'
 import type { AgendaItem, AgendaType, Meeting } from '../domain/meetings'
@@ -22,17 +24,6 @@ const estimatedMinutes = ref(5)
 const error = ref('')
 const guardedId = ref('')
 const menuId = ref('')
-
-function openAdd() {
-  if (!props.canContribute) return
-  adding.value = true
-}
-
-function statusLabel(status: AgendaItem['status']) {
-  return { planned: '待开始', in_progress: '进行中', completed: '已完成', skipped: '已跳过', canceled: '已取消' }[status]
-}
-
-defineExpose({ openAdd })
 
 watch(() => props.meeting.agenda_items, (items) => {
   ordered.value = [...items].sort((a, b) => a.position - b.position)
@@ -62,7 +53,7 @@ async function dropOn(targetId: string) {
     emit('changed')
   } catch (caught) {
     ordered.value = previous
-    error.value = caught instanceof Error ? caught.message : '议题排序失败'
+    error.value = errorMessage(caught, '议题排序失败')
     emit('changed')
   } finally {
     saving.value = false
@@ -84,7 +75,7 @@ async function addAgenda() {
     emit('select', item.id)
     emit('changed')
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '议题添加失败'
+    error.value = errorMessage(caught, '议题添加失败')
   } finally {
     saving.value = false
   }
@@ -99,7 +90,7 @@ async function command(item: AgendaItem, action: 'cancel') {
     guardedId.value = ''
     emit('changed')
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : '议题操作失败'
+    error.value = errorMessage(caught, '议题操作失败')
   } finally {
     saving.value = false
   }
@@ -119,7 +110,7 @@ async function remove(item: AgendaItem) {
     if (caught instanceof ApiError && caught.code === 'agenda_has_outcomes') {
       guardedId.value = item.id
       error.value = '议题已有产出，请先迁移产出，或将议题标记为取消。'
-    } else error.value = caught instanceof Error ? caught.message : '议题删除失败'
+    } else error.value = errorMessage(caught, '议题删除失败')
   } finally {
     saving.value = false
   }
@@ -138,7 +129,7 @@ async function remove(item: AgendaItem) {
     <p v-if="error || openError" class="notice notice-error">{{ error || openError }}</p>
     <div class="agenda-queue-list">
       <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" :draggable="canContribute" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
-        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel(item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
+        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
         <div v-if="canContribute" class="agenda-menu"><button class="agenda-menu-trigger" :aria-label="`议题“${item.title}”的更多操作`" :aria-expanded="menuId === item.id" @click="menuId = menuId === item.id ? '' : item.id">•••</button><div v-if="menuId === item.id"><button @click="emit('select', item.id); menuId = ''">编辑详情</button><button @click="command(item, 'cancel')">取消议题</button><button class="danger-link" @click="remove(item)">删除议题</button></div></div>
         <div v-if="canContribute && guardedId === item.id" class="agenda-guard"><button class="button button-small button-danger" @click="command(item, 'cancel')">改为取消</button><span>产出迁移将在会议工作台中处理</span></div>
       </article>

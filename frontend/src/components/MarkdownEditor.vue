@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Crepe } from '@milkdown/crepe'
+
+export type MarkdownEditorHandle = { flush: () => string }
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 

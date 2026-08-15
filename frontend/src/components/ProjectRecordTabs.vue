@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
+import StatusPill from './StatusPill.vue'
+import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
+import { priorityLabel } from '../utils/labels'
+import { formatDateTime } from '../utils/time'
 import AttachmentPanel from './AttachmentPanel.vue'
+import type { Page } from '../api/contracts'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
 
 type Tab = 'meetings' | 'actions' | 'decisions' | 'files'
-type Page<T> = { items: T[] }
 type MeetingRow = { id: string; title: string; scheduled_start: string; status: string }
 type SeriesRow = { id: string; title: string; recurrence_description: string; status: string }
 type DecisionRow = { id: string; title: string; status: string; meeting_id: string | null }
@@ -25,6 +29,7 @@ const emit = defineEmits<{
 
 const rows = ref<Array<MeetingRow | ProjectActionSummary | DecisionRow>>([])
 const loading = ref(false)
+const error = ref('')
 const occurrenceSeries = ref<SeriesRow | null>(null)
 const occurrenceTitle = ref('')
 const occurrenceStart = ref('')
@@ -41,9 +46,12 @@ function endpoint() {
 async function load() {
   if (props.tab === 'files') return
   loading.value = true
+  error.value = ''
   try {
     const value = await api<Page<typeof rows.value[number]>>(endpoint())
     rows.value = Array.isArray(value?.items) ? value.items : []
+  } catch (reason) {
+    error.value = errorMessage(reason, '记录加载失败')
   } finally {
     loading.value = false
   }
@@ -74,7 +82,7 @@ async function createOccurrence() {
     occurrenceSeries.value = null
     await load()
   } catch (reason) {
-    occurrenceError.value = reason instanceof Error ? reason.message : '临时会议添加失败'
+    occurrenceError.value = errorMessage(reason, '临时会议添加失败')
   } finally {
     occurrenceSaving.value = false
   }
@@ -106,11 +114,12 @@ onMounted(load)
         <label>开始时间<input v-model="occurrenceStart" type="datetime-local" required /></label>
         <label>结束时间<input v-model="occurrenceEnd" type="datetime-local" required /></label>
         <p v-if="occurrenceError" class="notice notice-error">{{ occurrenceError }}</p>
+        <p v-if="error" class="notice notice-error">{{ error }}</p>
         <div class="form-actions"><button class="button button-primary" :disabled="occurrenceSaving">{{ occurrenceSaving ? '添加中…' : '添加临时会议' }}</button></div>
       </form>
       <p v-if="loading" class="muted">正在加载会议…</p>
       <div class="project-record-list">
-        <RouterLink v-for="item in rows as MeetingRow[]" :key="item.id" class="project-record-row" :to="`/meetings/${item.id}`"><strong>{{ item.title }}</strong><span>{{ new Date(item.scheduled_start).toLocaleString('zh-CN') }} · {{ item.status }}</span></RouterLink>
+        <RouterLink v-for="item in rows as MeetingRow[]" :key="item.id" class="project-record-row" :to="`/meetings/${item.id}`"><strong>{{ item.title }}</strong><span>{{ formatDateTime(item.scheduled_start) }} · <StatusPill :status="item.status" kind="meeting" /></span></RouterLink>
       </div>
     </template>
 
@@ -118,7 +127,7 @@ onMounted(load)
       <header class="section-heading"><h2>项目行动项</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'action')">添加行动项</button></header>
       <p v-if="loading" class="muted">正在加载行动项…</p>
       <div class="project-record-list">
-        <RouterLink v-for="item in rows as ProjectActionSummary[]" :key="item.id" class="project-record-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/actions?highlight=${item.id}`"><strong>{{ item.content }}</strong><span>{{ item.status }} · {{ item.due_date ?? '未设期限' }} · {{ item.priority }}</span></RouterLink>
+        <RouterLink v-for="item in rows as ProjectActionSummary[]" :key="item.id" class="project-record-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/actions?highlight=${item.id}`"><strong>{{ item.content }}</strong><span><StatusPill :status="item.status" kind="action" /> · {{ item.due_date ?? '未设期限' }} · {{ priorityLabel(item.priority) }}</span></RouterLink>
       </div>
       <p v-if="!loading && !rows.length" class="muted">当前没有未完成行动项。</p>
     </template>
@@ -127,7 +136,7 @@ onMounted(load)
       <header class="section-heading"><h2>项目决策</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'decision')">添加决策</button></header>
       <p v-if="loading" class="muted">正在加载决策…</p>
       <div class="project-record-list">
-        <RouterLink v-for="item in rows as DecisionRow[]" :key="item.id" class="project-record-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/decisions?highlight=${item.id}`"><strong>{{ item.title }}</strong><span>{{ item.status }}</span></RouterLink>
+        <RouterLink v-for="item in rows as DecisionRow[]" :key="item.id" class="project-record-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/decisions?highlight=${item.id}`"><strong>{{ item.title }}</strong><span><StatusPill :status="item.status" kind="decision" /></span></RouterLink>
       </div>
       <p v-if="!loading && !rows.length" class="muted">尚未形成项目决策。</p>
     </template>
