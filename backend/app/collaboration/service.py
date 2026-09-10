@@ -17,7 +17,7 @@ from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.activity import ActivityRecorder
 from app.collaboration.models import Comment, CommentMention
 from app.collaboration.schemas import CommentCommand, CommentEdit, CommentWrite
-from app.domain.versioning import require_version
+from app.domain.versioning import StaleCheck, require_version, resolve_stale
 from app.errors import AppError
 from app.inbox.service import NotificationWriter
 from app.meetings.models import Meeting, MeetingParticipant
@@ -168,22 +168,19 @@ class CommentService:
     def _raise_stale(
         self, comment_id: str, expected_version: int, exc: Exception
     ) -> None:
-        self.session.rollback()
-        actual = self.session.scalar(
-            select(Comment.version).where(Comment.id == comment_id)
+        resolve_stale(
+            self.session,
+            exc,
+            StaleCheck(
+                Comment,
+                comment_id,
+                expected_version,
+                not_found_code="comment_not_found",
+                not_found_message="评论不存在",
+            ),
+            conflict_message="评论已被其他操作更新，请刷新后重试",
+            include_fallback_versions=True,
         )
-        if actual is None:
-            raise AppError(404, "comment_not_found", "评论不存在") from exc
-        require_version(expected_version, actual)
-        raise AppError(
-            409,
-            "version_conflict",
-            "评论已被其他操作更新，请刷新后重试",
-            details={
-                "expected_version": expected_version,
-                "actual_version": actual,
-            },
-        ) from exc
 
     def create(self, payload: CommentWrite, actor: User) -> Comment:
         require_active(actor)

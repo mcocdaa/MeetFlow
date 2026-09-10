@@ -5,13 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.agendas.models import AgendaItem
 from app.auth.models import User
-from app.errors import AppError
+from app.plugins.access import require_plugin_target_access
 from app.plugins.context import PluginContextBuilder
 from app.plugins.manager import PluginManager
 from app.plugins.models import PluginJob, PluginJobStatus
-from app.projects.access import WorkspaceAccess
 
 
 class PluginJobService:
@@ -38,20 +36,14 @@ class PluginJobService:
         actor = self.session.get(User, actor_id)
         if actor is None:
             raise KeyError(actor_id)
-        access = WorkspaceAccess(self.session)
-        if target_type == "meeting":
-            meeting = access.require_meeting_view(target_id, actor)
-            access.require_project_contribute(meeting.project_id, actor)
-        elif target_type == "agenda_item":
-            agenda_item = self.session.get(AgendaItem, target_id)
-            if agenda_item is None:
-                raise AppError(404, "agenda_item_not_found", "议题不存在")
-            meeting = access.require_meeting_view(agenda_item.meeting_id, actor)
-            access.require_project_contribute(meeting.project_id, actor)
-        elif target_type == "project":
-            access.require_project_contribute(target_id, actor)
-        else:
-            raise ValueError("unsupported plugin target")
+        require_plugin_target_access(
+            self.session,
+            target_type,
+            target_id,
+            actor,
+            contribute=True,
+            invalid_message="插件目标无效",
+        )
         dedupe_key = f"{action_id}:{target_type}:{target_id}"
         context_builder = PluginContextBuilder(self.session)
         if target_type == "meeting":

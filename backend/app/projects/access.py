@@ -154,3 +154,9 @@ class WorkspaceAccess:
         if not capabilities.can_comment:
             raise AppError(403, "meeting_comment_forbidden", "无权评论此会议")
         return meeting
+
+    def require_meeting_contribute(self, meeting_id: str, actor: User) -> Meeting:
+        """View the meeting and require contribution rights on its project."""
+        meeting = self.require_meeting_view(meeting_id, actor)
+        self.require_project_contribute(meeting.project_id, actor)
+        return meeting

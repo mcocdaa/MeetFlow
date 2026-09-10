@@ -18,7 +18,7 @@ from app.inbox.access import NotificationScope
 from app.inbox.service import InboxService
 from app.meetings.models import Meeting, MeetingParticipant
 from app.refs import project_ref
-from app.meetings.service import as_utc
+from app.time_utils import as_utc
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.projects.models import Project
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.auth.models import User, UserRole, UserStatus
 from app.collaboration.activity import ActivityRecorder
-from app.domain.versioning import require_version
+from app.domain.versioning import StaleCheck, require_version, resolve_stale
 from app.errors import AppError
 from app.domain.enums import MeetingStatus
 from app.meetings.models import Meeting, MeetingSeries
@@ -137,22 +137,19 @@ class ProjectService:
         try:
             self.session.commit()
         except StaleDataError as exc:
-            self.session.rollback()
-            actual_version = self.session.scalar(
-                select(Project.version).where(Project.id == project_id)
+            resolve_stale(
+                self.session,
+                exc,
+                StaleCheck(
+                    Project,
+                    project_id,
+                    payload.expected_version,
+                    not_found_code="project_not_found",
+                    not_found_message="项目不存在",
+                ),
+                conflict_message="项目已被其他操作更新，请刷新后重试",
+                include_fallback_versions=True,
             )
-            if actual_version is None:
-                raise AppError(404, "project_not_found", "项目不存在") from exc
-            require_version(payload.expected_version, actual_version)
-            raise AppError(
-                409,
-                "version_conflict",
-                "项目已被其他操作更新，请刷新后重试",
-                details={
-                    "expected_version": payload.expected_version,
-                    "actual_version": actual_version,
-                },
-            ) from exc
         except IntegrityError as exc:
             self.session.rollback()
             raise AppError(
@@ -224,22 +221,19 @@ class ProjectService:
         try:
             self.session.commit()
         except StaleDataError as exc:
-            self.session.rollback()
-            actual_version = self.session.scalar(
-                select(ProjectUpdate.version).where(ProjectUpdate.id == update_id)
+            resolve_stale(
+                self.session,
+                exc,
+                StaleCheck(
+                    ProjectUpdate,
+                    update_id,
+                    payload.expected_version,
+                    not_found_code="project_update_not_found",
+                    not_found_message="项目进展不存在",
+                ),
+                conflict_message="项目进展已被其他操作更新，请刷新后重试",
+                include_fallback_versions=True,
             )
-            if actual_version is None:
-                raise AppError(404, "project_update_not_found", "项目进展不存在") from exc
-            require_version(payload.expected_version, actual_version)
-            raise AppError(
-                409,
-                "version_conflict",
-                "项目进展已被其他操作更新，请刷新后重试",
-                details={
-                    "expected_version": payload.expected_version,
-                    "actual_version": actual_version,
-                },
-            ) from exc
         self.session.refresh(update)
         return update
 
