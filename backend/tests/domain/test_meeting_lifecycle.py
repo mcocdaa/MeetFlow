@@ -714,18 +714,9 @@ def test_public_lifecycle_transitions_and_terminal_edit_locks(
         actor = session.get(User, admin_id)
         service = MeetingService(session)
 
-        ready = service.mark_ready(
-            meeting_id, LifecycleCommand(expected_version=1), actor
-        )
-        draft = service.mark_draft(
-            meeting_id, LifecycleCommand(expected_version=ready.version), actor
-        )
-        ready_again = service.mark_ready(
-            meeting_id, LifecycleCommand(expected_version=draft.version), actor
-        )
         started = service.start(
             meeting_id,
-            LifecycleCommand(expected_version=ready_again.version),
+            LifecycleCommand(expected_version=1),
             actor,
         )
         completed = service.finish(

@@ -694,30 +694,6 @@ class MeetingService:
         self._record_meeting(meeting, actor, event_type)
         return self._commit_meeting_command(meeting, payload.expected_version)
 
-    def mark_ready(
-        self, meeting_id: str, payload: LifecycleCommand, actor: User
-    ) -> Meeting:
-        return self._transition(
-            meeting_id,
-            payload,
-            actor,
-            target=MeetingStatus.ready,
-            allowed_from={MeetingStatus.draft},
-            event_type="meeting.ready",
-        )
-
-    def mark_draft(
-        self, meeting_id: str, payload: LifecycleCommand, actor: User
-    ) -> Meeting:
-        return self._transition(
-            meeting_id,
-            payload,
-            actor,
-            target=MeetingStatus.draft,
-            allowed_from={MeetingStatus.ready},
-            event_type="meeting.returned_to_draft",
-        )
-
     def _run_meeting_command(
         self, meeting_id: str, expected_version: int, operation
     ) -> Meeting:
