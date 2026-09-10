@@ -11,7 +11,7 @@ def require_version(expected_version: int, actual_version: int) -> None:
         raise AppError(
             409,
             "version_conflict",
-            "项目已被其他操作更新，请刷新后重试",
+            "记录已被其他操作更新，请刷新后重试",
             details={
                 "expected_version": expected_version,
                 "actual_version": actual_version,
