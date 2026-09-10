@@ -23,6 +23,7 @@ from app.outcomes.schemas import (
     QuestionScheduleWrite,
     QuestionWrite,
 )
+from app.outcomes.projectors import serialize_columns
 from app.outcomes.service import OutcomeService
 
 router = APIRouter(tags=["outcomes"])
@@ -193,9 +194,7 @@ def schedule_question(
 ) -> dict[str, Any]:
     service = _service(session)
     item = service.schedule_question(question_id, payload, user)
-    return utc_response({
-        column.name: getattr(item, column.name) for column in item.__table__.columns
-    }, status_code=201)
+    return utc_response(serialize_columns(item), status_code=201)
 
 
 @router.post("/api/open-questions/{question_id}/resolve")
@@ -217,9 +216,7 @@ def migrate_outcomes(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     item = _service(session).migrate_agenda_outcomes(item_id, payload, user)
-    return utc_response({
-        column.name: getattr(item, column.name) for column in item.__table__.columns
-    })
+    return utc_response(serialize_columns(item))
 
 
 @router.post("/api/agenda-items/{item_id}/convert-to-question", status_code=201)
@@ -241,6 +238,4 @@ def copy_to_meeting(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     item = _service(session).copy_agenda_to_meeting(item_id, payload, user)
-    return utc_response({
-        column.name: getattr(item, column.name) for column in item.__table__.columns
-    }, status_code=201)
+    return utc_response(serialize_columns(item), status_code=201)

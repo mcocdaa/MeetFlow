@@ -22,9 +22,11 @@ from app.agendas.schemas import (
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
 from app.domain.enums import AgendaStatus, MeetingStatus, OpenQuestionStatus
-from app.domain.versioning import require_version
+from app.domain.versioning import StaleCheck, require_version, resolve_stale
 from app.errors import AppError
 from app.meetings.models import Meeting
+from app.meetings.policies import LifecyclePolicy
+from app.outcomes.service import OutcomeService
 from app.refs import user_ref
 from app.outcomes.models import ActionItem, Decision, OpenQuestion
 from app.projects.access import WorkspaceAccess
@@ -56,20 +58,11 @@ class AgendaService:
         WorkspaceAccess(self.session).require_meeting_view(meeting.id, actor)
 
     def _require_meeting_contribution(self, meeting: Meeting, actor: User) -> None:
-        access = WorkspaceAccess(self.session)
-        access.require_meeting_view(meeting.id, actor)
-        access.require_project_contribute(meeting.project_id, actor)
+        WorkspaceAccess(self.session).require_meeting_contribute(meeting.id, actor)
 
     @staticmethod
     def _require_mutable(meeting: Meeting) -> None:
-        if meeting.status == MeetingStatus.completed:
-            raise AppError(409, "meeting_completed", "已完成的会议不可修改")
-        if meeting.status not in {
-            MeetingStatus.draft,
-            MeetingStatus.ready,
-            MeetingStatus.in_progress,
-        }:
-            raise AppError(409, "meeting_immutable", "当前会议状态不可修改议程")
+        LifecyclePolicy.require_mutable_status(meeting.status)
 
     def _users(self, user_ids: Iterable[str | None]) -> None:
         fetch_users(self.session, user_ids, message="议题关联用户不存在")
@@ -194,28 +187,25 @@ class AgendaService:
             )
         )
 
+    def _meeting_status(self, meeting_id: str) -> MeetingStatus | None:
+        return self.session.scalar(
+            select(Meeting.status).where(Meeting.id == meeting_id)
+        )
+
     def _raise_meeting_stale(
         self, meeting_id: str, expected_version: int, exc: Exception
     ) -> None:
         self.session.rollback()
-        row = self.session.execute(
-            select(Meeting.version, Meeting.status).where(Meeting.id == meeting_id)
-        ).one_or_none()
-        if row is None:
+        status = self._meeting_status(meeting_id)
+        if status is None:
             raise AppError(404, "meeting_not_found", "会议不存在") from exc
-        actual, status = row
-        if status == MeetingStatus.completed:
-            raise AppError(409, "meeting_completed", "已完成的会议不可修改") from exc
-        if status not in {
-            MeetingStatus.draft,
-            MeetingStatus.ready,
-            MeetingStatus.in_progress,
-        }:
-            raise AppError(
-                409, "meeting_immutable", "当前会议状态不可修改议程"
-            ) from exc
-        require_version(expected_version, actual)
-        raise AppError(409, "version_conflict", "会议议程已更新，请刷新后重试") from exc
+        LifecyclePolicy.require_mutable_status(status)
+        resolve_stale(
+            self.session,
+            exc,
+            StaleCheck(Meeting, meeting_id, expected_version),
+            conflict_message="会议议程已更新，请刷新后重试",
+        )
 
     def _raise_item_or_meeting_stale(
         self,
@@ -227,32 +217,23 @@ class AgendaService:
         exc: Exception,
     ) -> None:
         self.session.rollback()
-        row = self.session.execute(
-            select(Meeting.version, Meeting.status).where(Meeting.id == meeting_id)
-        ).one_or_none()
-        if row is None:
+        status = self._meeting_status(meeting_id)
+        if status is None:
             raise AppError(404, "meeting_not_found", "会议不存在") from exc
-        actual_meeting_version, status = row
-        if status == MeetingStatus.completed:
-            raise AppError(409, "meeting_completed", "已完成的会议不可修改") from exc
-        if status not in {
-            MeetingStatus.draft,
-            MeetingStatus.ready,
-            MeetingStatus.in_progress,
-        }:
-            raise AppError(
-                409, "meeting_immutable", "当前会议状态不可修改议程"
-            ) from exc
-        require_version(expected_meeting_version, actual_meeting_version)
-        actual_item_version = self.session.scalar(
-            select(AgendaItem.version).where(AgendaItem.id == item_id)
+        LifecyclePolicy.require_mutable_status(status)
+        resolve_stale(
+            self.session,
+            exc,
+            StaleCheck(Meeting, meeting_id, expected_meeting_version),
+            StaleCheck(
+                AgendaItem,
+                item_id,
+                expected_item_version,
+                not_found_code="agenda_item_not_found",
+                not_found_message="议题不存在",
+            ),
+            conflict_message="议题或会议已更新，请刷新后重试",
         )
-        if actual_item_version is None:
-            raise AppError(404, "agenda_item_not_found", "议题不存在") from exc
-        require_version(expected_item_version, actual_item_version)
-        raise AppError(
-            409, "version_conflict", "议题或会议已更新，请刷新后重试"
-        ) from exc
 
     def _raise_move_stale(
         self,
@@ -266,21 +247,26 @@ class AgendaService:
         exc: Exception,
     ) -> None:
         self.session.rollback()
-        source = self._meeting(source_meeting_id)
-        target = self._meeting(target_meeting_id)
-        self._require_mutable(source)
-        self._require_mutable(target)
-        require_version(expected_source_meeting_version, source.version)
-        require_version(expected_target_meeting_version, target.version)
-        actual_item_version = self.session.scalar(
-            select(AgendaItem.version).where(AgendaItem.id == item_id)
+        source_status = self._meeting_status(source_meeting_id)
+        target_status = self._meeting_status(target_meeting_id)
+        if source_status is None or target_status is None:
+            raise AppError(404, "meeting_not_found", "会议不存在") from exc
+        LifecyclePolicy.require_mutable_status(source_status)
+        LifecyclePolicy.require_mutable_status(target_status)
+        resolve_stale(
+            self.session,
+            exc,
+            StaleCheck(Meeting, source_meeting_id, expected_source_meeting_version),
+            StaleCheck(Meeting, target_meeting_id, expected_target_meeting_version),
+            StaleCheck(
+                AgendaItem,
+                item_id,
+                expected_item_version,
+                not_found_code="agenda_item_not_found",
+                not_found_message="议题不存在",
+            ),
+            conflict_message="议题或会议已更新，请刷新后重试",
         )
-        if actual_item_version is None:
-            raise AppError(404, "agenda_item_not_found", "议题不存在") from exc
-        require_version(expected_item_version, actual_item_version)
-        raise AppError(
-            409, "version_conflict", "议题或会议已更新，请刷新后重试"
-        ) from exc
 
     def create(
         self,
@@ -567,9 +553,6 @@ class AgendaService:
         if item.status not in {AgendaStatus.planned, AgendaStatus.in_progress}:
             raise AppError(409, "invalid_agenda_transition", "已结束的议题不能移动")
 
-        # Imported lazily to avoid a model import cycle.
-        from app.outcomes.models import ActionItem, Decision, OpenQuestion
-
         carried_question = None
         if item.carry_from_open_question_id:
             carried_question = self.session.get(
@@ -681,9 +664,6 @@ class AgendaService:
         self._require_mutable(meeting)
         require_version(payload.expected_version, item.version)
         require_version(expected_meeting_version, meeting.version)
-        # Imported lazily to avoid a model/service import cycle.
-        from app.outcomes.service import OutcomeService
-
         if OutcomeService(self.session).count_for_agenda(item.id):
             raise AppError(409, "agenda_has_outcomes", "议题已有产出，不能直接删除")
         from app.attachments.models import Attachment

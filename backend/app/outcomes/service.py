@@ -19,13 +19,13 @@ from app.domain.enums import (
     ActionStatus,
     AgendaStatus,
     DecisionStatus,
-    MeetingStatus,
     OpenQuestionStatus,
 )
-from app.domain.versioning import require_version
+from app.domain.versioning import StaleCheck, require_version, resolve_stale
 from app.errors import AppError
 from app.inbox.service import NotificationWriter
 from app.meetings.models import Meeting
+from app.meetings.policies import MUTABLE_MEETING_STATUSES
 from app.outcomes.models import (
     ActionItem,
     Decision,
@@ -33,6 +33,7 @@ from app.outcomes.models import (
     OpenQuestion,
     OutcomeMigrationRecord,
 )
+from app.outcomes.projectors import serialize_outcome
 from app.outcomes.schemas import (
     ActionEdit,
     ActionWrite,
@@ -64,9 +65,7 @@ class OutcomeService:
         WorkspaceAccess(self.session).require_project_contribute(project_id, actor)
 
     def _require_meeting_contribution(self, meeting: Meeting, actor: User) -> None:
-        access = WorkspaceAccess(self.session)
-        access.require_meeting_view(meeting.id, actor)
-        access.require_project_contribute(meeting.project_id, actor)
+        WorkspaceAccess(self.session).require_meeting_contribute(meeting.id, actor)
 
     def _record(
         self,
@@ -193,28 +192,24 @@ class OutcomeService:
         try:
             self.session.commit()
         except StaleDataError as exc:
-            self.session.rollback()
-            for meeting_id, expected_meeting_version in (
-                meeting_versions or {}
-            ).items():
-                actual_meeting_version = self.session.scalar(
-                    select(Meeting.version).where(Meeting.id == meeting_id)
-                )
-                if actual_meeting_version is not None:
-                    require_version(expected_meeting_version, actual_meeting_version)
+            checks = [
+                StaleCheck(Meeting, meeting_id, expected_meeting_version)
+                for meeting_id, expected_meeting_version in (
+                    meeting_versions or {}
+                ).items()
+            ]
             if (
                 model is not None
                 and entity_id is not None
                 and expected_version is not None
             ):
-                actual = self.session.scalar(
-                    select(model.version).where(model.id == entity_id)
-                )
-                if actual is not None:
-                    require_version(expected_version, actual)
-            raise AppError(
-                409, "version_conflict", "记录已被其他操作更新，请刷新后重试"
-            ) from exc
+                checks.append(StaleCheck(model, entity_id, expected_version))
+            resolve_stale(
+                self.session,
+                exc,
+                *checks,
+                conflict_message="记录已被其他操作更新，请刷新后重试",
+            )
 
     def _touch_meetings(self, actor: User, *meeting_ids: str | None) -> dict[str, int]:
         expected: dict[str, int] = {}
@@ -642,11 +637,7 @@ class OutcomeService:
 
     @staticmethod
     def _mutable_meeting(meeting: Meeting) -> None:
-        if meeting.status not in {
-            MeetingStatus.draft,
-            MeetingStatus.ready,
-            MeetingStatus.in_progress,
-        }:
+        if meeting.status not in MUTABLE_MEETING_STATUSES:
             raise AppError(409, "meeting_immutable", "目标会议不可修改")
 
     def schedule_question(
@@ -926,18 +917,15 @@ class OutcomeService:
                 "写入违反数据完整性约束",
             ) from exc
         except StaleDataError as exc:
-            self.session.rollback()
-            actual_source = self.session.scalar(
-                select(AgendaItem.version).where(AgendaItem.id == source_id)
+            resolve_stale(
+                self.session,
+                exc,
+                StaleCheck(AgendaItem, source_id, payload.expected_source_version),
+                StaleCheck(
+                    Meeting, source_meeting_id, payload.expected_source_meeting_version
+                ),
+                conflict_message="议题或会议已更新",
             )
-            if actual_source is not None:
-                require_version(payload.expected_source_version, actual_source)
-            actual_meeting = self.session.scalar(
-                select(Meeting.version).where(Meeting.id == source_meeting_id)
-            )
-            if actual_meeting is not None:
-                require_version(payload.expected_source_meeting_version, actual_meeting)
-            raise AppError(409, "version_conflict", "议题或会议已更新") from exc
         self.session.refresh(question)
         return question
 
@@ -1039,26 +1027,20 @@ class OutcomeService:
                 "复制议题违反数据完整性约束",
             ) from exc
         except StaleDataError as exc:
-            self.session.rollback()
-            actual_source = self.session.scalar(
-                select(AgendaItem.version).where(AgendaItem.id == source_id)
+            resolve_stale(
+                self.session,
+                exc,
+                StaleCheck(AgendaItem, source_id, payload.expected_source_version),
+                StaleCheck(
+                    Meeting, source_meeting_id, payload.expected_source_meeting_version
+                ),
+                StaleCheck(
+                    Meeting,
+                    payload.target_meeting_id,
+                    payload.expected_target_meeting_version,
+                ),
+                conflict_message="议题或会议已更新",
             )
-            if actual_source is not None:
-                require_version(payload.expected_source_version, actual_source)
-            actual_source_meeting = self.session.scalar(
-                select(Meeting.version).where(Meeting.id == source_meeting_id)
-            )
-            if actual_source_meeting is not None:
-                require_version(
-                    payload.expected_source_meeting_version,
-                    actual_source_meeting,
-                )
-            actual_target = self.session.scalar(
-                select(Meeting.version).where(Meeting.id == payload.target_meeting_id)
-            )
-            if actual_target is not None:
-                require_version(payload.expected_target_meeting_version, actual_target)
-            raise AppError(409, "version_conflict", "议题或会议已更新") from exc
         self.session.refresh(item)
         return item
 
@@ -1128,18 +1110,4 @@ class OutcomeService:
 
     @staticmethod
     def serialize(item: Any) -> dict[str, Any]:
-        result = {
-            column.name: getattr(item, column.name) for column in item.__table__.columns
-        }
-        result["is_derived"] = item.source_agenda_item_id is not None
-        if isinstance(item, Decision):
-            result["reviewers"] = [
-                {
-                    "user_id": row.user_id,
-                    "status": row.status,
-                    "responded_at": row.responded_at,
-                    "comment": row.comment,
-                }
-                for row in item.reviewers
-            ]
-        return result
+        return serialize_outcome(item)

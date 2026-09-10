@@ -22,8 +22,7 @@ from app.meetings.models import (
     MeetingParticipant,
     MeetingSnapshot,
 )
-from app.meetings.queries import MeetingQueries
-from app.meetings.service import MeetingService
+from app.meetings.queries import query_meetings
 from app.outcomes.models import ActionItem, Decision, DecisionReviewer
 from app.outcomes.service import OutcomeService
 from app.projects.access import WorkspaceAccess
@@ -128,7 +127,8 @@ def global_meetings(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     visible_project_ids = WorkspaceAccess(session).visible_project_ids(user)
-    page = MeetingQueries(MeetingService(session)).list_meetings(
+    page = query_meetings(
+        session,
         include_details=True,
         status=status,
         participant_user_id=participant_user_id,

@@ -9,7 +9,7 @@
 - SQLite 保存结构化数据，附件和备份保存在数据目录。容器运行时的持久化目录是 `/app/data`，部署时对应宿主机的 `./data/`。
 - 生产镜像只有一个应用容器。Vue 资源在构建阶段生成，运行阶段启动 Uvicorn 和内置的插件任务 worker。
 - 会议系列的固定周期实例由应用进程内的低频 worker 创建；读取系列、会议列表和开始固定实例也会补算，因而不依赖外部 Cron。
-- 所有生命周期转换（`start`、`finish`、`mark_ready`、`mark_draft`、`cancel`、`reopen`）统一由 `MeetingService` 的 `_start_impl`/`_finish_impl`/`_commit_meeting_command` 在单会话事务中提交，失败时回滚并按 `expected_version` 报告 409；`LifecyclePolicy` 只负责纯状态迁移判断。会议读取、package 和 plugin context 通过 `MeetingQueries` 读侧边界委托，其中 `MeetingQueries.list_meetings` 拥有唯一的会议列表查询与序列化实现（项目内列表与工作区全局 `/api/meetings` 共用），`projectors.py` 承担快照、附件和用户/项目引用的纯投影。
+- 所有生命周期转换（`start`、`finish`、`mark_ready`、`mark_draft`、`cancel`、`reopen`）统一由 `MeetingService` 在单会话事务中提交：简单转换走表驱动的 `_transition`，`start`/`finish` 走 `_run_meeting_command`，失败时回滚并按 `expected_version` 报告 409，共享的乐观锁诊断位于 `domain/versioning.py::resolve_stale`；`LifecyclePolicy` 负责纯状态迁移判断和会议可变状态白名单（`MUTABLE_MEETING_STATUSES`）。会议列表由 `meetings/queries.py::query_meetings` 纯函数提供唯一的查询与序列化实现（项目内列表与工作区全局 `/api/meetings` 共用），`meetings/projectors.py` 承担快照、附件与引用投影，`outcomes/projectors.py` 承担成果序列化；读取路径不再反向依赖 service。
 - 外部插件目录固定为 `/app/plugins`。生产部署可将宿主机目录以只读方式挂载到这里；插件代码仅应来自可信的服务器管理员。
 
 ## 本地开发

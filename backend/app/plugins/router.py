@@ -19,20 +19,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agendas.models import AgendaItem
 from app.auth.dependencies import admin_user, current_user
 from app.auth.models import User
 from app.database import get_session
 from app.errors import AppError
 from app.meetings.service import MeetingService
 from app.projects.access import WorkspaceAccess
+from app.plugins.access import require_plugin_target_access
+from app.plugins.errors import map_plugin_error
 from app.plugins.events import retry_plugin_event as retry_plugin_event_command
-from app.plugins.manager import (
-    PluginConfigurationError,
-    PluginInputError,
-    PluginOutputError,
-    PluginStreamingError,
-)
+from app.plugins.manager import PluginOutputError
 from app.plugins.context import PluginContextBuilder
 from app.plugins.models import PluginEvent, PluginEventStatus, PluginState
 from app.plugins.jobs import PluginJobService
@@ -101,31 +97,9 @@ def require_job_target_access(
     *,
     contribute: bool,
 ) -> None:
-    access = WorkspaceAccess(session)
-    if job.target_type == "meeting":
-        meeting = access.require_meeting_view(job.target_id, user)
-        if contribute:
-            access.require_project_contribute(meeting.project_id, user)
-        else:
-            access.require_project_view(meeting.project_id, user)
-        return
-    if job.target_type == "agenda_item":
-        agenda_item = session.get(AgendaItem, job.target_id)
-        if agenda_item is None:
-            raise AppError(404, "agenda_item_not_found", "议题不存在")
-        meeting = access.require_meeting_view(agenda_item.meeting_id, user)
-        if contribute:
-            access.require_project_contribute(meeting.project_id, user)
-        else:
-            access.require_project_view(meeting.project_id, user)
-        return
-    if job.target_type == "project":
-        if contribute:
-            access.require_project_contribute(job.target_id, user)
-        else:
-            access.require_project_view(job.target_id, user)
-        return
-    raise AppError(422, "invalid_plugin_target", "插件任务目标无效")
+    require_plugin_target_access(
+        session, job.target_type, job.target_id, user, contribute=contribute
+    )
 
 
 def can_view_job_target(session: Session, job: PluginJob, user: User) -> bool:
@@ -302,12 +276,15 @@ async def stream_action(
             payload.input,
             session,
         )
-    except PluginInputError as exc:
-        raise AppError(422, "invalid_action_payload", "插件输入无效") from exc
-    except PluginConfigurationError as exc:
-        raise AppError(409, "plugin_not_configured", "插件配置不完整") from exc
-    except PluginStreamingError as exc:
-        raise AppError(422, "plugin_stream_unsupported", "插件不支持流式输出") from exc
+    except Exception as exc:
+        mapped = map_plugin_error(
+            exc,
+            output_message="插件返回格式无效",
+            streaming_message="插件不支持流式输出",
+        )
+        if mapped is None:
+            raise
+        raise mapped from exc
 
     async def events():
         try:
@@ -513,9 +490,7 @@ async def run_action(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict:
-    access = WorkspaceAccess(session)
-    meeting = access.require_meeting_view(meeting_id, user)
-    access.require_project_contribute(meeting.project_id, user)
+    WorkspaceAccess(session).require_meeting_contribute(meeting_id, user)
     manager = request.app.state.plugin_manager
     action = next(
         (
@@ -535,34 +510,24 @@ async def run_action(
             manager.invoke(action_id, context, payload, session),
             timeout=request.app.state.settings.plugin_timeout_seconds,
         )
-    except PluginInputError as exc:
-        raise AppError(422, "invalid_action_payload", "插件输入无效") from exc
-    except PluginConfigurationError as exc:
-        raise AppError(409, "plugin_not_configured", "插件配置不完整") from exc
-    except PluginOutputError as exc:
-        logger.error(
-            "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
-            action_id.split(".", 1)[0],
-            action_id,
-            type(exc).__name__,
-        )
-        raise AppError(502, "plugin_invalid_output", "插件返回格式无效") from exc
-    except TimeoutError as exc:
-        logger.error(
-            "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
-            action_id.split(".", 1)[0],
-            action_id,
-            type(exc).__name__,
-        )
-        raise AppError(504, "plugin_timeout", "插件执行超时") from exc
     except Exception as exc:
-        logger.error(
-            "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
-            action_id.split(".", 1)[0],
-            action_id,
-            type(exc).__name__,
-        )
-        raise AppError(502, "plugin_failed", "插件执行失败") from exc
+        mapped = map_plugin_error(exc, output_message="插件返回格式无效")
+        if mapped is None:
+            logger.error(
+                "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
+                action_id.split(".", 1)[0],
+                action_id,
+                type(exc).__name__,
+            )
+            raise AppError(502, "plugin_failed", "插件执行失败") from exc
+        if isinstance(exc, (PluginOutputError, TimeoutError)):
+            logger.error(
+                "Plugin action failed plugin_id=%s action_id=%s error_type=%s",
+                action_id.split(".", 1)[0],
+                action_id,
+                type(exc).__name__,
+            )
+        raise mapped from exc
 
 
 @meeting_actions_router.post("/{meeting_id}/plugin-exports/{exporter_id}")
@@ -573,9 +538,7 @@ async def export_meeting(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> Response:
-    access = WorkspaceAccess(session)
-    meeting = access.require_meeting_view(meeting_id, user)
-    access.require_project_contribute(meeting.project_id, user)
+    WorkspaceAccess(session).require_meeting_contribute(meeting_id, user)
     manager = request.app.state.plugin_manager
     if exporter_id not in manager.loaded_exporters():
         raise AppError(404, "plugin_export_not_found", "会议导出器不存在")
@@ -585,20 +548,21 @@ async def export_meeting(
             manager.export(exporter_id, context, session),
             timeout=request.app.state.settings.plugin_timeout_seconds,
         )
-    except PluginConfigurationError as exc:
-        raise AppError(409, "plugin_not_configured", "插件配置不完整") from exc
-    except PluginOutputError as exc:
-        raise AppError(502, "plugin_invalid_output", "插件导出结果无效") from exc
-    except TimeoutError as exc:
-        raise AppError(504, "plugin_timeout", "插件执行超时") from exc
     except Exception as exc:
-        logger.error(
-            "Plugin export failed plugin_id=%s exporter_id=%s error_type=%s",
-            exporter_id.split(".", 1)[0],
-            exporter_id,
-            type(exc).__name__,
+        mapped = map_plugin_error(
+            exc,
+            output_message="插件导出结果无效",
+            input_message=None,
         )
-        raise AppError(502, "plugin_failed", "插件导出失败") from exc
+        if mapped is None:
+            logger.error(
+                "Plugin export failed plugin_id=%s exporter_id=%s error_type=%s",
+                exporter_id.split(".", 1)[0],
+                exporter_id,
+                type(exc).__name__,
+            )
+            raise AppError(502, "plugin_failed", "插件导出失败") from exc
+        raise mapped from exc
     return Response(
         content=result.content,
         media_type=result.media_type,

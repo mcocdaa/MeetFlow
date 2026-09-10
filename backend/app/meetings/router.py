@@ -17,10 +17,19 @@ from app.meetings.schemas import (
     MeetingWrite,
     OccurrenceWrite,
 )
+from app.meetings.projectors import serialize_amendment, serialize_snapshot
 from app.meetings.service import MeetingService
 from app.projects.access import WorkspaceAccess
 
 router = APIRouter(tags=["meetings"])
+
+
+def _capability_payload(capabilities) -> dict[str, bool]:
+    return {
+        "can_manage": capabilities.can_manage,
+        "can_contribute": capabilities.can_contribute,
+        "can_comment": capabilities.can_comment,
+    }
 
 
 def _meeting_payload(
@@ -29,21 +38,14 @@ def _meeting_payload(
     access = WorkspaceAccess(service.session)
     capabilities = access.meeting_capabilities(meeting, user)
     result = service.serialize_meeting(meeting)
-    result["capabilities"] = {
-        "can_manage": capabilities.can_manage,
-        "can_contribute": capabilities.can_contribute,
-        "can_comment": capabilities.can_comment,
-    }
+    result["capabilities"] = _capability_payload(capabilities)
     return result
 
 
 def _require_meeting_contribution(
     session: Session, meeting_id: str, user: User
 ):
-    access = WorkspaceAccess(session)
-    meeting = access.require_meeting_view(meeting_id, user)
-    access.require_project_contribute(meeting.project_id, user)
-    return meeting
+    return WorkspaceAccess(session).require_meeting_contribute(meeting_id, user)
 
 
 @router.get("/api/projects/{project_id}/meeting-series")
@@ -148,11 +150,7 @@ def get_meeting(
     meeting = WorkspaceAccess(session).require_meeting_view(meeting_id, user)
     result = service.meeting_detail(meeting_id, user)
     capabilities = WorkspaceAccess(session).meeting_capabilities(meeting, user)
-    result["capabilities"] = {
-        "can_manage": capabilities.can_manage,
-        "can_contribute": capabilities.can_contribute,
-        "can_comment": capabilities.can_comment,
-    }
+    result["capabilities"] = _capability_payload(capabilities)
     return utc_response(result)
 
 
@@ -233,7 +231,7 @@ def list_snapshots(
     service = MeetingService(session)
     WorkspaceAccess(session).require_meeting_view(meeting_id, user)
     return utc_response([
-        service.serialize_snapshot(row)
+        serialize_snapshot(row)
         for row in service.list_snapshots(meeting_id, limit=limit, offset=offset)
     ])
 
@@ -248,6 +246,6 @@ def add_amendment(
     service = MeetingService(session)
     _require_meeting_contribution(session, meeting_id, user)
     return utc_response(
-        service.serialize_amendment(service.add_amendment(meeting_id, payload, user)),
+        serialize_amendment(service.add_amendment(meeting_id, payload, user)),
         status_code=201,
     )
