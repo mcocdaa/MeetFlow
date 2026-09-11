@@ -39,6 +39,12 @@ npm --prefix frontend run build
 
 也可以从 `frontend/` 目录运行 `npm test` 和 `npm run build`。不要在仓库根目录直接运行 npm 命令，因为根目录没有前端 `package.json`。
 
+需要对运行中的实例做端到端 API 冒烟时，运行 `scripts/smoke_api.py`。它会写入真实数据，只应指向一次性或专用测试实例：
+
+```bash
+.venv/bin/python scripts/smoke_api.py --base-url http://127.0.0.1:8000 --admin-password "$ADMIN_PASSWORD"
+```
+
 改动发布或容器相关文件时，还应阅读[发布指南](release.md)中的 CI 与镜像验证说明。
 
 ## 从源码使用 Docker Compose
