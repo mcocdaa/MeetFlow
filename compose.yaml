@@ -4,7 +4,8 @@ services:
     build:
       context: .
     env_file:
-      - ${MEETFLOW_ENV_FILE:-.env}
+      - path: ${MEETFLOW_ENV_FILE:-.env}
+        required: false
     environment:
       DATABASE_URL: sqlite:////app/data/meetflow.db
       DATA_DIR: /app/data
