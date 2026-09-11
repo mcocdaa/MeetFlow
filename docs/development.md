@@ -25,7 +25,7 @@ npm --prefix frontend ci
 
 该脚本会在 `http://127.0.0.1:8000` 启动带自动重载的后端，并在 `http://localhost:5173` 启动 Vite；Vite 会将 `/api` 代理到后端。健康检查是 `http://127.0.0.1:8000/api/health`。
 
-本地开发默认读取项目根目录的配置和数据目录。需要修改配置时，以[仓库根目录 `.env.example`](../.env.example)为参考；不要把真实密码、密钥或本地 `.env` 提交到 Git。
+本地开发直接使用 `backend/app/config.py` 中的开发默认值（开发模式、`data/`、`frontend/dist`），无需创建 `.env`。需要覆盖时，在项目根目录创建被 Git 忽略的 `.env`；根目录 `.env.example` 是生产服务器模板，不要用于本地开发。
 
 ## 测试与构建
 
@@ -49,10 +49,9 @@ npm --prefix frontend run build
 
 ## 从源码使用 Docker Compose
 
-Compose 是从源码构建、调试或修改 `MEETFLOW_PORT`、`MEETFLOW_BIND` 时使用的高级路径，不是普通服务器使用公开镜像的默认方式。先准备本地配置，再构建并后台启动：
+Compose 是从源码构建、调试或修改 `MEETFLOW_PORT`、`MEETFLOW_BIND` 时使用的高级路径，不是普通服务器使用公开镜像的默认方式。无需 `.env` 即可启动，容器使用镜像内置的开发默认值：
 
 ```bash
-cp .env.example .env
 ./scripts/start.sh docker-detached
 docker compose ps
 ```
@@ -63,7 +62,7 @@ docker compose ps
 docker compose down
 ```
 
-`compose.yaml` 将 `./data` 映射为 `/app/data`，并将 `./plugins` 以只读方式映射为 `/app/plugins`。它会读取 `.env`，因此不要把 `.env`、`data/` 或备份文件加入提交。
+`compose.yaml` 将 `./data` 映射为 `/app/data`，并将 `./plugins` 以只读方式映射为 `/app/plugins`。需要覆盖配置时，在项目根目录创建 `.env`（不要复制面向服务器的生产模板 `.env.example`）；不要把 `.env`、`data/` 或备份文件加入提交。
 
 ## 数据库迁移
 

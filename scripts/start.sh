@@ -15,18 +15,10 @@ case "$mode" in
     npm --prefix frontend run dev
     ;;
   docker)
-    if [[ ! -f .env ]]; then
-      echo "Missing .env; run: cp .env.example .env" >&2
-      exit 1
-    fi
     mkdir -p data
     docker compose up --build
     ;;
   docker-detached)
-    if [[ ! -f .env ]]; then
-      echo "Missing .env; run: cp .env.example .env" >&2
-      exit 1
-    fi
     mkdir -p data
     docker compose up --build --detach
     ;;

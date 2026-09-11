@@ -11,7 +11,7 @@
 ## Repository rules
 
 - MeetFlow 是 Vue 3/Vite 前端和 FastAPI/SQLAlchemy 后端组成的单个服务，SQLite、附件和容器内备份依赖持久化数据目录。
-- 公开镜像的默认服务器启动方式是 Docker 命令行 `-e` 配置，并使用 `-v "$PWD/data:/app/data"` 持久化数据。`.env` 与 `--env-file` 只用于高级配置。
+- 公开镜像的默认服务器启动方式是复制 `.env.example` 为 `.env`，用 `docker run --env-file .env` 启动，并使用 `-v "$PWD/data:/app/data"` 持久化数据；命令行 `-e` 只用于临时覆盖单项。
 - 不要提交 `.env`、真实账号密码、`APP_SECRET_KEY`、插件 API Key、`data/`、备份或 GHCR 凭据。
 - 对生产数据库字段或结构的变更必须包含 Alembic 迁移；不要用临时建表逻辑替代迁移。
 - 外部 `/app/plugins` 挂载必须是受信任代码且只读。插件的网页配置不能被扩展成上传或运行任意代码的机制。

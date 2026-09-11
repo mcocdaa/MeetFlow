@@ -78,35 +78,29 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Write release evidence
-        shell: bash
-        run: |
-          python scripts/write_release_metadata.py \
-            --output-dir release-artifacts \
-            --image "$IMAGE_NAME" \
-            --release-tag "$GITHUB_REF_NAME" \
-            --commit "$GITHUB_SHA" \
-            --digest "${{ steps.build.outputs.digest }}" \
-            --platforms "linux/amd64,linux/arm64" \
-            --tags "${{ steps.metadata.outputs.tags }}"
-          docker buildx imagetools inspect "${IMAGE_NAME}@${{ steps.build.outputs.digest }}" \
-            > release-artifacts/image-manifest.txt
-      - name: Upload release evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: meetflow-release-${{ github.ref_name }}
-          path: release-artifacts/
-          if-no-files-found: error
-          retention-days: 90
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          notes_file="$(mktemp)"
+          {
+            echo "## Container image"
+            echo
+            echo "- Immutable: \`${IMAGE_NAME}@${{ steps.build.outputs.digest }}\`"
+            echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+            echo "- OCI attestations: \`provenance\`, \`sbom\`"
+            echo
+            echo "Pull this exact build:"
+            echo
+            echo "\`\`\`bash"
+            echo "docker pull ${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
+            echo "\`\`\`"
+          } > "$notes_file"
           release_args=(
             --title "MeetFlow ${GITHUB_REF_NAME}"
             --target "$GITHUB_SHA"
-            --notes-file release-artifacts/release-notes.md
+            --notes-file "$notes_file"
           )
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             release_args+=(--prerelease)
@@ -116,7 +110,3 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "${release_args[@]}"
           fi
-          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            release-artifacts/release-metadata.json \
-            release-artifacts/image-manifest.txt \
-            --clobber

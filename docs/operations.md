@@ -4,7 +4,14 @@
 
 ## 生产配置边界
 
-默认部署使用公开镜像 `ghcr.io/mcocdaa/meetflow`，通过 Docker 命令行 `-e` 传入配置，并将当前部署目录的 `./data/` 映射到容器的 `/app/data`：
+默认部署使用公开镜像 `ghcr.io/mcocdaa/meetflow`。从当前部署目录复制生产模板并编辑：
+
+```bash
+cp .env.example .env
+vim .env
+```
+
+模板预设 `APP_ENV=production`，至少替换 `ADMIN_PASSWORD`、`APP_SECRET_KEY` 和 `TRUSTED_ORIGINS`；启动时会校验这些值，未替换会拒绝启动。`.env` 包含密钥且已被 Git 忽略，不要提交或公开分享。完整的启动命令见根 [README](../README.md) 的快速启动；持久化映射固定为：
 
 ```text
 -v "$PWD/data:/app/data"
@@ -12,7 +19,7 @@
 
 数据库、上传附件和容器内备份都位于这个数据目录。保留该目录和同一个 `APP_SECRET_KEY` 是更新、回滚与灾难恢复的前提：更换应用密钥会使现有会话失效，也无法解密已经保存的插件密钥。
 
-不要将 `.env`、`data/`、备份、密码或任何 GHCR 凭据提交到 Git。使用命令行 `-e` 时，值会进入 shell 历史并可被具有 Docker 管理权限的人检查；需要集中保管配置时使用下一节的高级方式。
+需要临时覆盖某一项时，在启动命令中追加 `-e NAME=value`；命令行 `-e` 优先于 `--env-file`。值会进入 shell 历史并可被具有 Docker 管理权限的人检查，因此不要长期用 `-e` 保存密钥。
 
 ## HTTPS 反向代理
 
@@ -27,27 +34,6 @@ meetflow.example.com {
 ```
 
 如果反向代理限制请求体大小，它的限制不得小于 `MAX_UPLOAD_BYTES`。默认的单个附件上限是 20 MiB。只有受信任的局域网或开发环境才应把端口公开绑定到 `0.0.0.0` 并改用 HTTP 配置。
-
-## 高级配置：使用 `.env`
-
-根 README 中的内联 `-e` 启动方式始终是默认路径。需要集中保存更多配置、或不希望把值写入启动命令时，先将模板复制到服务器的部署目录：
-
-```bash
-cp .env.example .env
-```
-
-将 `.env` 改为生产设置，至少包括 `APP_ENV=production`、强管理员密码、长期保存的 `APP_SECRET_KEY`、`SECURE_COOKIES=true` 和 HTTPS `TRUSTED_ORIGINS`。随后以 `--env-file ./.env` 替换默认启动命令中的每个 `-e` 参数：
-
-```bash
-docker run -d --name meetflow --init --read-only --tmpfs /tmp:size=64m \
-  --security-opt no-new-privileges:true --restart unless-stopped \
-  -p 127.0.0.1:8000:8000 \
-  -v "$PWD/data:/app/data" \
-  --env-file ./.env \
-  ghcr.io/mcocdaa/meetflow:latest
-```
-
-`.env.example` 的默认值只适合本地开发；生产 `.env` 不是共享配置样例，也不能提交。
 
 ## 镜像更新与回滚
 

@@ -1,5 +1,4 @@
 repos:
-  # - repo: https://github.com/pre-commit/pre-commit-hooks
   - repo: https://gitlab.cern.ch/pre-commit-hook-mirrors/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -11,5 +10,4 @@ repos:
       - id: debug-statements
       - id: end-of-file-fixer
       - id: mixed-line-ending
-      - id: requirements-txt-fixer
       - id: trailing-whitespace
