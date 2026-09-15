@@ -8,6 +8,7 @@ export type SessionUser = {
   display_name: string
   role: 'admin' | 'member'
   status: 'active'
+  avatar_color?: string
 }
 
 export const session = reactive<{ user: SessionUser | null; loaded: boolean }>({

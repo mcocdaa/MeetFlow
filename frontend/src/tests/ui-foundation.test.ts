@@ -3,6 +3,7 @@ import { NButton, NDataTable, type DataTableColumns, useDialog } from 'naive-ui'
 import { defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
 
+import AppAvatar from '../components/AppAvatar.vue'
 import { naiveThemeOverrides, priorityTone, statusTone } from '../theme/naive'
 import { renderWithProviders } from './helpers'
 
@@ -83,5 +84,23 @@ describe('naive smoke', () => {
 
     await screen.findByText('行一')
     expect(document.querySelector('.n-data-table')).not.toBeNull()
+  })
+})
+
+describe('AppAvatar', () => {
+  it('renders the name initial on a naive avatar using the supplied color', () => {
+    const { container } = renderWithProviders(AppAvatar, {
+      props: { name: '林宇', color: '#123456' },
+    })
+
+    expect(screen.getByText('林')).toBeInTheDocument()
+    expect(container.querySelector('.n-avatar')).not.toBeNull()
+  })
+
+  it('falls back to the brand soft background when no color is supplied', () => {
+    const { container } = renderWithProviders(AppAvatar, { props: { name: '林宇' } })
+
+    const avatar = container.querySelector('.n-avatar')
+    expect(avatar?.getAttribute('style') ?? '').toContain('green-soft')
   })
 })
