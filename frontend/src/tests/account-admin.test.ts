@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/vue'
+import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AccountView from '../views/AccountView.vue'
 import AdminUsersView from '../views/AdminUsersView.vue'
+import { renderWithProviders } from './helpers'
 
 const { apiMock, pushMock } = vi.hoisted(() => ({ apiMock: vi.fn(), pushMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -14,14 +15,32 @@ describe('account and user administration', () => {
     pushMock.mockReset()
   })
 
-  it('changes password and redirects to login', async () => {
+  it('changes password, shows a success message, and redirects to login', async () => {
     apiMock.mockResolvedValue(undefined)
-    render(AccountView)
+    renderWithProviders(AccountView)
+
     await fireEvent.update(screen.getByLabelText('当前密码'), 'old-password-123')
     await fireEvent.update(screen.getByLabelText('新密码'), 'new-password-123')
     await fireEvent.click(screen.getByRole('button', { name: '修改密码' }))
-    expect(apiMock).toHaveBeenCalledWith('/api/auth/change-password', expect.objectContaining({ method: 'POST' }))
-    expect(pushMock).toHaveBeenCalledWith('/login')
+
+    expect(await screen.findByText('密码已修改，请重新登录')).toBeInTheDocument()
+    expect(apiMock).toHaveBeenCalledWith(
+      '/api/auth/change-password',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/login'))
+  })
+
+  it('shows the wrong_password error inline and keeps the page', async () => {
+    apiMock.mockRejectedValue(new Error('当前密码不正确'))
+    renderWithProviders(AccountView)
+
+    await fireEvent.update(screen.getByLabelText('当前密码'), 'wrong-password')
+    await fireEvent.update(screen.getByLabelText('新密码'), 'new-password-123')
+    await fireEvent.click(screen.getByRole('button', { name: '修改密码' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('当前密码不正确')
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
   it('approves a pending user and reloads the list', async () => {
