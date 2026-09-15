@@ -1,3 +1,19 @@
+/*
+ * MeetFlow 样式与跨页约定
+ *
+ * 排版层级：页面标题 28px / 区块标题 20px / 小节标题 16px / 正文 1.65 行高。
+ * 品牌 token 的唯一权威值是 :root；Naive 无法在运行期读取 CSS 变量，src/theme/naive.ts
+ * 以同值字面量映射，改一处必须两处同步。
+ *
+ * P1 固化的交互约定（P2-P6 直接复用，不再各自发明）：
+ * - 创建/编辑：右侧 n-drawer（:width="'min(560px, 100vw)'"、label-placement="top"、
+ *   脚部取消 + 主按钮 :loading、:mask-closable="!saving"）。
+ * - 确认：优先 n-popconfirm；信息量更大时用 n-dialog。
+ * - 瞬时反馈：useMessage()（错误文案取自 apiErrorMessage/ApiError.message）；
+ *   页面级错误保留行内 n-alert；同一失败不同时弹 message 又刷 alert。
+ * - 保存冲突：useVersionedSave + VersionConflictDialog（409 version_conflict 专用）。
+ */
+
 :root {
   color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -34,9 +50,9 @@ button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; }
 h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: .65rem; font-size: clamp(2.2rem, 5vw, 4.7rem); line-height: .98; letter-spacing: -.055em; }
-h2 { margin-bottom: .65rem; font-size: 1.35rem; letter-spacing: -.025em; }
-h3 { margin-bottom: .5rem; }
+h1 { margin-bottom: .65rem; font-size: 28px; line-height: 1.2; letter-spacing: -.02em; }
+h2 { margin-bottom: .65rem; font-size: 20px; letter-spacing: -.02em; }
+h3 { margin-bottom: .5rem; font-size: 16px; }
 p { line-height: 1.65; }
 
 .app-shell { min-height: 100vh; }
@@ -70,7 +86,7 @@ p { line-height: 1.65; }
 .section-heading, .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .section-heading > * { margin-bottom: 0; }
 .page-heading { margin-bottom: 28px; align-items: flex-end; }
-.page-heading h1 { font-size: clamp(2.4rem, 5vw, 4rem); }
+.page-heading h1 { font-size: 28px; line-height: 1.2; letter-spacing: -.02em; }
 .page-heading p:last-child { margin-bottom: 0; color: var(--muted); }
 .metric { flex: 0 0 auto; padding: 12px 17px; border-radius: 12px; color: var(--green-dark); background: var(--green-soft); font-size: .8rem; font-weight: 750; }
 .metric strong { margin-right: 4px; font-size: 1.4rem; }
@@ -227,7 +243,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 @media (max-width: 800px) { .app-shell:has(.workspace-sidebar) { grid-template-columns: 1fr; } .app-shell .workspace-sidebar { position: static; height: auto; } .sidebar-body { min-height: 0; } .sidebar-nav .n-menu { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); } .sidebar-admin { margin-top: 0; } }
 .workspace-page { max-width: 1280px; margin: 0 auto; padding: 36px 40px 64px; }
 .workspace-page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5); margin-bottom: var(--space-6); }
-.workspace-page-heading h1 { margin: 2px 0 8px; font-size: clamp(1.8rem, 3vw, 2.5rem); letter-spacing: -.04em; }
+.workspace-page-heading h1 { margin: 2px 0 8px; font-size: 28px; line-height: 1.2; letter-spacing: -.02em; }
 .workspace-page-heading p:last-child { margin: 0; color: #727b88; }
 .home-workspace { display: grid; gap: var(--space-5); }
 .attention-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .75fr); gap: var(--space-5); align-items: stretch; }

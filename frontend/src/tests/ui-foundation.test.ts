@@ -4,6 +4,7 @@ import { defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import AppAvatar from '../components/AppAvatar.vue'
+import PageHeader from '../components/PageHeader.vue'
 import StatusPill from '../components/StatusPill.vue'
 import { naiveThemeOverrides, priorityTone, statusTone } from '../theme/naive'
 import { activityLabel } from '../utils/activity'
@@ -124,6 +125,18 @@ describe('StatusPill', () => {
     renderWithProviders(StatusPill, { props: { status: 'completed', kind: 'agenda' } })
 
     expect(screen.getByText('已完成')).toBeInTheDocument()
+  })
+})
+
+describe('PageHeader', () => {
+  it('keeps the workspace heading contract for the converged typography', () => {
+    const { container } = renderWithProviders(PageHeader, {
+      props: { eyebrow: 'E', title: '标题', summary: '摘要' },
+    })
+
+    expect(screen.getByRole('heading', { level: 1, name: '标题' })).toBeInTheDocument()
+    expect(container.querySelector('.workspace-page-heading')).not.toBeNull()
+    expect(screen.getByText('摘要')).toBeInTheDocument()
   })
 })
 
