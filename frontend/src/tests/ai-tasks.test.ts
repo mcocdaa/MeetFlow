@@ -20,10 +20,11 @@ it('keeps succeeded work as a recovery link back to its meeting context', async 
   render(AiTasksView, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
   const link = await screen.findByRole('link', { name: '回到会议' })
   const status = await screen.findByText('已生成')
+  const statusPill = status.closest('.n-tag')
 
   expect(link).toHaveAttribute('href', '/meetings/meeting-1')
-  expect(status).toHaveClass('status-pill', 'ai-task-status')
-  expect(status).toHaveAttribute('data-status', 'ready')
+  expect(statusPill).toHaveClass('status-pill')
+  expect(statusPill).toHaveAttribute('data-status', 'succeeded')
   expect(screen.queryByRole('button', { name: '应用到会议纪要' })).not.toBeInTheDocument()
 })
 
