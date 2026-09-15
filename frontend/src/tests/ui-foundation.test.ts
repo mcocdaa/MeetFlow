@@ -4,6 +4,7 @@ import { defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import AppAvatar from '../components/AppAvatar.vue'
+import StatusPill from '../components/StatusPill.vue'
 import { naiveThemeOverrides, priorityTone, statusTone } from '../theme/naive'
 import { renderWithProviders } from './helpers'
 
@@ -102,5 +103,24 @@ describe('AppAvatar', () => {
 
     const avatar = container.querySelector('.n-avatar')
     expect(avatar?.getAttribute('style') ?? '').toContain('green-soft')
+  })
+})
+
+describe('StatusPill', () => {
+  it('renders a naive tag that keeps the status contract', () => {
+    renderWithProviders(StatusPill, { props: { status: 'in_progress' } })
+
+    // `getByText` matches the inner `.n-tag__content`; the class/data-status contract
+    // lives on the NTag root, so walk up to it before asserting.
+    const pill = screen.getByText('进行中').closest('.n-tag')
+    expect(pill).not.toBeNull()
+    expect(pill).toHaveClass('status-pill', 'n-tag')
+    expect(pill).toHaveAttribute('data-status', 'in_progress')
+  })
+
+  it('keeps label text from the shared status labels', () => {
+    renderWithProviders(StatusPill, { props: { status: 'completed', kind: 'agenda' } })
+
+    expect(screen.getByText('已完成')).toBeInTheDocument()
   })
 })
