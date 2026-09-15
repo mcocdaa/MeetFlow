@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 
 import App from '../App.vue'
 import { session } from '../auth/session'
+import { unreadCount } from '../composables/useInboxUnread'
 
 const { apiMock, pushMock, loadPluginFrontendModulesMock } = vi.hoisted(() => ({
   apiMock: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock('../api/client', () => ({ api: apiMock }))
 vi.mock('../plugins/runtime', () => ({ loadPluginFrontendModules: loadPluginFrontendModulesMock }))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: pushMock }),
+  useRoute: () => ({ path: '/' }),
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
   RouterView: {
     emits: ['logged-in'],
@@ -24,6 +26,7 @@ beforeEach(() => {
   apiMock.mockReset()
   pushMock.mockReset()
   loadPluginFrontendModulesMock.mockReset()
+  unreadCount.value = 0
   session.user = { id: 'u1', username: 'admin', display_name: '管理员', role: 'admin', status: 'active' }
   session.loaded = true
 })
@@ -52,6 +55,20 @@ it('shows administrator navigation only to administrators', async () => {
   expect(screen.getByRole('link', { name: '插件' })).toBeInTheDocument()
   session.user = { ...session.user!, role: 'member' }
   await waitFor(() => expect(screen.queryByRole('link', { name: '用户' })).not.toBeInTheDocument())
+})
+
+it('shows the unread badge on the inbox entry', () => {
+  unreadCount.value = 3
+  render(App)
+
+  const workspaceNavigation = screen.getByRole('navigation', { name: '工作区导航' })
+  const inboxLink = within(workspaceNavigation).getByRole('link', { name: '收件箱' })
+
+  // NBadge animates numbers through a slot machine, so assert on the badge element instead of
+  // a single text node.
+  const badge = inboxLink.querySelector('.n-badge[aria-hidden="true"]')
+  expect(badge).not.toBeNull()
+  expect(badge).toHaveTextContent('3')
 })
 
 it('logs out, clears the session, and returns to login', async () => {
