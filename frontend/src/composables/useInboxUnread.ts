@@ -46,7 +46,7 @@ export function resetUnread(): void {
  * Starts the 60s poll, the route-change refresh and the foreground refresh.
  * Returns an idempotent stop function that clears the timer and removes the listeners.
  */
-export function startUnreadPolling(router: { afterEach: (callback: () => void) => void }): () => void {
+export function startUnreadPolling(router: { afterEach: (callback: () => void) => () => void }): () => void {
   stopActivePolling?.()
 
   let stopped = false
@@ -58,7 +58,7 @@ export function startUnreadPolling(router: { afterEach: (callback: () => void) =
   }
 
   const timer = window.setInterval(refresh, POLL_INTERVAL_MS)
-  router.afterEach(refresh)
+  const removeRouteHook = router.afterEach(refresh)
   document.addEventListener('visibilitychange', onVisibilityChange)
   refresh()
 
@@ -67,6 +67,7 @@ export function startUnreadPolling(router: { afterEach: (callback: () => void) =
     stopped = true
     window.clearInterval(timer)
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    removeRouteHook()
     if (stopActivePolling === stop) stopActivePolling = null
   }
   stopActivePolling = stop

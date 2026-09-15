@@ -18,6 +18,9 @@ let stopPolling: (() => void) | null
 const fakeRouter = {
   afterEach(callback: () => void) {
     routeHooks.push(callback)
+    return () => {
+      routeHooks = routeHooks.filter((hook) => hook !== callback)
+    }
   },
 }
 
@@ -122,6 +125,8 @@ describe('useInboxUnread', () => {
 
     stopPolling()
     stopPolling()
+
+    expect(routeHooks).toHaveLength(0)
 
     await vi.advanceTimersByTimeAsync(120_000)
     document.dispatchEvent(new Event('visibilitychange'))

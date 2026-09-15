@@ -8,7 +8,7 @@ import { unreadCount } from '../composables/useInboxUnread'
 const { apiMock, pushMock, routeAfterEachMock, loadPluginFrontendModulesMock } = vi.hoisted(() => ({
   apiMock: vi.fn(),
   pushMock: vi.fn(),
-  routeAfterEachMock: vi.fn(),
+  routeAfterEachMock: vi.fn(() => vi.fn()),
   loadPluginFrontendModulesMock: vi.fn(),
 }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -27,6 +27,7 @@ beforeEach(() => {
   apiMock.mockReset()
   pushMock.mockReset()
   routeAfterEachMock.mockReset()
+  routeAfterEachMock.mockImplementation(() => vi.fn())
   loadPluginFrontendModulesMock.mockReset()
   unreadCount.value = 0
   session.user = { id: 'u1', username: 'admin', display_name: '管理员', role: 'admin', status: 'active' }

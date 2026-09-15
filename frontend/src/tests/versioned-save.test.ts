@@ -44,6 +44,26 @@ describe('useVersionedSave', () => {
     expect(store.error.value).toBe('服务器错误')
   })
 
+  it('keeps other 409 error codes out of the conflict state', async () => {
+    const save = vi.fn().mockRejectedValue(new ApiError(409, 'derived_outcome_read_only', '议题自动产出的成果不可修改'))
+    const store = useVersionedSave(save, () => 1)
+
+    await store.submit()
+
+    expect(store.conflict.value).toBeNull()
+    expect(store.error.value).toBe('议题自动产出的成果不可修改')
+  })
+
+  it('keeps non-ApiError failures out of the conflict state', async () => {
+    const save = vi.fn().mockRejectedValue({ status: 409, code: 'version_conflict' })
+    const store = useVersionedSave(save, () => 1)
+
+    await store.submit()
+
+    expect(store.conflict.value).toBeNull()
+    expect(store.error.value).not.toBe('')
+  })
+
   it('resets the conflict and error state', async () => {
     const save = vi.fn().mockRejectedValue(new ApiError(500, 'server_error', '服务器错误'))
     const store = useVersionedSave(save, () => 1)
