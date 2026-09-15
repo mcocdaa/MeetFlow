@@ -1,26 +1,44 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { NAlert, NButton, NForm, NFormItem, NInput, type FormInst, type FormRules } from 'naive-ui'
+import { reactive, ref } from 'vue'
 import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 
-const username = ref('')
-const displayName = ref('')
-const password = ref('')
+const formRef = ref<FormInst | null>(null)
+const form = reactive({ username: '', display_name: '', password: '' })
+const rules: FormRules = {
+  username: [
+    { required: true, whitespace: true, message: '请输入用户名', trigger: ['input', 'blur'] },
+    { min: 3, max: 80, message: '用户名需为 3-80 个字符', trigger: ['input', 'blur'] },
+  ],
+  display_name: [
+    { required: true, whitespace: true, message: '请输入显示名称', trigger: ['input', 'blur'] },
+  ],
+  password: [
+    { required: true, message: '请输入密码', trigger: ['input', 'blur'] },
+    { min: 12, max: 200, message: '密码至少 12 位', trigger: ['input', 'blur'] },
+  ],
+}
 const submitted = ref(false)
 const submitting = ref(false)
 const error = ref('')
 
 async function submit() {
   error.value = ''
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   submitting.value = true
   try {
     await api('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
-        username: username.value,
-        display_name: displayName.value,
-        password: password.value,
+        username: form.username.trim(),
+        display_name: form.display_name.trim(),
+        password: form.password,
       }),
     })
     submitted.value = true
@@ -43,16 +61,41 @@ async function submit() {
         <h2>申请已提交</h2>
         <p>申请已提交，请等待管理员批准。</p>
       </div>
-      <form v-else @submit.prevent="submit">
-        <label>用户名<input v-model.trim="username" autocomplete="username" minlength="3" required /></label>
-        <label>显示名称<input v-model.trim="displayName" autocomplete="name" required /></label>
-        <label>密码<input v-model="password" type="password" autocomplete="new-password" minlength="12" required /></label>
+      <n-form
+        v-else
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-placement="top"
+        :show-require-mark="false"
+        @submit.prevent="submit"
+      >
+        <n-form-item label="用户名" path="username">
+          <n-input
+            v-model:value="form.username"
+            :input-props="{ 'aria-label': '用户名', autocomplete: 'username' }"
+          />
+        </n-form-item>
+        <n-form-item label="显示名称" path="display_name">
+          <n-input
+            v-model:value="form.display_name"
+            :input-props="{ 'aria-label': '显示名称', autocomplete: 'name' }"
+          />
+        </n-form-item>
+        <n-form-item label="密码" path="password">
+          <n-input
+            v-model:value="form.password"
+            type="password"
+            show-password-on="click"
+            :input-props="{ 'aria-label': '密码', autocomplete: 'new-password' }"
+          />
+        </n-form-item>
         <p class="field-hint">请使用至少 12 位密码。</p>
-        <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
-        <button class="button button-primary" type="submit" :disabled="submitting">
+        <n-alert v-if="error" type="error">{{ error }}</n-alert>
+        <n-button type="primary" block attr-type="submit" :loading="submitting">
           {{ submitting ? '正在提交…' : '提交申请' }}
-        </button>
-      </form>
+        </n-button>
+      </n-form>
       <RouterLink class="text-link" to="/login">返回登录</RouterLink>
     </section>
   </main>
