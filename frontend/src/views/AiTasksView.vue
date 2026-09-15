@@ -6,6 +6,7 @@ import { RouterLink } from 'vue-router'
 import { api } from '../api/client'
 import PageHeader from '../components/PageHeader.vue'
 import PluginTaskExtension from '../components/PluginTaskExtension.vue'
+import StatusPill from '../components/StatusPill.vue'
 import type { PluginJob } from '../domain/plugin-jobs'
 
 const jobs = ref<PluginJob[]>([])
@@ -38,8 +39,8 @@ function statusLabel(job: PluginJob) {
 function statusTone(job: PluginJob) {
   if (job.dismissed_at) return 'dismissed'
   if (job.applied_at) return 'applied'
-  if (job.status === 'queued' || job.status === 'requesting') return 'processing'
-  if (job.status === 'succeeded') return 'ready'
+  if (job.status === 'queued' || job.status === 'requesting') return job.status
+  if (job.status === 'succeeded') return 'succeeded'
   if (job.status === 'canceled') return 'canceled'
   return 'failed'
 }
@@ -94,7 +95,7 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
             <p class="eyebrow">{{ job.plugin_id }} · {{ job.action_id }}</p>
             <div class="ai-task-title-row">
               <h2>AI 任务</h2>
-              <span class="status-pill ai-task-status" :data-status="statusTone(job)">{{ statusLabel(job) }}</span>
+              <StatusPill :status="statusTone(job)" :label="statusLabel(job)" />
             </div>
           </div>
           <RouterLink class="text-link" :to="source(job)">
