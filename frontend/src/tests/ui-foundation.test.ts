@@ -1,6 +1,10 @@
+import { fireEvent, screen } from '@testing-library/vue'
+import { NButton, NDataTable, type DataTableColumns, useDialog } from 'naive-ui'
+import { defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import { naiveThemeOverrides, priorityTone, statusTone } from '../theme/naive'
+import { renderWithProviders } from './helpers'
 
 describe('naive theme', () => {
   it('maps the brand primary color from the styles.css :root token', () => {
@@ -21,5 +25,63 @@ describe('naive theme', () => {
     expect(priorityTone('high')).toBe('warning')
     expect(priorityTone('normal')).toBe('muted')
     expect(priorityTone('low')).toBe('completed')
+  })
+})
+
+describe('naive smoke', () => {
+  it('applies the global jsdom patches required by naive', () => {
+    expect(typeof window.matchMedia).toBe('function')
+    expect(typeof ResizeObserver).toBe('function')
+    expect(typeof Element.prototype.scrollTo).toBe('function')
+  })
+
+  it('renders a component inside the naive providers', async () => {
+    const Probe = defineComponent({
+      setup() {
+        return () => h(NButton, null, { default: () => '冒烟' })
+      },
+    })
+
+    renderWithProviders(Probe)
+
+    await screen.findByRole('button', { name: '冒烟' })
+  })
+
+  it('renders dialogs teleported to the document body', async () => {
+    const Probe = defineComponent({
+      setup() {
+        const dialog = useDialog()
+        return () =>
+          h(
+            NButton,
+            { onClick: () => dialog.warning({ title: '冒烟对话框' }) },
+            { default: () => '打开' },
+          )
+      },
+    })
+
+    renderWithProviders(Probe)
+    await fireEvent.click(screen.getByRole('button', { name: '打开' }))
+
+    await screen.findByText('冒烟对话框')
+  })
+
+  it('renders data tables without fixed columns or virtual scrolling', async () => {
+    const columns: DataTableColumns<{ name: string }> = [{ title: '名称', key: 'name' }]
+    const Probe = defineComponent({
+      setup() {
+        return () =>
+          h(NDataTable, {
+            columns,
+            data: [{ name: '行一' }, { name: '行二' }],
+            pagination: { page: 1, pageSize: 10, itemCount: 2 },
+          })
+      },
+    })
+
+    renderWithProviders(Probe)
+
+    await screen.findByText('行一')
+    expect(document.querySelector('.n-data-table')).not.toBeNull()
   })
 })
