@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { NAlert, NButton, NForm, NFormItem, NInput, type FormInst, type FormRules } from 'naive-ui'
+import { onMounted, reactive, ref } from 'vue'
 import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { SessionUser } from '../auth/session'
 
 const emit = defineEmits<{ loggedIn: [user: SessionUser] }>()
-const username = ref('')
-const password = ref('')
+const formRef = ref<FormInst | null>(null)
+const form = reactive({ username: '', password: '' })
+const rules: FormRules = {
+  username: { required: true, whitespace: true, message: '请输入用户名', trigger: ['input', 'blur'] },
+  password: { required: true, message: '请输入密码', trigger: ['input', 'blur'] },
+}
 const error = ref('')
 const submitting = ref(false)
 const registrationOpen = ref(false)
@@ -23,11 +28,16 @@ onMounted(async () => {
 
 async function submit() {
   error.value = ''
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   submitting.value = true
   try {
     const user = await api<SessionUser>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username: username.value, password: password.value }),
+      body: JSON.stringify({ username: form.username.trim(), password: form.password }),
     })
     emit('loggedIn', user)
   } catch (reason) {
@@ -49,14 +59,33 @@ async function submit() {
       <div class="brand-mark">M</div>
       <p class="eyebrow">欢迎回来</p>
       <h2 id="login-title">登录 MeetFlow</h2>
-      <form @submit.prevent="submit">
-        <label>用户名<input v-model.trim="username" autocomplete="username" required /></label>
-        <label>密码<input v-model="password" type="password" autocomplete="current-password" required /></label>
-        <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
-        <button class="button button-primary" type="submit" :disabled="submitting">
+      <n-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-placement="top"
+        :show-require-mark="false"
+        @submit.prevent="submit"
+      >
+        <n-form-item label="用户名" path="username">
+          <n-input
+            v-model:value="form.username"
+            :input-props="{ 'aria-label': '用户名', autocomplete: 'username' }"
+          />
+        </n-form-item>
+        <n-form-item label="密码" path="password">
+          <n-input
+            v-model:value="form.password"
+            type="password"
+            show-password-on="click"
+            :input-props="{ 'aria-label': '密码', autocomplete: 'current-password' }"
+          />
+        </n-form-item>
+        <n-alert v-if="error" type="error">{{ error }}</n-alert>
+        <n-button type="primary" block attr-type="submit" :loading="submitting">
           {{ submitting ? '正在登录…' : '登录' }}
-        </button>
-      </form>
+        </n-button>
+      </n-form>
       <RouterLink v-if="registrationOpen" class="text-link" to="/register">申请账号</RouterLink>
     </section>
   </main>

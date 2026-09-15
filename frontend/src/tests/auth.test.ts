@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import LoginView from '../views/LoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
+import { renderWithProviders } from './helpers'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 
@@ -16,29 +17,66 @@ const routerStubs = {
 }
 
 describe('authentication views', () => {
-  beforeEach(() => apiMock.mockReset())
+  // A block body matters: `() => apiMock.mockReset()` returns the mock, which Vitest
+  // treats as a teardown callback and would invoke (once) after each test.
+  beforeEach(() => {
+    apiMock.mockReset()
+  })
 
   it('submits credentials and emits the logged-in user', async () => {
     apiMock.mockImplementation((path: string) => {
       if (path === '/api/auth/config') return Promise.resolve({ allow_registration: true })
       return Promise.resolve({ id: 'u1', username: 'admin', display_name: 'Admin', role: 'admin', status: 'active' })
     })
-    const { emitted } = render(LoginView, { global: { stubs: routerStubs } })
+    // `renderWithProviders` mounts the providers as the root component, so `emitted()` would
+    // record the wrapper instead of the view; a listener prop asserts the same contract.
+    const onLoggedIn = vi.fn()
+    renderWithProviders(LoginView, { props: { onLoggedIn }, global: { stubs: routerStubs } })
 
     await fireEvent.update(screen.getByLabelText('用户名'), 'admin')
     await fireEvent.update(screen.getByLabelText('密码'), 'correct-horse-battery')
     await fireEvent.click(screen.getByRole('button', { name: '登录' }))
 
-    expect(apiMock).toHaveBeenCalledWith('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username: 'admin', password: 'correct-horse-battery' }),
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username: 'admin', password: 'correct-horse-battery' }),
+      }),
+    )
+    expect(onLoggedIn).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'u1', username: 'admin' }),
+    )
+  })
+
+  it('keeps the API error message visible when login fails', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/auth/login') return Promise.reject(new Error('用户名或密码错误'))
+      return Promise.resolve({ allow_registration: true })
     })
-    expect(emitted().loggedIn).toHaveLength(1)
+    renderWithProviders(LoginView, { global: { stubs: routerStubs } })
+
+    await fireEvent.update(screen.getByLabelText('用户名'), 'admin')
+    await fireEvent.update(screen.getByLabelText('密码'), 'bad-password')
+    await fireEvent.click(screen.getByRole('button', { name: '登录' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('用户名或密码错误')
+  })
+
+  it('does not call the API when the login form is empty', async () => {
+    apiMock.mockResolvedValue({ allow_registration: false })
+    renderWithProviders(LoginView, { global: { stubs: routerStubs } })
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/auth/config'))
+    apiMock.mockClear()
+
+    await fireEvent.click(screen.getByRole('button', { name: '登录' }))
+
+    expect(await screen.findByText('请输入用户名')).toBeInTheDocument()
+    expect(apiMock).not.toHaveBeenCalled()
   })
 
   it('shows the registration link only when registration is enabled', async () => {
     apiMock.mockResolvedValue({ allow_registration: true })
-    render(LoginView, { global: { stubs: routerStubs } })
+    renderWithProviders(LoginView, { global: { stubs: routerStubs } })
     expect(await screen.findByRole('link', { name: '申请账号' })).toBeInTheDocument()
   })
 
