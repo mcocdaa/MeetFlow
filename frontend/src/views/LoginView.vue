@@ -27,13 +27,15 @@ onMounted(async () => {
 })
 
 async function submit() {
+  if (submitting.value) return
   error.value = ''
+  submitting.value = true
   try {
     await formRef.value?.validate()
   } catch {
+    submitting.value = false
     return
   }
-  submitting.value = true
   try {
     const user = await api<SessionUser>('/api/auth/login', {
       method: 'POST',
@@ -82,7 +84,7 @@ async function submit() {
           />
         </n-form-item>
         <n-alert v-if="error" type="error">{{ error }}</n-alert>
-        <n-button type="primary" block attr-type="submit" :loading="submitting">
+        <n-button type="primary" block attr-type="submit" :loading="submitting" :disabled="submitting">
           {{ submitting ? '正在登录…' : '登录' }}
         </n-button>
       </n-form>

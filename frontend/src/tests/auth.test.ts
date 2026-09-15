@@ -43,9 +43,33 @@ describe('authentication views', () => {
         body: JSON.stringify({ username: 'admin', password: 'correct-horse-battery' }),
       }),
     )
+    expect(onLoggedIn).toHaveBeenCalledTimes(1)
     expect(onLoggedIn).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'u1', username: 'admin' }),
     )
+  })
+
+  it('ignores repeated submits while the login request is pending', async () => {
+    let resolveLogin: ((value: unknown) => void) | undefined
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/auth/config') return Promise.resolve({ allow_registration: false })
+      return new Promise((resolve) => { resolveLogin = resolve })
+    })
+    const onLoggedIn = vi.fn()
+    renderWithProviders(LoginView, { props: { onLoggedIn }, global: { stubs: routerStubs } })
+
+    await fireEvent.update(screen.getByLabelText('用户名'), 'admin')
+    await fireEvent.update(screen.getByLabelText('密码'), 'correct-horse-battery')
+    const button = screen.getByRole('button', { name: '登录' })
+    // Two synchronous clicks: the guard must be set before the async validation resolves.
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    const loginCalls = () => apiMock.mock.calls.filter(([path]) => path === '/api/auth/login')
+    await waitFor(() => expect(loginCalls()).toHaveLength(1))
+
+    resolveLogin?.({ id: 'u1', username: 'admin', display_name: 'Admin', role: 'admin', status: 'active' })
+    await waitFor(() => expect(onLoggedIn).toHaveBeenCalledTimes(1))
   })
 
   it('keeps the API error message visible when login fails', async () => {

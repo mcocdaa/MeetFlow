@@ -10,14 +10,15 @@ const form = reactive({ username: '', display_name: '', password: '' })
 const rules: FormRules = {
   username: [
     { required: true, whitespace: true, message: '请输入用户名', trigger: ['input', 'blur'] },
-    { min: 3, max: 80, message: '用户名需为 3-80 个字符', trigger: ['input', 'blur'] },
+    { min: 3, max: 80, transform: (value: string) => value.trim(), message: '用户名需为 3-80 个字符', trigger: ['input', 'blur'] },
   ],
   display_name: [
     { required: true, whitespace: true, message: '请输入显示名称', trigger: ['input', 'blur'] },
   ],
   password: [
     { required: true, message: '请输入密码', trigger: ['input', 'blur'] },
-    { min: 12, max: 200, message: '密码至少 12 位', trigger: ['input', 'blur'] },
+    { min: 12, message: '密码至少 12 位', trigger: ['input', 'blur'] },
+    { max: 200, message: '密码不能超过 200 个字符', trigger: ['input', 'blur'] },
   ],
 }
 const submitted = ref(false)
@@ -25,13 +26,15 @@ const submitting = ref(false)
 const error = ref('')
 
 async function submit() {
+  if (submitting.value) return
   error.value = ''
+  submitting.value = true
   try {
     await formRef.value?.validate()
   } catch {
+    submitting.value = false
     return
   }
-  submitting.value = true
   try {
     await api('/api/auth/register', {
       method: 'POST',
@@ -92,7 +95,7 @@ async function submit() {
         </n-form-item>
         <p class="field-hint">请使用至少 12 位密码。</p>
         <n-alert v-if="error" type="error">{{ error }}</n-alert>
-        <n-button type="primary" block attr-type="submit" :loading="submitting">
+        <n-button type="primary" block attr-type="submit" :loading="submitting" :disabled="submitting">
           {{ submitting ? '正在提交…' : '提交申请' }}
         </n-button>
       </n-form>

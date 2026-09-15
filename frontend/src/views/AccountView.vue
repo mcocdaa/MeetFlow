@@ -27,20 +27,23 @@ const rules: FormRules = {
   ],
   new_password: [
     { required: true, message: '请输入新密码', trigger: ['input', 'blur'] },
-    { min: 12, max: 200, message: '新密码至少 12 位', trigger: ['input', 'blur'] },
+    { min: 12, message: '新密码至少 12 位', trigger: ['input', 'blur'] },
+    { max: 200, message: '新密码不能超过 200 个字符', trigger: ['input', 'blur'] },
   ],
 }
 const error = ref('')
 const saving = ref(false)
 
 async function changePassword() {
+  if (saving.value) return
   error.value = ''
+  saving.value = true
   try {
     await formRef.value?.validate()
   } catch {
+    saving.value = false
     return
   }
-  saving.value = true
   try {
     await api('/api/auth/change-password', {
       method: 'POST',
@@ -94,7 +97,7 @@ async function changePassword() {
           />
         </n-form-item>
         <n-alert v-if="error" type="error">{{ error }}</n-alert>
-        <n-button type="primary" attr-type="submit" :loading="saving">
+        <n-button type="primary" attr-type="submit" :loading="saving" :disabled="saving">
           {{ saving ? '正在修改…' : '修改密码' }}
         </n-button>
       </n-form>
