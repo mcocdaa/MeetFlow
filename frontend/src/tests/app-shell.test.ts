@@ -5,15 +5,16 @@ import App from '../App.vue'
 import { session } from '../auth/session'
 import { unreadCount } from '../composables/useInboxUnread'
 
-const { apiMock, pushMock, loadPluginFrontendModulesMock } = vi.hoisted(() => ({
+const { apiMock, pushMock, routeAfterEachMock, loadPluginFrontendModulesMock } = vi.hoisted(() => ({
   apiMock: vi.fn(),
   pushMock: vi.fn(),
+  routeAfterEachMock: vi.fn(),
   loadPluginFrontendModulesMock: vi.fn(),
 }))
 vi.mock('../api/client', () => ({ api: apiMock }))
 vi.mock('../plugins/runtime', () => ({ loadPluginFrontendModules: loadPluginFrontendModulesMock }))
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => ({ push: pushMock, afterEach: routeAfterEachMock }),
   useRoute: () => ({ path: '/' }),
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
   RouterView: {
@@ -25,6 +26,7 @@ vi.mock('vue-router', () => ({
 beforeEach(() => {
   apiMock.mockReset()
   pushMock.mockReset()
+  routeAfterEachMock.mockReset()
   loadPluginFrontendModulesMock.mockReset()
   unreadCount.value = 0
   session.user = { id: 'u1', username: 'admin', display_name: '管理员', role: 'admin', status: 'active' }
@@ -71,13 +73,43 @@ it('shows the unread badge on the inbox entry', () => {
   expect(badge).toHaveTextContent('3')
 })
 
-it('logs out, clears the session, and returns to login', async () => {
+it('logs out from the account dropdown, clears the session, and returns to login', async () => {
   apiMock.mockResolvedValue(undefined)
+  unreadCount.value = 5
   render(App)
-  await fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
+
+  await fireEvent.click(screen.getByRole('button', { name: '账户菜单' }))
+  await fireEvent.click(await screen.findByText('退出登录'))
+
   expect(apiMock).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' })
   expect(session.user).toBeNull()
+  expect(unreadCount.value).toBe(0)
   expect(pushMock).toHaveBeenCalledWith('/login')
+})
+
+it('opens account settings from the account dropdown', async () => {
+  render(App)
+
+  await fireEvent.click(screen.getByRole('button', { name: '账户菜单' }))
+  await fireEvent.click(await screen.findByText('账号设置'))
+
+  expect(pushMock).toHaveBeenCalledWith('/account')
+})
+
+it('shows the unread bell and opens the inbox', async () => {
+  apiMock.mockImplementation((path: string) =>
+    path.startsWith('/api/inbox/changes')
+      ? Promise.resolve({ notifications: [], next_cursor: 4, has_more: false, unread_count: 2 })
+      : Promise.resolve(undefined),
+  )
+  render(App)
+
+  const bell = await screen.findByRole('button', { name: '收件箱' })
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/inbox/changes?cursor=0&limit=1'))
+  await waitFor(() => expect(bell.closest('.n-badge')).toHaveTextContent('2'))
+
+  await fireEvent.click(bell)
+  expect(pushMock).toHaveBeenCalledWith('/inbox')
 })
 
 it('clears the shell when the API announces an expired session', async () => {

@@ -49,8 +49,9 @@ p { line-height: 1.65; }
 .brand-mark { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 14px; color: white; background: var(--green); font-family: Georgia, serif; font-weight: 900; box-shadow: 0 8px 22px rgba(14, 107, 77, .25); }
 .brand-mark-small { width: 31px; height: 31px; border-radius: 9px; font-size: .85rem; }
 .main-nav a:hover, .main-nav a.router-link-active { color: var(--green); background: var(--green-soft); }
-.account-menu { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.account-link { display: flex; align-items: center; gap: 8px; font-size: .86rem; font-weight: 700; text-decoration: none; }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.account-menu-trigger { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: .86rem; font-weight: 700; }
+.account-menu-trigger:hover { color: var(--green); }
 .avatar { flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; color: var(--green-dark); background: var(--green-soft); font-weight: 900; }
 .avatar-small { width: 30px; height: 30px; font-size: .78rem; }
 
@@ -187,7 +188,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
   .span-2 { grid-column: auto; }
   .attachment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .action-editor .grow { grid-column: span 2; }
-  .account-link > span:last-child, .nav-divider { display: none; }
+  .account-menu-trigger > span:last-child, .nav-divider { display: none; }
 }
 
 @media (max-width: 640px) {
