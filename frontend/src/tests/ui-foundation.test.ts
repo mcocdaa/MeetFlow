@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 import AppAvatar from '../components/AppAvatar.vue'
 import StatusPill from '../components/StatusPill.vue'
 import { naiveThemeOverrides, priorityTone, statusTone } from '../theme/naive'
+import { activityLabel } from '../utils/activity'
+import { can } from '../utils/capabilities'
 import { renderWithProviders } from './helpers'
 
 describe('naive theme', () => {
@@ -122,5 +124,33 @@ describe('StatusPill', () => {
     renderWithProviders(StatusPill, { props: { status: 'completed', kind: 'agenda' } })
 
     expect(screen.getByText('已完成')).toBeInTheDocument()
+  })
+})
+
+describe('capabilities', () => {
+  it('reads only server-provided capabilities', () => {
+    expect(
+      can({ capabilities: { can_manage: false, can_contribute: false, can_comment: false } }, 'contribute'),
+    ).toBe(false)
+    expect(
+      can({ capabilities: { can_manage: true, can_contribute: true, can_comment: true } }, 'manage'),
+    ).toBe(true)
+    expect(can(null, 'view')).toBe(false)
+    expect(can({}, 'comment')).toBe(false)
+  })
+})
+
+describe('activity labels', () => {
+  it('renders Chinese labels including the subject when present', () => {
+    const projectLabel = activityLabel('project.created', { name: 'MeetFlow' })
+    expect(projectLabel).toContain('MeetFlow')
+    expect(projectLabel).toMatch(/[\u4e00-\u9fff]/)
+    expect(activityLabel('agenda.started', { title: '发布方案' })).toContain('发布方案')
+  })
+
+  it('falls back to the raw event type and tolerates missing subjects', () => {
+    expect(activityLabel('unknown.event', {})).toBe('unknown.event')
+    expect(activityLabel('project.created', {})).not.toContain('undefined')
+    expect(activityLabel('agenda.reordered')).not.toContain('undefined')
   })
 })
