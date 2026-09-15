@@ -153,4 +153,34 @@ describe('activity labels', () => {
     expect(activityLabel('project.created', {})).not.toContain('undefined')
     expect(activityLabel('agenda.reordered')).not.toContain('undefined')
   })
+
+  it('covers every activity event type the backend records', () => {
+    // Mirrors the event_type strings emitted by ActivityRecorder in backend/app
+    // (verified 2026-09-15). When the backend adds an event type, add it here and
+    // to ACTIVITY_TEMPLATES in the same change.
+    const backendEventTypes = [
+      'project.created', 'project.updated', 'project.progress_posted',
+      'project.progress_updated', 'project.deleted',
+      'meeting.created', 'meeting.updated', 'meeting.started', 'meeting.finished',
+      'meeting.amended', 'meeting.canceled', 'meeting.reopened',
+      'agenda.created', 'agenda.updated', 'agenda.deleted', 'agenda.moved',
+      'agenda.reordered', 'agenda.started', 'agenda.completed', 'agenda.skipped',
+      'agenda.canceled', 'agenda.converted_to_question', 'agenda.copied',
+      'agenda.outcomes_migrated',
+      'attachment.uploaded', 'attachment.deleted',
+      'decision.created', 'decision.updated', 'decision.reviewed',
+      'decision.finalized', 'decision.withdrawn', 'decision.superseded',
+      'action.created', 'action.updated', 'action.completed', 'action.reopened',
+      'action.status_changed',
+      'question.created', 'question.updated', 'question.scheduled', 'question.resolved',
+      'comment.created', 'comment.replied', 'comment.updated', 'comment.deleted',
+      'comment.resolved', 'comment.reopened',
+    ]
+
+    const uncovered = backendEventTypes.filter(
+      (eventType) => activityLabel(eventType, { title: '冒烟' }) === eventType,
+    )
+
+    expect(uncovered).toEqual([])
+  })
 })
