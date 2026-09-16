@@ -283,16 +283,16 @@ onMounted(load)
       <div class="section-heading"><h2>当前成员</h2><n-button quaternary @click="load">刷新</n-button></div>
       <p v-if="loading" class="empty-state">正在加载成员…</p>
       <p v-else-if="!activeUsers.length" class="empty-state">尚无已启用成员。</p>
-      <n-data-table v-else :columns="activeColumns" :data="activeUsers" :bordered="false" size="small" />
+      <n-data-table v-else :columns="activeColumns" :data="activeUsers" :bordered="false" size="small" :scroll-x="760" />
     </section>
     <section v-if="applicationUsers.length" class="panel">
       <div class="section-heading"><h2>账号申请</h2><span class="muted">待审批和已拒绝的申请记录</span></div>
-      <n-data-table :columns="applicationColumns" :data="applicationUsers" :bordered="false" size="small" />
+        <n-data-table :columns="applicationColumns" :data="applicationUsers" :bordered="false" size="small" :scroll-x="760" />
     </section>
     <details v-if="archivedUsers.length" class="panel archive-section">
       <summary>已归档成员 ({{ archivedUsers.length }})</summary>
       <p class="muted">归档账号无法登录或执行操作；其历史记录和署名会被保留。</p>
-      <n-data-table :columns="archivedColumns" :data="archivedUsers" :bordered="false" size="small" />
+      <n-data-table :columns="archivedColumns" :data="archivedUsers" :bordered="false" size="small" :scroll-x="760" />
     </details>
 
     <n-drawer
