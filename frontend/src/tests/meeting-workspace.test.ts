@@ -67,11 +67,11 @@ function commentFixture(id: string, body: string) {
   }
 }
 
-function commentDeepLinkApi(items: ReturnType<typeof commentFixture>[]) {
+function commentDeepLinkApi(items: ReturnType<typeof commentFixture>[], overrides: Record<string, unknown> = {}) {
   return (path: string) => {
     if (path.startsWith('/api/comments?')) return Promise.resolve({ items, next_cursor: null })
     if (path.startsWith('/api/projects/')) return Promise.resolve(projectFixture())
-    return Promise.resolve(meetingFixture())
+    return Promise.resolve(meetingFixture(overrides))
   }
 }
 
@@ -432,5 +432,14 @@ describe('meeting workspace', () => {
 
     expect(await screen.findByTestId('comment-focus-missing')).toBeVisible()
     expect(document.querySelector('[data-comment-id="c9"]')).toBeNull()
+  })
+
+  it('opens the comments drawer from the ?comment deep link on a completed meeting', async () => {
+    routeState.query = { comment: 'c9' }
+    apiMock.mockImplementation(commentDeepLinkApi([commentFixture('c9', '已完成会议深链评论')], { status: 'completed' }))
+    renderWithProviders(MeetingWorkspaceView)
+
+    expect(await screen.findByText('已完成会议深链评论')).toBeVisible()
+    expect(document.querySelector('[data-comment-id="c9"]')).not.toBeNull()
   })
 })

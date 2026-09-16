@@ -482,12 +482,13 @@ onBeforeUnmount(() => {
             <AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="materialItems" :can-contribute="canContribute" @uploaded="addMaterial" @deleted="removeMaterial" />
           </n-drawer-content>
         </n-drawer>
-        <n-drawer v-if="canComment" :show="commentsOpen" placement="right" :width="'min(560px, 100vw)'" @update:show="(value: boolean) => { if (!value) commentsOpen = false }">
-          <n-drawer-content title="评论" closable>
-            <MeetingCommentsPanel :meeting="meeting" :focus-comment-id="focusCommentId" />
-          </n-drawer-content>
-        </n-drawer>
       </template>
+      <!-- Rendered outside the non-completed branch so `?comment=` deep links open on completed meetings too. -->
+      <n-drawer v-if="canComment" :show="commentsOpen" placement="right" :width="'min(560px, 100vw)'" @update:show="(value: boolean) => { if (!value) commentsOpen = false }">
+        <n-drawer-content title="评论" closable>
+          <MeetingCommentsPanel :meeting="meeting" :focus-comment-id="focusCommentId" />
+        </n-drawer-content>
+      </n-drawer>
     </template>
     <p v-else class="notice notice-error">{{ error || '会议不存在' }}</p>
   </main>

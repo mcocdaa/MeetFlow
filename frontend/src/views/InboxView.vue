@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { errorMessage } from '../utils/errors'
+import { NAlert, NButton, NEmpty, NList, NListItem } from 'naive-ui'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
+import { refreshUnread } from '../composables/useInboxUnread'
+import { errorMessage } from '../utils/errors'
+import { notificationHref, subjectLabel } from '../utils/links'
 import { formatDateTime } from '../utils/time'
-import { subjectHref, subjectLabel } from '../utils/links'
 
 type NotificationItem = {
   id: number
@@ -20,12 +22,25 @@ type NotificationItem = {
   created_at: string
 }
 
+type InboxChanges = {
+  notifications: NotificationItem[]
+  next_cursor: number
+  has_more: boolean
+  unread_count: number
+}
+
+const CHANGES_PAGE_SIZE = 50
+
 const items = ref<NotificationItem[]>([])
 const nextCursor = ref<number | null>(null)
+const changesCursor = ref(0)
+const hasMoreChanges = ref(false)
 const unreadCount = ref(0)
 const loading = ref(true)
 const loadingMore = ref(false)
+const readAllBusy = ref(false)
 const error = ref('')
+let changesInFlight = false
 
 const kindLabels: Record<string, string> = {
   'action.assigned': '分配了行动项给你',
@@ -48,11 +63,45 @@ async function load() {
     items.value = value.items
     nextCursor.value = value.next_cursor
     unreadCount.value = value.unread_count
+    changesCursor.value = value.items.length ? value.items[value.items.length - 1].id : 0
+    hasMoreChanges.value = false
+    void refreshChanges()
   } catch (reason) {
     error.value = errorMessage(reason, '通知加载失败')
   } finally {
     loading.value = false
   }
+}
+
+/**
+ * Incremental refresh: `cursor` is the id of the last notification already shown; the endpoint
+ * returns ids above it in ascending order. New rows are prepended newest-first and deduplicated
+ * by id, because the cursor can re-send rows that are already on screen.
+ */
+async function refreshChanges() {
+  if (changesInFlight) return
+  changesInFlight = true
+  try {
+    const value = await api<InboxChanges>(
+      `/api/inbox/changes?cursor=${changesCursor.value}&limit=${CHANGES_PAGE_SIZE}`,
+    )
+    const known = new Set(items.value.map((item) => item.id))
+    const fresh = (value.notifications ?? [])
+      .filter((item) => !known.has(item.id))
+      .sort((left, right) => right.id - left.id)
+    if (fresh.length) items.value = [...fresh, ...items.value]
+    if (typeof value.next_cursor === 'number') changesCursor.value = value.next_cursor
+    hasMoreChanges.value = value.has_more === true
+    if (typeof value.unread_count === 'number') unreadCount.value = value.unread_count
+  } catch {
+    // Incremental refresh is best-effort: a failure keeps the currently displayed notifications.
+  } finally {
+    changesInFlight = false
+  }
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') void refreshChanges()
 }
 
 async function loadMore() {
@@ -78,6 +127,7 @@ async function markRead(item: NotificationItem) {
   if (unreadCount.value > 0) unreadCount.value -= 1
   try {
     await api(`/api/inbox/${item.id}/read`, { method: 'POST' })
+    await refreshUnread()
   } catch (reason) {
     item.read_at = null
     unreadCount.value += 1
@@ -86,56 +136,103 @@ async function markRead(item: NotificationItem) {
 }
 
 async function readAll() {
-  if (!unreadCount.value) return
+  if (!unreadCount.value || readAllBusy.value) return
+  readAllBusy.value = true
   error.value = ''
   try {
     await api('/api/inbox/read-all', { method: 'POST' })
     items.value.forEach((item) => { item.read_at = item.read_at ?? new Date().toISOString() })
     unreadCount.value = 0
+    await refreshUnread()
   } catch (reason) {
     error.value = errorMessage(reason, '全部已读失败')
+  } finally {
+    readAllBusy.value = false
   }
 }
 
-const unreadItems = computed(() => items.value.filter((item) => !item.read_at).length)
+onMounted(() => {
+  void load()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
 
-onMounted(load)
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 </script>
 
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
       <div><p class="eyebrow">Inbox</p><h1>收件箱</h1><p>评论提及、指派和评审请求都会汇总到这里。</p></div>
-      <button class="button button-quiet" :disabled="!unreadCount" @click="readAll">全部已读</button>
+      <n-button secondary :disabled="!unreadCount" :loading="readAllBusy" @click="readAll">全部已读</n-button>
     </header>
-    <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
+    <n-alert v-if="error" type="error" class="workspace-section">{{ error }}</n-alert>
     <p v-if="loading" class="empty-state">正在加载通知…</p>
-    <div v-else-if="items.length" class="attention-list">
-      <article
-        v-for="item in items"
-        :key="item.id"
-        class="attention-card"
-        :class="{ resolved: item.read_at }"
-        @click="markRead(item)"
-      >
-        <RouterLink :to="subjectHref(item.subject.type, item.subject.id, item.meeting?.id)" class="attention-card-link">
-          <span class="attention-kind" :data-kind="item.subject.type">{{ subjectLabel(item.subject.type) }}</span>
-          <div class="grow">
-            <h3>{{ message(item) }}</h3>
-            <p class="attention-reasons"><time>{{ formatDateTime(item.created_at) }}</time><span v-if="item.read_at" class="muted"> · 已读</span></p>
-          </div>
-          <span class="arrow-link" aria-hidden="true">→</span>
-        </RouterLink>
-      </article>
-      <button v-if="nextCursor" class="button button-quiet" :disabled="loadingMore" @click="loadMore">
-        {{ loadingMore ? '加载中…' : '加载更多' }}
-      </button>
-    </div>
-    <div v-else class="empty-state compact"><strong>暂无通知</strong><p>新的提及、指派和评审请求会出现在这里。</p></div>
+    <template v-else-if="items.length">
+      <n-list bordered class="inbox-list">
+        <n-list-item
+          v-for="item in items"
+          :key="item.id"
+          :data-unread="item.read_at ? 'false' : 'true'"
+          :class="{ 'inbox-item-unread': !item.read_at }"
+          @click="markRead(item)"
+        >
+          <RouterLink :to="notificationHref(item)" class="inbox-item-link">
+            <span v-if="!item.read_at" class="inbox-unread-dot" aria-hidden="true" />
+            <span class="attention-kind" :data-kind="item.subject.type">{{ subjectLabel(item.subject.type) }}</span>
+            <div class="grow">
+              <h3>{{ message(item) }}</h3>
+              <p class="attention-reasons"><time>{{ formatDateTime(item.created_at) }}</time><span v-if="item.read_at" class="muted"> · 已读</span></p>
+            </div>
+            <span class="arrow-link" aria-hidden="true">→</span>
+          </RouterLink>
+        </n-list-item>
+      </n-list>
+      <div v-if="nextCursor" class="inbox-load-more">
+        <n-button quaternary :loading="loadingMore" :disabled="loadingMore" @click="loadMore">加载更多</n-button>
+      </div>
+      <div v-if="hasMoreChanges" class="inbox-changes-more">
+        <n-button text @click="load">点击刷新查看全部</n-button>
+      </div>
+    </template>
+    <n-empty v-else class="workspace-section" description="暂无通知">
+      <template #extra>新的提及、指派和评审请求会出现在这里。</template>
+    </n-empty>
   </main>
 </template>
 
 <style scoped>
-.attention-card.resolved { opacity: .62; }
-.attention-card-link { display: flex; align-items: center; gap: 14px; }
+.inbox-list {
+  margin-top: 8px;
+}
+
+.inbox-item-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.inbox-unread-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green, #0b6a58);
+}
+
+.inbox-list :deep(.n-list-item[data-unread='true']) {
+  background: rgba(217, 239, 232, 0.45);
+}
+
+.inbox-list :deep(.n-list-item[data-unread='true'] h3) {
+  font-weight: 700;
+}
+
+.inbox-load-more,
+.inbox-changes-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
 </style>
