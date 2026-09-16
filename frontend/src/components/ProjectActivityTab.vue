@@ -97,15 +97,32 @@ const {
   return saved
 }, () => editTarget.value?.version ?? 1)
 
+async function findUpdate(id: string): Promise<ProjectUpdate | undefined> {
+  let found = updates.value.find((update) => update.id === id)
+  // The ledger can reference updates outside the loaded history page; walk forward
+  // without resetting already-loaded pages, bounded so a very old update cannot
+  // trigger an unbounded request chain (the backend has no GET-by-id endpoint).
+  const walkLimit = 10
+  for (let page = 0; !found && updatesHasMore.value && page < walkLimit; page += 1) {
+    await loadUpdates(true)
+    found = updates.value.find((update) => update.id === id)
+  }
+  return found
+}
+
 watch(updateConflict, async (value) => {
   if (!value) {
     conflictServer.value = null
     return
   }
+  const id = editTarget.value?.id
+  if (!id) {
+    conflictServer.value = null
+    return
+  }
   try {
-    const page = await api<ProjectUpdate[]>(`/api/projects/${props.project.id}/updates?limit=50&offset=0`)
-    conflictServer.value = (Array.isArray(page) ? page : [])
-      .find((item) => item.id === editTarget.value?.id) ?? null
+    await loadUpdates()
+    conflictServer.value = (await findUpdate(id)) ?? null
   } catch {
     conflictServer.value = null
   }
@@ -126,13 +143,9 @@ function syncEditForm(target: ProjectUpdate) {
 
 async function openUpdateEdit(item: ProjectActivityItem) {
   if (!props.canContribute) return
-  let target = updates.value.find((update) => update.id === item.subject.id)
+  const target = await findUpdate(item.subject.id)
   if (!target) {
-    await loadUpdates()
-    target = updates.value.find((update) => update.id === item.subject.id)
-  }
-  if (!target) {
-    activityError.value = '进展记录尚未加载，无法编辑'
+    activityError.value = '该进展记录较早，请在“进展记录”中加载更多后重试'
     return
   }
   resetUpdate()
@@ -167,7 +180,7 @@ async function overwriteUpdate(version: number) {
 async function reloadUpdateFromServer() {
   resetUpdate()
   await loadUpdates()
-  const target = updates.value.find((update) => update.id === editTarget.value?.id)
+  const target = await findUpdate(editTarget.value?.id ?? '')
   if (target) {
     editTarget.value = target
     syncEditForm(target)

@@ -115,6 +115,38 @@ describe('project activity ledger', () => {
     expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument()
   })
 
+  it('walks history pages to edit an update outside the loaded page', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      ...update,
+      id: `up${index}`,
+      content_markdown: `进展 ${index + 1}`,
+    }))
+    const oldUpdate = { ...update, id: 'up_old', content_markdown: '较早的进展', version: 7 }
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/projects/p1/activity?limit=50') {
+        return Promise.resolve({
+          items: [activityItem({ id: 9, event_type: 'project.progress_posted', subject: { type: 'project_update', id: 'up_old' }, payload: { health: 'at_risk' } })],
+          next_cursor: null,
+        })
+      }
+      if (path === '/api/projects/p1/updates?limit=50&offset=0') return Promise.resolve(firstPage)
+      if (path === '/api/projects/p1/updates?limit=50&offset=50') return Promise.resolve([oldUpdate])
+      return Promise.resolve({})
+    })
+
+    renderActivity()
+    await screen.findByText(/发布了项目进展/)
+    await fireEvent.click(screen.getByRole('button', { name: '编辑进展 up_old' }))
+
+    expect(await screen.findByRole('heading', { name: '编辑项目进展' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('进展内容')).toHaveValue('较早的进展'))
+    // The walk appends the next page instead of resetting the already loaded one.
+    const offsetZeroCalls = apiMock.mock.calls.filter(
+      ([path]) => path === '/api/projects/p1/updates?limit=50&offset=0',
+    )
+    expect(offsetZeroCalls).toHaveLength(1)
+  })
+
   it('edits a progress update and passes the original source through', async () => {
     apiMock.mockImplementation((path: string, init?: RequestInit) => {
       if (path === '/api/projects/p1/activity?limit=50') {
