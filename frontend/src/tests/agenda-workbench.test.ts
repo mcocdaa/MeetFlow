@@ -158,10 +158,17 @@ describe('agenda workbench', () => {
     }))
   })
 
-  it('does not expose agenda record versions or a separate skip action', () => {
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+  it('does not expose agenda record versions but provides a standalone skip action posting /skip', async () => {
+    render(AgendaWorkbench, { props: { meeting: meetingFixture(), canContribute: true } })
     expect(screen.queryByText(/版本\s*2/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /跳过/ })).not.toBeInTheDocument()
+
+    await fireEvent.click(screen.getByRole('button', { name: '议题“进展同步”的更多操作' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '跳过' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '确认' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1/skip', {
+      method: 'POST', body: JSON.stringify({ expected_version: 2 }),
+    }))
   })
 
   it('does not render a separate start-topic action', () => {
@@ -384,8 +391,49 @@ describe('agenda workbench', () => {
     apiMock.mockRejectedValueOnce(new ApiError(409, 'agenda_has_outcomes', '议题已有产出，不能直接删除'))
     render(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
     await fireEvent.click(screen.getByRole('button', { name: '议题“进展同步”的更多操作' }))
-    await fireEvent.click(screen.getByRole('button', { name: '删除议题' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '删除议题' }))
     expect(await screen.findByText('议题已有产出，请先迁移产出，或将议题标记为取消。')).toBeVisible()
     expect(screen.getByRole('button', { name: '改为取消' })).toBeVisible()
+  })
+
+  it('moves an agenda item with the four-way version payload', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path.startsWith('/api/meetings?')) {
+        return Promise.resolve({
+          items: [
+            { id: 'm2', title: '评估会', version: 1 },
+            { id: 'm1', title: '迭代评审', version: 4 },
+          ],
+          total: 2, limit: 200, offset: 0,
+        })
+      }
+      return Promise.resolve({})
+    })
+    render(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '议题“进展同步”的更多操作' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '移动议题' }))
+    expect(await screen.findByRole('heading', { name: '移动议题' })).toBeInTheDocument()
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('/api/meetings?project_id=p1')))
+
+    await fireEvent.click(document.querySelector('.move-target-select .n-base-selection')!)
+    const option = await waitFor(() => {
+      const candidate = [...document.querySelectorAll('.n-base-select-option__content')]
+        .find((content) => content.textContent?.startsWith('评估会'))
+      if (!candidate) throw new Error('target meeting option is not open yet')
+      return candidate
+    })
+    await fireEvent.click(option)
+    await fireEvent.click(screen.getByRole('button', { name: '确认移动' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1/move', expect.objectContaining({ method: 'POST' })))
+    const moveCall = apiMock.mock.calls.find(([path]) => path === '/api/agenda-items/a1/move')
+    expect(JSON.parse((moveCall?.[1] as RequestInit).body as string)).toEqual({
+      target_meeting_id: 'm2',
+      position: null,
+      expected_version: 2,
+      expected_source_meeting_version: 4,
+      expected_target_meeting_version: 1,
+    })
   })
 })
