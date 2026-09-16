@@ -44,6 +44,11 @@ export type MeetingParticipant = {
   position: number
 }
 
+export type MeetingParticipantWrite = {
+  user_id: string
+  participation_role: ParticipationRole
+}
+
 export type Attachment = {
   id: string
   target_type: 'project' | 'meeting' | 'agenda_item'

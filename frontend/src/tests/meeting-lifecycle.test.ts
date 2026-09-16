@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
+import { fireEvent, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MeetingWorkspaceView from '../views/MeetingWorkspaceView.vue'
+import { renderWithProviders } from './helpers'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../api/client')>(), api: apiMock }))
@@ -15,6 +16,7 @@ vi.mock('../components/MarkdownEditor.vue', () => ({
 }))
 
 const user = { id: 'u1', username: 'lin', display_name: '林宇' }
+const project = { id: 'p1', name: 'MeetFlow', slug: 'meetflow', version: 1, memberships: [{ role: 'member', user }] }
 function fixture(status: 'draft' | 'ready' | 'in_progress' | 'completed' | 'canceled', unresolved = 0) {
   const agenda = Array.from({ length: Math.max(unresolved, 1) }, (_, index) => ({
     id: `a${index + 1}`, meeting_id: 'm1', title: index ? `待处理议题 ${index + 1}` : '发布方案', agenda_type: 'decision',
@@ -66,14 +68,14 @@ describe('meeting lifecycle workspace', () => {
     ['completed', '添加更正'],
   ] as const)('renders %s meeting controls', async (status, control) => {
     apiMock.mockResolvedValue(fixture(status, status === 'in_progress' ? 1 : 0))
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1'))
     expect(await screen.findByRole('button', { name: control })).toBeVisible()
   })
 
   it.each(['draft', 'ready'] as const)('offers both cancel and start actions for a %s meeting', async (status) => {
     apiMock.mockResolvedValue(fixture(status))
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
 
     expect(await screen.findByRole('button', { name: '开始会议' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '取消会议' })).toBeInTheDocument()
@@ -83,8 +85,9 @@ describe('meeting lifecycle workspace', () => {
     const canceled = fixture('canceled')
     apiMock
       .mockResolvedValueOnce(fixture(status, status === 'in_progress' ? 1 : 0))
+      .mockResolvedValueOnce(project)
       .mockResolvedValueOnce(canceled)
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
 
     await fireEvent.click(await screen.findByRole('button', { name: '取消会议' }))
     const confirm = await screen.findByRole('button', { name: '确认' })
@@ -102,8 +105,11 @@ describe('meeting lifecycle workspace', () => {
   })
 
   it('reopens a completed meeting after confirmation', async () => {
-    apiMock.mockResolvedValueOnce(fixture('completed')).mockResolvedValueOnce(fixture('in_progress'))
-    render(MeetingWorkspaceView)
+    apiMock
+      .mockResolvedValueOnce(fixture('completed'))
+      .mockResolvedValueOnce(project)
+      .mockResolvedValueOnce(fixture('in_progress'))
+    renderWithProviders(MeetingWorkspaceView)
 
     await fireEvent.click(await screen.findByRole('button', { name: '重新打开' }))
     const confirm = await screen.findByRole('button', { name: '确认' })
@@ -116,7 +122,7 @@ describe('meeting lifecycle workspace', () => {
 
   it('keeps a canceled meeting view-only with exports but no state actions', async () => {
     apiMock.mockResolvedValue(fixture('canceled'))
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
 
     expect(await screen.findByRole('heading', { name: '迭代评审' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '重新打开' })).not.toBeInTheDocument()
@@ -131,7 +137,7 @@ describe('meeting lifecycle workspace', () => {
     const meeting = fixture('draft')
     meeting.capabilities = { can_manage: false, can_contribute: false, can_comment: true }
     apiMock.mockResolvedValue(meeting)
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
 
     expect(await screen.findByRole('heading', { name: '迭代评审' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '准备信息' })).not.toBeInTheDocument()
@@ -146,7 +152,7 @@ describe('meeting lifecycle workspace', () => {
 
   it('allows finishing with unresolved agenda and lets the server mark them skipped', async () => {
     apiMock.mockResolvedValue(fixture('in_progress', 2))
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
     const finish = await screen.findByRole('button', { name: '结束会议' })
     expect(finish).toBeEnabled()
     expect(screen.getByText(/结束后，未结束议题会记为跳过。/)).toBeVisible()
@@ -157,8 +163,13 @@ describe('meeting lifecycle workspace', () => {
   })
 
   it('adds an amendment without editing the completed snapshot', async () => {
-    apiMock.mockResolvedValueOnce(fixture('completed')).mockResolvedValueOnce({ id: 'am1' }).mockResolvedValueOnce(fixture('completed'))
-    render(MeetingWorkspaceView)
+    apiMock
+      .mockResolvedValueOnce(fixture('completed'))
+      .mockResolvedValueOnce(project)
+      .mockResolvedValueOnce({ id: 'am1' })
+      .mockResolvedValueOnce(fixture('completed'))
+      .mockResolvedValueOnce(project)
+    renderWithProviders(MeetingWorkspaceView)
     await fireEvent.click(await screen.findByRole('button', { name: '添加更正' }))
     await fireEvent.update(screen.getByLabelText('更正原因'), '补充遗漏信息')
     await fireEvent.update(screen.getByLabelText('更正内容'), '最终负责人为乔安')
@@ -170,7 +181,7 @@ describe('meeting lifecycle workspace', () => {
 
   it('expands frozen agenda and meeting-level outcomes without reading mutable data', async () => {
     apiMock.mockResolvedValue(completedOutcomeFixture())
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
 
     const first = await screen.findByTestId('completed-agenda-a1')
     const second = screen.getByTestId('completed-agenda-a2')
@@ -207,14 +218,14 @@ describe('meeting lifecycle workspace', () => {
     }
     apiMock.mockResolvedValue(meeting)
 
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
 
     expect(await screen.findByTestId('completed-meeting-duration')).toHaveTextContent('实际会议时长：1 小时 5 分 9 秒')
   })
 
   it('omits meeting-level outcomes when the completed snapshot has none', async () => {
     apiMock.mockResolvedValue(fixture('completed'))
-    render(MeetingWorkspaceView)
+    renderWithProviders(MeetingWorkspaceView)
     await screen.findByText('议题记录与产出')
     expect(screen.queryByTestId('completed-meeting-outcomes')).not.toBeInTheDocument()
   })

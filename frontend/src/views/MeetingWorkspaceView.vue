@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NButton, NPopconfirm } from 'naive-ui'
+import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, NPopconfirm, NSelect, useMessage, type FormInst, type FormRules } from 'naive-ui'
 import StatusPill from '../components/StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
+import type { UserRef } from '../api/contracts'
 import { downloadMeetingExport, getMeeting, runMeetingLifecycle, type LifecycleAction } from '../api/meetings'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
 import AttachmentPanel from '../components/AttachmentPanel.vue'
 import CompletedMeetingChain from '../components/CompletedMeetingChain.vue'
-import ContextDrawer from '../components/ContextDrawer.vue'
 import MeetingCommentsPanel from '../components/MeetingCommentsPanel.vue'
+import MeetingParticipantEditor from '../components/MeetingParticipantEditor.vue'
 import MarkdownEditor from '../components/MarkdownEditor.vue'
 import type { MarkdownEditorHandle } from '../components/MarkdownEditor.vue'
 import SaveStateIndicator from '../components/meeting/SaveStateIndicator.vue'
 import PageHeader from '../components/PageHeader.vue'
 import PluginEditorSlot from '../components/PluginEditorSlot.vue'
 import PluginSlot from '../components/PluginSlot.vue'
-import type { Attachment, Meeting } from '../domain/meetings'
+import type { Attachment, Meeting, MeetingParticipantWrite } from '../domain/meetings'
+import type { Project } from '../domain/projects'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
 import { formatDateTime, parseUtcTimestamp } from '../utils/time'
 
@@ -38,6 +40,21 @@ const purposeEditor = ref<MarkdownEditorHandle | null>(null)
 const rawNotesEditor = ref<MarkdownEditorHandle | null>(null)
 const workbench = ref<{ flushCurrentDraft: () => Promise<boolean> } | null>(null)
 const exportAction = ref<string | null>(null)
+const message = useMessage()
+const memberOptions = ref<UserRef[]>([])
+const membersUnavailable = ref(false)
+const preparationFormRef = ref<FormInst | null>(null)
+const preparationSaving = ref(false)
+const preparationError = ref('')
+const preparationForm = ref({
+  title: '',
+  scheduled_start: '',
+  scheduled_end: '',
+  purpose_markdown: '',
+  host_user_id: null as string | null,
+  recorder_user_id: null as string | null,
+  participants: [] as MeetingParticipantWrite[],
+})
 const workspace = useMeetingWorkspace()
 const meeting = workspace.meeting
 const draft = workspace.draft
@@ -62,6 +79,132 @@ const liveElapsed = computed(() => {
   const seconds = elapsedSeconds % 60
   return `${hours ? `${hours}:` : ''}${String(minutes).padStart(hours ? 2 : 1, '0')}:${String(seconds).padStart(2, '0')}`
 })
+const hostOptions = computed(() => memberOptions.value.map((member) => ({ label: member.display_name, value: member.id })))
+const preparationRules: FormRules = {
+  title: {
+    required: true,
+    message: '请输入会议标题',
+    trigger: ['input', 'blur'],
+    transform: (value: string) => value.trim(),
+  },
+  scheduled_end: {
+    validator: () => {
+      if (!preparationForm.value.scheduled_start || !preparationForm.value.scheduled_end) return true
+      const start = new Date(preparationForm.value.scheduled_start).getTime()
+      const end = new Date(preparationForm.value.scheduled_end).getTime()
+      if (Number.isNaN(start) || Number.isNaN(end)) return true
+      return end > start
+    },
+    message: '结束时间必须晚于开始时间',
+    trigger: ['change', 'blur'],
+  },
+}
+
+function toLocalInput(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+/** Participants plus host/recorder, deduplicated: the fallback member list when the project cannot be read. */
+function currentMemberRefs(value: Meeting): UserRef[] {
+  const seen = new Set<string>()
+  const options: UserRef[] = []
+  for (const participant of value.participants) {
+    if (seen.has(participant.user.id)) continue
+    seen.add(participant.user.id)
+    options.push(participant.user)
+  }
+  for (const person of [value.host, value.recorder]) {
+    if (!person || seen.has(person.id)) continue
+    seen.add(person.id)
+    options.push(person)
+  }
+  return options
+}
+
+async function loadMemberOptions(value: Meeting) {
+  try {
+    const project = await api<Project>(`/api/projects/${value.project.id}`)
+    const seen = new Set<string>()
+    const options: UserRef[] = []
+    for (const membership of project.memberships ?? []) {
+      if (seen.has(membership.user.id)) continue
+      seen.add(membership.user.id)
+      options.push(membership.user)
+    }
+    for (const member of currentMemberRefs(value)) {
+      if (seen.has(member.id)) continue
+      seen.add(member.id)
+      options.push(member)
+    }
+    memberOptions.value = options
+    membersUnavailable.value = false
+  } catch {
+    memberOptions.value = currentMemberRefs(value)
+    membersUnavailable.value = true
+  }
+}
+
+function openPreparation() {
+  if (!meeting.value) return
+  preparationForm.value = {
+    title: meeting.value.title,
+    scheduled_start: toLocalInput(meeting.value.scheduled_start),
+    scheduled_end: toLocalInput(meeting.value.scheduled_end),
+    purpose_markdown: meeting.value.purpose_markdown,
+    host_user_id: meeting.value.host?.id ?? null,
+    recorder_user_id: meeting.value.recorder?.id ?? null,
+    participants: meeting.value.participants.map((participant) => ({
+      user_id: participant.user.id,
+      participation_role: participant.participation_role,
+    })),
+  }
+  preparationError.value = ''
+  preparationOpen.value = true
+}
+
+async function savePreparation() {
+  if (!meeting.value || !canContribute.value || preparationSaving.value) return
+  preparationSaving.value = true
+  preparationError.value = ''
+  try {
+    const purpose = typeof purposeEditor.value?.flush === 'function' ? purposeEditor.value.flush() : undefined
+    if (purpose !== undefined) preparationForm.value.purpose_markdown = purpose
+    try {
+      await preparationFormRef.value?.validate()
+    } catch {
+      return
+    }
+    const start = new Date(preparationForm.value.scheduled_start)
+    const end = new Date(preparationForm.value.scheduled_end)
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      preparationError.value = '结束时间必须晚于开始时间'
+      return
+    }
+    const saved = await api<Meeting>(`/api/meetings/${meeting.value.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        expected_version: meeting.value.version,
+        title: preparationForm.value.title.trim(),
+        purpose_markdown: preparationForm.value.purpose_markdown,
+        scheduled_start: start.toISOString(),
+        scheduled_end: end.toISOString(),
+        host_user_id: preparationForm.value.host_user_id,
+        recorder_user_id: preparationForm.value.recorder_user_id,
+        participants: preparationForm.value.participants.filter((row) => row.user_id),
+      }),
+    })
+    acceptMeeting(saved, true)
+    preparationOpen.value = false
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.code === 'meeting_locked') message.error(caught.message)
+    else preparationError.value = errorMessage(caught, '准备信息保存失败')
+  } finally {
+    preparationSaving.value = false
+  }
+}
 
 function acceptMeeting(value: Meeting, resetDraft: boolean) {
   workspace.accept(value, resetDraft)
@@ -72,8 +215,6 @@ async function persistMeetingDraft(): Promise<boolean> {
   if (!canContribute.value) return false
   const summary = typeof summaryEditor.value?.flush === 'function' ? summaryEditor.value.flush() : undefined
   if (summary !== undefined) draft.value.summary_markdown = summary
-  const purpose = typeof purposeEditor.value?.flush === 'function' ? purposeEditor.value.flush() : undefined
-  if (purpose !== undefined) draft.value.purpose_markdown = purpose
   const rawNotes = typeof rawNotesEditor.value?.flush === 'function' ? rawNotesEditor.value.flush() : undefined
   if (rawNotes !== undefined) draft.value.raw_notes_markdown = rawNotes
 
@@ -88,6 +229,7 @@ async function load() {
   try {
     const value = await getMeeting(String(route.params.id))
     acceptMeeting(value, true)
+    await loadMemberOptions(value)
   } catch (caught) { error.value = errorMessage(caught, '会议加载失败') }
   finally { loading.value = false }
 }
@@ -98,7 +240,6 @@ async function saveMeeting() {
   error.value = ''
   try {
     await persistMeetingDraft()
-    preparationOpen.value = false
     return true
   } catch (caught) { error.value = errorMessage(caught, '会议保存失败') }
   finally { saving.value = false }
@@ -211,7 +352,7 @@ onBeforeUnmount(() => {
         <template #actions>
           <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.markdown')">{{ exportAction === 'meeting-export.markdown' ? '导出中…' : '导出 Markdown' }}</n-button>
           <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.json')">{{ exportAction === 'meeting-export.json' ? '导出中…' : '导出 JSON' }}</n-button>
-          <n-button v-if="canContribute && isPreparationStatus" quaternary :disabled="busy" @click="preparationOpen = true">准备信息</n-button>
+          <n-button v-if="canContribute && isPreparationStatus" quaternary :disabled="busy" @click="openPreparation">准备信息</n-button>
           <n-button v-if="canContribute && isPreparationStatus" type="primary" :loading="lifecycleAction === 'start'" :disabled="busy" @click="lifecycle('start')">开始会议</n-button>
           <n-button v-else-if="canContribute && meeting.status === 'in_progress'" type="primary" :loading="lifecycleAction === 'finish'" :disabled="busy" @click="lifecycle('finish')">结束会议</n-button>
           <n-popconfirm v-if="canContribute && canCancelMeeting" positive-text="确认" negative-text="取消" @positive-click="lifecycle('cancel')">
@@ -267,16 +408,56 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <ContextDrawer v-if="canContribute" :open="preparationOpen" title="准备信息" @close="preparationOpen = false">
-          <section class="meeting-preparation">
-            <header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>会议准备</h2></div><button class="button button-primary" :disabled="busy" @click="saveMeeting">保存会议信息</button></header>
-            <div class="meeting-prep-grid"><label>会议标题<input v-model="draft.title" /></label><label>开始时间<input v-model="draft.scheduled_start" type="datetime-local" /></label><label>结束时间<input v-model="draft.scheduled_end" type="datetime-local" /></label></div>
-            <label>会议目的<MarkdownEditor ref="purposeEditor" v-model="draft.purpose_markdown" label="会议目的" :disabled="busy" /></label>
-            <div class="participant-chips"><span v-for="participant in meeting.participants" :key="participant.user.id"><b>{{ participant.user.display_name }}</b> · {{ participant.participation_role }}</span><span v-if="!meeting.participants.length">尚未添加参与者</span></div>
-          </section>
-        </ContextDrawer>
-        <ContextDrawer :open="materialsOpen" title="会议材料" @close="materialsOpen = false"><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="materialItems" :can-contribute="canContribute" @uploaded="addMaterial" @deleted="removeMaterial" /></ContextDrawer>
-        <ContextDrawer v-if="canComment" :open="commentsOpen" title="评论" @close="commentsOpen = false"><MeetingCommentsPanel :meeting="meeting" /></ContextDrawer>
+        <n-drawer :show="preparationOpen" placement="right" :width="'min(560px, 100vw)'" :mask-closable="!preparationSaving" @update:show="(value: boolean) => { if (!value) preparationOpen = false }">
+          <n-drawer-content title="准备信息" closable>
+            <section class="meeting-preparation">
+              <header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>会议准备</h2></div></header>
+              <n-form ref="preparationFormRef" :model="preparationForm" :rules="preparationRules" label-placement="top" :show-require-mark="false">
+                <n-form-item label="会议标题" path="title">
+                  <n-input v-model:value="preparationForm.title" :input-props="{ 'aria-label': '会议标题' }" placeholder="会议标题" />
+                </n-form-item>
+                <n-form-item label="开始时间" path="scheduled_start">
+                  <input v-model="preparationForm.scheduled_start" class="native-datetime-input" type="datetime-local" aria-label="开始时间" />
+                </n-form-item>
+                <n-form-item label="结束时间" path="scheduled_end">
+                  <input v-model="preparationForm.scheduled_end" class="native-datetime-input" type="datetime-local" aria-label="结束时间" />
+                </n-form-item>
+                <n-form-item label="会议目的" path="purpose_markdown">
+                  <PluginEditorSlot v-model="preparationForm.purpose_markdown" editor-label="会议目的" target-type="meeting" :target-id="meeting.id" slot="meeting-purpose-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id }" @notice="preparationError = $event">
+                    <template #editor="{ disabled, registerEditor }">
+                      <MarkdownEditor ref="purposeEditor" v-model="preparationForm.purpose_markdown" label="会议目的" placeholder="这次会议要解决什么问题？" :disabled="preparationSaving || disabled" :register-editor="registerEditor" />
+                    </template>
+                  </PluginEditorSlot>
+                </n-form-item>
+                <n-form-item label="主持" path="host_user_id">
+                  <n-select v-model:value="preparationForm.host_user_id" :options="hostOptions" :virtual-scroll="false" :input-props="{ 'aria-label': '主持' }" filterable clearable placeholder="未指定" />
+                </n-form-item>
+                <n-form-item label="记录" path="recorder_user_id">
+                  <n-select v-model:value="preparationForm.recorder_user_id" :options="hostOptions" :virtual-scroll="false" :input-props="{ 'aria-label': '记录' }" filterable clearable placeholder="未指定" />
+                </n-form-item>
+                <n-form-item label="参与人">
+                  <MeetingParticipantEditor v-model="preparationForm.participants" :member-options="memberOptions" :disabled="preparationSaving" />
+                </n-form-item>
+              </n-form>
+              <p v-if="membersUnavailable" class="empty-inline">成员列表不可用，仅显示当前参与人</p>
+              <p v-if="preparationError" class="notice notice-error" role="alert">{{ preparationError }}</p>
+            </section>
+            <template #footer>
+              <n-button quaternary :disabled="preparationSaving" @click="preparationOpen = false">取消</n-button>
+              <n-button type="primary" :loading="preparationSaving" :disabled="preparationSaving" @click="savePreparation">保存准备信息</n-button>
+            </template>
+          </n-drawer-content>
+        </n-drawer>
+        <n-drawer :show="materialsOpen" placement="right" :width="'min(560px, 100vw)'" @update:show="(value: boolean) => { if (!value) materialsOpen = false }">
+          <n-drawer-content title="会议材料" closable>
+            <AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="materialItems" :can-contribute="canContribute" @uploaded="addMaterial" @deleted="removeMaterial" />
+          </n-drawer-content>
+        </n-drawer>
+        <n-drawer v-if="canComment" :show="commentsOpen" placement="right" :width="'min(560px, 100vw)'" @update:show="(value: boolean) => { if (!value) commentsOpen = false }">
+          <n-drawer-content title="评论" closable>
+            <MeetingCommentsPanel :meeting="meeting" />
+          </n-drawer-content>
+        </n-drawer>
       </template>
     </template>
     <p v-else class="notice notice-error">{{ error || '会议不存在' }}</p>
