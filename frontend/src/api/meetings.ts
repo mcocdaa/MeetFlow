@@ -1,7 +1,7 @@
 import { api, apiDownload } from './client'
-import type { Meeting } from '../domain/meetings'
+import type { Meeting, MeetingParticipantWrite } from '../domain/meetings'
 
-export type LifecycleAction = 'start' | 'finish'
+export type LifecycleAction = 'start' | 'finish' | 'cancel' | 'reopen'
 
 export type MeetingUpdate = {
   expected_version: number
@@ -11,6 +11,9 @@ export type MeetingUpdate = {
   summary_markdown: string
   scheduled_start: string
   scheduled_end: string
+  host_user_id?: string | null
+  recorder_user_id?: string | null
+  participants?: MeetingParticipantWrite[]
 }
 
 export function getMeeting(id: string) {

@@ -78,6 +78,7 @@ function removeRow(index: number) {
         :value="row.participation_role"
         :options="roleOptions"
         :disabled="disabled"
+        :virtual-scroll="false"
         @update:value="(value: ParticipationRole) => updateRow(index, { participation_role: value })"
       />
       <n-button v-if="!disabled" quaternary aria-label="移除参与人" @click="removeRow(index)">

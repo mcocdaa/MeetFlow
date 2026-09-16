@@ -10,7 +10,7 @@
 
 import { render, type RenderOptions, type RenderResult } from '@testing-library/vue'
 import { NConfigProvider, NDialogProvider, NMessageProvider, dateZhCN, zhCN } from 'naive-ui'
-import { defineComponent, h, type Component } from 'vue'
+import { defineComponent, h, nextTick, shallowRef, type Component } from 'vue'
 
 import { naiveThemeOverrides } from '../theme/naive'
 
@@ -18,7 +18,14 @@ export function renderWithProviders<C>(
   component: C,
   options: RenderOptions<C> = {},
 ): RenderResult {
-  const { props, ...renderOptions } = options
+  const { props: initialProps, attrs, ...renderOptions } = options
+  // `rerender(newProps)` replaces the props passed to the wrapped component, because
+  // testing-library's own rerender would target the provider wrapper instead.
+  // `attrs` (event listeners and fallthrough attributes) belong to the wrapped component too.
+  const componentProps = shallowRef<Record<string, unknown> | undefined>({
+    ...(initialProps as Record<string, unknown> | undefined),
+    ...(attrs as Record<string, unknown> | undefined),
+  })
   const Wrapper = defineComponent({
     name: 'TestProviders',
     setup() {
@@ -31,7 +38,7 @@ export function renderWithProviders<C>(
               h(NMessageProvider, null, {
                 default: () =>
                   h(NDialogProvider, null, {
-                    default: () => h(component as Component, props as Record<string, unknown>),
+                    default: () => h(component as Component, componentProps.value),
                   }),
               }),
           },
@@ -39,5 +46,11 @@ export function renderWithProviders<C>(
     },
   })
 
-  return render(Wrapper, renderOptions as RenderOptions<typeof Wrapper>)
+  const result = render(Wrapper, renderOptions as RenderOptions<typeof Wrapper>)
+  return Object.assign(result, {
+    rerender: (newProps?: object) => {
+      componentProps.value = newProps as Record<string, unknown> | undefined
+      return nextTick()
+    },
+  })
 }

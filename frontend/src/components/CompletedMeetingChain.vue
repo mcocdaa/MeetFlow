@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { NCard, NCollapse, NCollapseItem } from 'naive-ui'
 import StatusPill from './StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 
@@ -109,6 +110,14 @@ const actualMeetingDurationSeconds = computed(() => {
   if (startMilliseconds === null || completedMilliseconds === null) return null
   return Math.max(0, Math.floor((completedMilliseconds - startMilliseconds) / 1000))
 })
+const actualMeetingWindow = computed(() => {
+  const startedAt = nullableText(snapshotMeeting.value.started_at) ?? props.meeting.started_at ?? null
+  const completedAt = nullableText(snapshotMeeting.value.completed_at) ?? props.meeting.completed_at ?? null
+  const parts: string[] = []
+  if (startedAt) parts.push(`开始 ${formatDateTime(startedAt)}`)
+  if (completedAt) parts.push(`完成 ${formatDateTime(completedAt)}`)
+  return parts.join(' · ')
+})
 const snapshotAgenda = computed<SnapshotAgenda[]>(() => records(snapshot.value.agenda_items).map((item) => {
   const id = text(item.id)
   return {
@@ -123,9 +132,10 @@ const meetingOutcomes = computed<SnapshotOutcomeGroup | null>(() => {
   return value.decisions.length || value.actions.length || value.openQuestions.length ? value : null
 })
 const outcomeGroups = computed(() => meetingOutcomes.value ? [...snapshotAgenda.value, meetingOutcomes.value] : snapshotAgenda.value)
+const outcomeGroupNames = computed(() => outcomeGroups.value.map((item) => item.testId))
 
 async function addAmendment() {
-  if (!props.canContribute || !reason.value.trim() || !content.value.trim()) return
+  if (!props.canContribute || !reason.value.trim() || !content.value.trim() || saving.value) return
   saving.value = true
   error.value = ''
   try {
@@ -137,29 +147,69 @@ async function addAmendment() {
   } catch (caught) { error.value = errorMessage(caught, '更正保存失败') }
   finally { saving.value = false }
 }
-
-async function reopen() {
-  if (!props.canContribute) return
-  if (!window.confirm('重新打开后可继续修改议题，并在再次结束时生成新的历史快照。确定继续？')) return
-  saving.value = true
-  error.value = ''
-  try {
-    await api(`/api/meetings/${props.meeting.id}/reopen`, { method: 'POST', body: JSON.stringify({ expected_version: props.meeting.version }) })
-    emit('reload')
-  } catch (caught) { error.value = errorMessage(caught, '会议重新打开失败') }
-  finally { saving.value = false }
-}
 </script>
 
 <template>
   <div class="completed-chain">
-    <section class="workspace-section completed-summary"><header class="section-heading"><div><p class="eyebrow">Trusted record</p><h2>会议完成链条</h2></div><div v-if="canContribute" class="page-header-actions"><button class="button button-quiet" @click="amendmentOpen = !amendmentOpen">添加更正</button><button class="button button-danger" :disabled="saving" @click="reopen">重新打开会议</button></div></header><p class="snapshot-meta">快照 #{{ meeting.current_snapshot?.completion_number ?? '—' }} · 原始记录保持只读</p><p class="completed-meeting-duration" data-testid="completed-meeting-duration">实际会议时长：{{ duration(actualMeetingDurationSeconds) }}</p><MarkdownView :source="String(snapshotMeeting.summary_markdown ?? meeting.summary_markdown)" empty-text="本次会议未填写摘要" /></section>
+    <n-card class="completed-summary">
+      <header class="section-heading">
+        <div><p class="eyebrow">Trusted record</p><h2>会议完成链条</h2></div>
+        <div v-if="canContribute" class="page-header-actions"><button class="button button-quiet" @click="amendmentOpen = !amendmentOpen">添加更正</button></div>
+      </header>
+      <p class="snapshot-meta">快照 #{{ meeting.current_snapshot?.completion_number ?? '—' }} · 原始记录保持只读</p>
+      <p class="completed-meeting-duration" data-testid="completed-meeting-duration">实际会议时长：{{ duration(actualMeetingDurationSeconds) }}</p>
+      <p v-if="actualMeetingWindow" class="completed-meeting-window" data-testid="completed-meeting-window">{{ actualMeetingWindow }}</p>
+      <MarkdownView :source="String(snapshotMeeting.summary_markdown ?? meeting.summary_markdown)" empty-text="本次会议未填写摘要" />
+    </n-card>
 
     <form v-if="canContribute && amendmentOpen" class="workspace-section amendment-form" @submit.prevent="addAmendment"><h2>添加更正</h2><p>更正会作为独立历史记录追加，不会修改完成快照。</p><label>更正原因<input v-model="reason" required /></label><label>更正内容<MarkdownEditor v-model="content" label="更正内容" /></label><div class="form-actions"><button type="button" class="button button-quiet" @click="amendmentOpen = false">取消</button><button class="button button-primary" :disabled="saving || !reason.trim() || !content.trim()">保存更正</button></div></form>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
 
-    <section class="workspace-section"><h2>议题记录与产出</h2><div class="completed-agenda-list"><details v-for="item in outcomeGroups" :key="item.testId" :data-testid="item.testId" class="completed-outcome-accordion" open><summary class="completed-outcome-summary"><div><StatusPill v-if="item.status" :status="item.status" kind="agenda" /><strong>{{ item.title }}</strong></div><dl aria-label="产出数量"><div><dt>决策</dt><dd>{{ item.decisions.length }}</dd></div><div><dt>行动</dt><dd>{{ item.actions.length }}</dd></div><div><dt>开放问题</dt><dd>{{ item.openQuestions.length }}</dd></div></dl></summary><div class="completed-outcome-body"><template v-if="item.notesMarkdown !== undefined"><p class="completed-agenda-timing">预计 {{ item.estimatedMinutes ?? '—' }} 分钟 · 实际 {{ duration(item.actualDurationSeconds ?? null) }}</p><section class="completed-agenda-notes"><h3>议题记录</h3><MarkdownView :source="item.notesMarkdown" empty-text="本议题未填写记录" /></section></template><section v-if="item.decisions.length" class="completed-outcome-group"><h3>决策 <span>{{ item.decisions.length }}</span></h3><article v-for="decision in item.decisions" :key="decision.id || decision.title" class="completed-outcome-row"><header><strong>{{ decision.title || '未命名决策' }}</strong><StatusPill v-if="decision.status" :status="decision.status" kind="decision" /></header><MarkdownView :source="decision.decisionMarkdown" empty-text="未记录决策正文" /><div v-if="decision.rationaleMarkdown" class="completed-outcome-rationale"><span>依据</span><MarkdownView :source="decision.rationaleMarkdown" /></div></article></section><section v-if="item.actions.length" class="completed-outcome-group"><h3>行动项 <span>{{ item.actions.length }}</span></h3><article v-for="action in item.actions" :key="action.id || action.content" class="completed-outcome-row"><header><strong>{{ action.content || '未记录行动内容' }}</strong><StatusPill v-if="action.status" :status="action.status" kind="action" /></header><p class="completed-outcome-meta">优先级：{{ priorityLabel(action.priority) || '未设置' }}<template v-if="action.dueDate"> · 截止：{{ action.dueDate }}</template></p></article></section><section v-if="item.openQuestions.length" class="completed-outcome-group"><h3>开放问题 <span>{{ item.openQuestions.length }}</span></h3><article v-for="question in item.openQuestions" :key="question.id || question.questionMarkdown" class="completed-outcome-row"><header><span>问题</span><StatusPill v-if="question.status" :status="question.status" kind="question" /></header><MarkdownView :source="question.questionMarkdown" empty-text="未记录问题正文" /></article></section><p v-if="!item.decisions.length && !item.actions.length && !item.openQuestions.length" class="empty-inline">{{ item.status ? '本议题未记录产出' : '本次会议未记录会议级产出' }}</p></div></details><p v-if="!snapshotAgenda.length" class="empty-inline">快照中没有议题</p></div></section>
-    <section class="workspace-section"><h2>材料</h2><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="meeting.attachments ?? []" :can-contribute="canContribute" @changed="emit('reload')" /></section>
+    <section class="workspace-section">
+      <h2>议题记录与产出</h2>
+      <n-collapse :default-expanded-names="outcomeGroupNames" class="completed-agenda-list">
+        <n-collapse-item v-for="item in outcomeGroups" :key="item.testId" :name="item.testId" :data-testid="item.testId" class="completed-outcome-accordion">
+          <template #header>
+            <div class="completed-outcome-summary">
+              <div><StatusPill v-if="item.status" :status="item.status" kind="agenda" /><strong>{{ item.title }}</strong></div>
+              <dl aria-label="产出数量"><div><dt>决策</dt><dd>{{ item.decisions.length }}</dd></div><div><dt>行动</dt><dd>{{ item.actions.length }}</dd></div><div><dt>开放问题</dt><dd>{{ item.openQuestions.length }}</dd></div></dl>
+            </div>
+          </template>
+          <div class="completed-outcome-body">
+            <template v-if="item.notesMarkdown !== undefined">
+              <p class="completed-agenda-timing">预计 {{ item.estimatedMinutes ?? '—' }} 分钟 · 实际 {{ duration(item.actualDurationSeconds ?? null) }}</p>
+              <section class="completed-agenda-notes"><h3>议题记录</h3><MarkdownView :source="item.notesMarkdown" empty-text="本议题未填写记录" /></section>
+            </template>
+            <section v-if="item.decisions.length" class="completed-outcome-group">
+              <h3>决策 <span>{{ item.decisions.length }}</span></h3>
+              <article v-for="decision in item.decisions" :key="decision.id || decision.title" class="completed-outcome-row">
+                <header><strong>{{ decision.title || '未命名决策' }}</strong><StatusPill v-if="decision.status" :status="decision.status" kind="decision" /></header>
+                <MarkdownView :source="decision.decisionMarkdown" empty-text="未记录决策正文" />
+                <div v-if="decision.rationaleMarkdown" class="completed-outcome-rationale"><span>依据</span><MarkdownView :source="decision.rationaleMarkdown" /></div>
+              </article>
+            </section>
+            <section v-if="item.actions.length" class="completed-outcome-group">
+              <h3>行动项 <span>{{ item.actions.length }}</span></h3>
+              <article v-for="action in item.actions" :key="action.id || action.content" class="completed-outcome-row">
+                <header><strong>{{ action.content || '未记录行动内容' }}</strong><StatusPill v-if="action.status" :status="action.status" kind="action" /></header>
+                <p class="completed-outcome-meta">优先级：{{ priorityLabel(action.priority) || '未设置' }}<template v-if="action.dueDate"> · 截止：{{ action.dueDate }}</template></p>
+              </article>
+            </section>
+            <section v-if="item.openQuestions.length" class="completed-outcome-group">
+              <h3>开放问题 <span>{{ item.openQuestions.length }}</span></h3>
+              <article v-for="question in item.openQuestions" :key="question.id || question.questionMarkdown" class="completed-outcome-row">
+                <header><span>问题</span><StatusPill v-if="question.status" :status="question.status" kind="question" /></header>
+                <MarkdownView :source="question.questionMarkdown" empty-text="未记录问题正文" />
+              </article>
+            </section>
+            <p v-if="!item.decisions.length && !item.actions.length && !item.openQuestions.length" class="empty-inline">{{ item.status ? '本议题未记录产出' : '本次会议未记录会议级产出' }}</p>
+          </div>
+        </n-collapse-item>
+      </n-collapse>
+      <p v-if="!snapshotAgenda.length" class="empty-inline">快照中没有议题</p>
+    </section>
+
+    <section class="workspace-section"><h2>材料</h2><AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="meeting.attachments ?? []" :can-contribute="canContribute" @uploaded="emit('reload')" @deleted="emit('reload')" /></section>
     <section class="workspace-section"><h2>更正历史</h2><article v-for="item in meeting.amendments ?? []" :key="item.id" class="amendment-item"><strong>{{ item.reason }}</strong><MarkdownView :source="item.content_markdown" /><small>{{ item.created_by.display_name }} · {{ formatDateTime(item.created_at) }}</small></article><p v-if="!meeting.amendments?.length" class="empty-inline">尚未添加更正</p></section>
   </div>
 </template>

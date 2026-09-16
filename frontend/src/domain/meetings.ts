@@ -44,6 +44,11 @@ export type MeetingParticipant = {
   position: number
 }
 
+export type MeetingParticipantWrite = {
+  user_id: string
+  participation_role: ParticipationRole
+}
+
 export type Attachment = {
   id: string
   target_type: 'project' | 'meeting' | 'agenda_item'
@@ -89,6 +94,9 @@ export type AgendaItem = Versioned & {
   presenter: UserRef | null
   estimated_minutes: number | null
   actual_duration_seconds?: number | null
+  carry_from_open_question_id?: string | null
+  started_at?: string | null
+  completed_at?: string | null
   decisions: Decision[]
   actions: ActionItem[]
   open_questions: OpenQuestion[]
