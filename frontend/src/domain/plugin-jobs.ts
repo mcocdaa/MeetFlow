@@ -9,11 +9,14 @@ export type PluginJob = {
   meeting_id?: string | null
   status: PluginJobStatus
   result: { markdown?: string; candidates?: Array<{ content: string }> } | null
+  error_code?: string | null
   error_message?: string | null
   error_detail?: string | null
+  rerun_of_id?: string | null
+  applied_by?: string | null
   applied_at: string | null
-  dismissed_at?: string | null
   dismissed_by?: string | null
+  dismissed_at?: string | null
   created_at?: string
   started_at?: string | null
   finished_at?: string | null
