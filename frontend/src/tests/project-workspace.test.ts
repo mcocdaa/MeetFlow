@@ -145,7 +145,8 @@ describe('project workspace', () => {
     renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
     await fireEvent.click(await screen.findByRole('button', { name: '行动项' }))
-    expect(await screen.findByRole('dialog', { name: '添加行动项' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '添加行动项' })).toBeInTheDocument()
+    expect(screen.getByLabelText('行动项内容')).toBeInTheDocument()
   })
 
   it('loads project actions in the Actions tab', async () => {
@@ -177,7 +178,7 @@ describe('project workspace', () => {
     await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
     await fireEvent.click(await screen.findByRole('button', { name: '会议' }))
 
-    expect(screen.getByRole('dialog', { name: '添加会议' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '新建会议' })).toBeInTheDocument()
     expect(screen.getByLabelText('会议标题')).toBeInTheDocument()
   })
 

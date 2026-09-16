@@ -9,7 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { Page } from '../api/contracts'
 import type { AttentionItem } from '../components/AttentionCard.vue'
-import ContextDrawer from '../components/ContextDrawer.vue'
+import MeetingCreateDrawer from '../components/MeetingCreateDrawer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ProjectActivityTab from '../components/ProjectActivityTab.vue'
 import ProjectCreatePanel from '../components/ProjectCreatePanel.vue'
@@ -68,6 +68,11 @@ const memberOptions = computed(() => (project.value?.memberships ?? []).map((row
   label: row.user.display_name || row.user.username,
   value: row.user.id,
 })))
+const panelKind = computed(() => (
+  drawerKind.value === 'series' || drawerKind.value === 'decision' || drawerKind.value === 'action'
+    ? drawerKind.value
+    : null
+))
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'overview', label: '概览' },
   { id: 'meetings', label: '会议' },
@@ -460,9 +465,22 @@ onMounted(load)
         </NTabs>
       </nav>
 
-      <ContextDrawer :open="Boolean(drawerKind)" :title="({ meeting: '添加会议', series: '添加系列', decision: '添加决策', action: '添加行动项' } as Record<string, string>)[drawerKind] ?? ''" @close="drawerKind = ''">
-        <ProjectCreatePanel v-if="drawerKind" :kind="drawerKind" :project="project" @close="drawerKind = ''" @created="created" />
-      </ContextDrawer>
+      <MeetingCreateDrawer
+        :show="drawerKind === 'meeting'"
+        :projects="[{ id: project.id, name: project.name }]"
+        :member-options="project.memberships.map((row) => row.user)"
+        :default-project-id="project.id"
+        @close="drawerKind = ''"
+        @created="created('meeting')"
+      />
+      <ProjectCreatePanel
+        v-if="panelKind"
+        :show="true"
+        :kind="panelKind"
+        :project="project"
+        @close="drawerKind = ''"
+        @created="created"
+      />
     </template>
   </main>
 </template>
