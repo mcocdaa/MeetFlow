@@ -27,6 +27,22 @@ export type ProjectUpdate = Versioned & {
   updated_at: string
 }
 
+export type ProjectActivityItem = {
+  id: number
+  project_id: string
+  meeting_id: string | null
+  actor: UserRef | null
+  event_type: string
+  subject: { type: string; id: string }
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export type ProjectActivityPage = {
+  items: ProjectActivityItem[]
+  next_cursor: number | null
+}
+
 export type Project = Versioned & {
   id: string
   name: string
@@ -67,6 +83,9 @@ export type ProjectActionSummary = {
   owner_user_id: string | null
   due_date: string | null
   meeting_id: string | null
+  version?: number
+  is_derived?: boolean
+  completed_at?: string | null
 }
 
 export type ProjectDetail = Project & {

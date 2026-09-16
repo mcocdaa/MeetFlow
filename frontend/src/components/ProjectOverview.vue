@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import StatusPill from './StatusPill.vue'
 import { RouterLink } from 'vue-router'
 
+import { api } from '../api/client'
 import type { AttentionItem } from './AttentionCard.vue'
-import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
+import type { ProjectActionSummary, ProjectActivityItem, ProjectActivityPage, ProjectDetail } from '../domain/projects'
+import { activityLabel } from '../utils/activity'
 import { subjectHref } from '../utils/links'
 import { priorityLabel } from '../utils/labels'
 import { formatDate, formatDateTime } from '../utils/time'
@@ -23,9 +25,22 @@ const emit = defineEmits<{
 const attentionRows = computed(() => props.attention.slice(0, 5))
 const actionRows = computed(() => props.openActions.slice(0, 5))
 const decisionRows = computed(() => props.project.recent_decisions.slice(0, 3))
-const activityRows = computed(() => props.project.updates.slice(0, 5))
+const activityRows = ref<ProjectActivityItem[]>([])
 
 const attentionLink = (item: AttentionItem) => subjectHref(item.subject_type, item.subject_id)
+
+function actorName(item: ProjectActivityItem) {
+  return item.actor?.display_name || item.actor?.username || '系统'
+}
+
+onMounted(async () => {
+  try {
+    const page = await api<ProjectActivityPage>(`/api/projects/${props.project.id}/activity?limit=5`)
+    activityRows.value = (page?.items ?? []).slice(0, 5)
+  } catch {
+    activityRows.value = []
+  }
+})
 </script>
 
 <template>
@@ -85,7 +100,7 @@ const attentionLink = (item: AttentionItem) => subjectHref(item.subject_type, it
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading"><h2>最近动态</h2><button class="text-link" @click="emit('openTab', 'activity')">查看全部</button></div>
       <div v-if="activityRows.length" class="project-dashboard-list">
-        <button v-for="item in activityRows" :key="item.id" class="compact-row compact-row-button" @click="emit('openTab', 'activity')"><strong>{{ item.content_markdown.slice(0, 52) }}</strong><span>{{ item.created_by.display_name }} · {{ formatDate(item.created_at) }}</span></button>
+        <button v-for="item in activityRows" :key="item.id" class="compact-row compact-row-button" @click="emit('openTab', 'activity')"><strong>{{ activityLabel(item.event_type, item.payload) }}</strong><span>{{ actorName(item) }} · {{ formatDate(item.created_at) }}</span></button>
       </div>
       <p v-else class="muted">尚无项目动态。</p>
     </section>
