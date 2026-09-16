@@ -360,6 +360,9 @@ onBeforeUnmount(() => {
             <span v-if="meeting.status === 'in_progress' && liveElapsed" class="meeting-live-clock">进行 {{ liveElapsed }}</span>
             <span>主持：{{ meeting.host?.display_name ?? '未指定' }}</span>
             <span>记录：{{ meeting.recorder?.display_name ?? '未指定' }}</span>
+            <span v-if="meeting.series_slot_at">系列槽位 {{ formatDateTime(meeting.series_slot_at) }}</span>
+            <span v-if="meeting.status === 'completed' && meeting.started_at" class="meeting-actual-window">开始：{{ formatDateTime(meeting.started_at) }}</span>
+            <span v-if="meeting.status === 'completed' && meeting.completed_at" class="meeting-actual-window">完成：{{ formatDateTime(meeting.completed_at) }}</span>
           </div>
         </template>
         <template #actions>

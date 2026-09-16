@@ -185,26 +185,22 @@ describe('meeting lifecycle workspace', () => {
 
     const first = await screen.findByTestId('completed-agenda-a1')
     const second = screen.getByTestId('completed-agenda-a2')
-    expect(first).toHaveAttribute('open')
-    expect(second).toHaveAttribute('open')
+    expect(within(first).getByText('议题记录')).toBeVisible()
+    expect(within(second).getByText('本议题未填写记录')).toBeVisible()
     expect(screen.queryByText('当前可变决策')).not.toBeInTheDocument()
     expect(screen.getByText('确认灰度范围并记录回滚条件。')).toBeVisible()
     expect(within(first).getByText(/预计 20 分钟 · 实际 1 分 35 秒/)).toBeVisible()
 
-    expect(first).toHaveAttribute('open')
     expect(screen.getByText('采用灰度发布')).toBeVisible()
     expect(screen.getByText('先向 10% 用户发布。')).toBeVisible()
     expect(screen.getByText('准备灰度发布清单')).toBeVisible()
     expect(screen.getByText(/截止：2026-07-30/)).toBeVisible()
     expect(screen.getByText('回滚阈值是什么？')).toBeVisible()
 
-    expect(first).toHaveAttribute('open')
-    expect(second).toHaveAttribute('open')
     expect(within(second).getByText('本议题未记录产出')).toBeVisible()
 
     const meetingLevel = screen.getByTestId('completed-meeting-outcomes')
-    expect(meetingLevel).toHaveAttribute('open')
-    expect(screen.getByText('每周复盘一次')).toBeVisible()
+    expect(within(meetingLevel).getByText('每周复盘一次')).toBeVisible()
   })
 
   it('shows the frozen total actual duration in the completed summary', async () => {
@@ -221,6 +217,37 @@ describe('meeting lifecycle workspace', () => {
     renderWithProviders(MeetingWorkspaceView)
 
     expect(await screen.findByTestId('completed-meeting-duration')).toHaveTextContent('实际会议时长：1 小时 5 分 9 秒')
+  })
+
+  it('shows the series slot in the meeting header when present', async () => {
+    apiMock.mockResolvedValue({ ...fixture('in_progress'), series_slot_at: '2026-07-24T02:00:00Z' })
+    renderWithProviders(MeetingWorkspaceView)
+
+    expect(await screen.findByText(/系列槽位/)).toBeVisible()
+  })
+
+  it('shows the frozen start and end window in the completed summary', async () => {
+    const meeting = completedOutcomeFixture()
+    if (!meeting.current_snapshot) throw new Error('completed fixture requires a snapshot')
+    const snapshot = meeting.current_snapshot as { snapshot_json: { meeting: Record<string, unknown> } }
+    snapshot.snapshot_json.meeting = {
+      ...snapshot.snapshot_json.meeting,
+      started_at: '2026-07-24T02:00:00',
+      completed_at: '2026-07-24T03:05:09',
+    }
+    apiMock.mockResolvedValue(meeting)
+
+    renderWithProviders(MeetingWorkspaceView)
+
+    expect(await screen.findByTestId('completed-meeting-window')).toHaveTextContent(/开始 .+ · 完成 .+/)
+  })
+
+  it('shows actual start and end times in the completed meeting header', async () => {
+    apiMock.mockResolvedValue({ ...fixture('completed'), started_at: '2026-07-24T02:00:00', completed_at: '2026-07-24T03:05:09' })
+    renderWithProviders(MeetingWorkspaceView)
+
+    expect(await screen.findByText(/开始：/)).toBeVisible()
+    expect(screen.getByText(/完成：/)).toBeVisible()
   })
 
   it('omits meeting-level outcomes when the completed snapshot has none', async () => {
