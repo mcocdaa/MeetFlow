@@ -57,6 +57,7 @@ vi.mock('../components/MarkdownEditor.vue', () => ({
 const users = {
   lin: { id: 'u1', username: 'lin', display_name: '林宇' },
   qiao: { id: 'u2', username: 'qiao', display_name: '乔安' },
+  chen: { id: 'u3', username: 'chen', display_name: '陈晨' },
 }
 
 function meetingFixture() {
@@ -220,7 +221,7 @@ describe('agenda workbench', () => {
     await waitFor(() => expect(screen.getByTestId('flush-result')).toHaveTextContent('true'))
     expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1', {
       method: 'PUT',
-      body: JSON.stringify({ expected_version: 2, title: '已确认进展', agenda_type: 'information', notes_markdown: '', estimated_minutes: 20 }),
+      body: JSON.stringify({ expected_version: 2, title: '已确认进展', agenda_type: 'information', notes_markdown: '', estimated_minutes: 20, proposer_user_id: null, presenter_user_id: null }),
     })
     expect(screen.getByTestId('reload-count')).toHaveTextContent('0')
 
@@ -253,7 +254,7 @@ describe('agenda workbench', () => {
 
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1', {
       method: 'PUT',
-      body: JSON.stringify({ expected_version: 2, title: '进展同步', agenda_type: 'information', notes_markdown: notes, estimated_minutes: 20 }),
+      body: JSON.stringify({ expected_version: 2, title: '进展同步', agenda_type: 'information', notes_markdown: notes, estimated_minutes: 20, proposer_user_id: null, presenter_user_id: null }),
     }))
   })
 
@@ -272,7 +273,7 @@ describe('agenda workbench', () => {
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
     expect(apiMock.mock.calls[0]).toEqual(['/api/agenda-items/a1', {
       method: 'PUT',
-      body: JSON.stringify({ expected_version: 2, title: '进展同步', agenda_type: 'information', notes_markdown: notes, estimated_minutes: 20 }),
+      body: JSON.stringify({ expected_version: 2, title: '进展同步', agenda_type: 'information', notes_markdown: notes, estimated_minutes: 20, proposer_user_id: null, presenter_user_id: null }),
     }])
     expect(apiMock.mock.calls[1]).toEqual(['/api/agenda-items/a1/complete-and-advance', {
       method: 'POST', body: JSON.stringify({ expected_version: 3 }),
@@ -394,6 +395,169 @@ describe('agenda workbench', () => {
     await fireEvent.click(await screen.findByRole('button', { name: '删除议题' }))
     expect(await screen.findByText('议题已有产出，请先迁移产出，或将议题标记为取消。')).toBeVisible()
     expect(screen.getByRole('button', { name: '改为取消' })).toBeVisible()
+  })
+
+  it('shows and saves the agenda proposer and presenter metadata', async () => {
+    const item = { ...meetingFixture().agenda_items[0], proposer: users.lin, presenter: users.qiao }
+    apiMock.mockResolvedValueOnce({ ...item, title: '进展同步（已确认）', version: 3 })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+
+    expect(screen.getByLabelText('提案人')).toBeVisible()
+    expect(screen.getByLabelText('主讲人')).toBeVisible()
+
+    await fireEvent.update(screen.getByLabelText('议题标题'), '进展同步（已确认）')
+    await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1', expect.objectContaining({ method: 'PUT' })))
+    const putCall = apiMock.mock.calls.find(([path, init]) => path === '/api/agenda-items/a1' && (init as RequestInit | undefined)?.method === 'PUT')
+    expect(JSON.parse((putCall?.[1] as RequestInit).body as string)).toMatchObject({
+      expected_version: 2,
+      proposer_user_id: 'u1',
+      presenter_user_id: 'u2',
+    })
+  })
+
+  it('offers project members alongside meeting participants as proposer options', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/projects/p1') {
+        return Promise.resolve({ memberships: [{ role: 'member', user: users.lin }, { role: 'member', user: users.chen }] })
+      }
+      return Promise.resolve({})
+    })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+
+    await fireEvent.click(screen.getByLabelText('提案人'))
+    const option = await waitFor(() => {
+      const candidate = [...document.querySelectorAll('.n-base-select-option__content')]
+        .find((content) => content.textContent === '陈晨')
+      if (!candidate) throw new Error('member option is not open yet')
+      return candidate
+    })
+    expect(option).toBeVisible()
+  })
+
+  it('shows the actual duration and completion window for a completed topic', () => {
+    const item = {
+      ...meetingFixture().agenda_items[0],
+      status: 'completed' as const,
+      actual_duration_seconds: 95,
+      started_at: '2026-07-24T02:00:00Z',
+      completed_at: '2026-07-24T02:01:35Z',
+    }
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+
+    expect(screen.getByText('实际用时 1 分 35 秒')).toBeVisible()
+    expect(screen.getByText(/开始 /)).toBeVisible()
+    expect(screen.getByText(/完成 /)).toBeVisible()
+  })
+
+  it('shows the live elapsed time while the topic is in progress', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 6, 30, 6, 40, 0))
+    const meeting = { ...meetingFixture(), started_at: '2026-07-30T06:38:44.670756' }
+    render(AgendaDetail, { props: { meeting, item: meetingFixture().agenda_items[0], canContribute: true } })
+
+    expect(screen.getByText('已进行 00:01:15')).toBeVisible()
+    now.mockRestore()
+  })
+
+  it('marks a topic carried from an open question', () => {
+    const item = { ...meetingFixture().agenda_items[0], carry_from_open_question_id: 'q1' }
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+
+    expect(screen.getByText('来自开放问题')).toBeVisible()
+  })
+
+  it('renders the agenda attachment section', () => {
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+
+    const section = screen.getByTestId('agenda-attachments')
+    expect(within(section).getByText('还没有附件')).toBeVisible()
+    expect(within(section).getByLabelText('上传附件')).toBeInTheDocument()
+  })
+
+  it('migrates outcomes to another agenda item with the four-way versions', async () => {
+    const item = {
+      ...meetingFixture().agenda_items[0],
+      decisions: [{ id: 'd1', is_derived: false }] as AgendaItem['decisions'],
+    }
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '迁移产出' }))
+    expect(await screen.findByRole('heading', { name: '迁移产出' })).toBeInTheDocument()
+
+    await fireEvent.click(document.querySelector('.migrate-target-select .n-base-selection')!)
+    const option = await waitFor(() => {
+      const candidate = [...document.querySelectorAll('.n-base-select-option__content')]
+        .find((content) => content.textContent?.startsWith('发布方案'))
+      if (!candidate) throw new Error('target agenda option is not open yet')
+      return candidate
+    })
+    await fireEvent.click(option)
+    await fireEvent.click(screen.getByRole('button', { name: '确认迁移' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1/migrate-outcomes', expect.objectContaining({ method: 'POST' })))
+    const migrateCall = apiMock.mock.calls.find(([path]) => path === '/api/agenda-items/a1/migrate-outcomes')
+    expect(JSON.parse((migrateCall?.[1] as RequestInit).body as string)).toEqual({
+      target_agenda_item_id: 'a2',
+      expected_source_version: 2,
+      expected_target_version: 1,
+      expected_source_meeting_version: 4,
+      expected_target_meeting_version: 4,
+    })
+  })
+
+  it('converts a skipped topic into an open question after confirmation', async () => {
+    const item = { ...meetingFixture().agenda_items[0], status: 'skipped' as const }
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '转为开放问题' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '确认' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1/convert-to-question', {
+      method: 'POST',
+      body: JSON.stringify({ expected_source_version: 2, expected_source_meeting_version: 4 }),
+    }))
+  })
+
+  it('copies a skipped topic to another meeting with the three-way versions', async () => {
+    const item = { ...meetingFixture().agenda_items[0], status: 'skipped' as const }
+    apiMock.mockImplementation((path: string) => {
+      if (path.startsWith('/api/meetings?')) {
+        return Promise.resolve({
+          items: [
+            { id: 'm2', title: '后续评审', version: 1 },
+            { id: 'm1', title: '迭代评审', version: 4 },
+          ],
+          total: 2, limit: 200, offset: 0,
+        })
+      }
+      return Promise.resolve({})
+    })
+    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '复制到其他会议' }))
+    expect(await screen.findByRole('heading', { name: '复制到其他会议' })).toBeInTheDocument()
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('/api/meetings?project_id=p1')))
+
+    await fireEvent.click(document.querySelector('.copy-target-select .n-base-selection')!)
+    const option = await waitFor(() => {
+      const candidate = [...document.querySelectorAll('.n-base-select-option__content')]
+        .find((content) => content.textContent?.startsWith('后续评审'))
+      if (!candidate) throw new Error('target meeting option is not open yet')
+      return candidate
+    })
+    await fireEvent.click(option)
+    await fireEvent.click(screen.getByRole('button', { name: '确认复制' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/agenda-items/a1/copy-to-meeting', {
+      method: 'POST',
+      body: JSON.stringify({
+        target_meeting_id: 'm2',
+        expected_source_version: 2,
+        expected_source_meeting_version: 4,
+        expected_target_meeting_version: 1,
+      }),
+    }))
   })
 
   it('moves an agenda item with the four-way version payload', async () => {
