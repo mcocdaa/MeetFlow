@@ -189,6 +189,7 @@ describe('project workspace', () => {
     await screen.findByRole('heading', { name: 'MeetFlow' })
     expect(screen.getByRole('tab', { name: '动态' })).toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByLabelText('进展记录')).toBeInTheDocument()
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/projects/p1/activity?limit=50'))
 
     await fireEvent.click(screen.getByRole('tab', { name: '会议' }))
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith({ query: { tab: 'meetings' } }))
