@@ -250,4 +250,9 @@ onBeforeUnmount(() => {
   70% { background: var(--green-soft, #d9efe8); }
   100% { background: transparent; }
 }
+
+/* 规格 §6.6：reduced-motion 下深链只滚动，不做闪烁高亮。 */
+@media (prefers-reduced-motion: reduce) {
+  :deep(.decision-row-highlight) td { background: transparent; animation: none; }
+}
 </style>
