@@ -217,11 +217,49 @@ describe('personal workspace home', () => {
     render(ProjectsView, { global: { stubs: { RouterLink } } })
     await screen.findByRole('button', { name: '新建项目' })
     await fireEvent.click(screen.getByRole('button', { name: '新建项目' }))
-    const identifier = screen.getByLabelText('项目标识') as HTMLInputElement
+    const identifier = await screen.findByLabelText('项目标识') as HTMLInputElement
     await fireEvent.update(identifier, 'Meet Flow_Test')
 
     expect(identifier.value).toBe('meet-flow-test')
     expect(identifier.pattern).toBe('')
     expect(screen.queryByText('仅使用小写字母、数字和连字符，例如 meetflow。')).not.toBeInTheDocument()
+  })
+
+  it('creates a project from the drawer with the creator as a member', async () => {
+    session.user = { id: 'u1', username: 'lin', display_name: '林宇', role: 'member', status: 'active' }
+    session.loaded = true
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/projects' && init?.method === 'POST') return Promise.resolve({ id: 'p2' })
+      if (path === '/api/projects') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(ProjectsView, { global: { stubs: { RouterLink } } })
+
+    await fireEvent.click(await screen.findByRole('button', { name: '新建项目' }))
+    expect(await screen.findByRole('heading', { name: '新建项目' })).toBeInTheDocument()
+    await fireEvent.update(screen.getByLabelText('项目名称'), '新平台')
+    await fireEvent.update(screen.getByLabelText('项目标识'), 'new-platform')
+    await fireEvent.update(screen.getByLabelText('一句话说明'), '会议平台')
+    await fireEvent.click(screen.getByRole('button', { name: '创建项目' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/projects', expect.objectContaining({ method: 'POST' })))
+    const postCall = apiMock.mock.calls.find(([path, init]) => (
+      path === '/api/projects' && (init as RequestInit | undefined)?.method === 'POST'
+    ))
+    expect(JSON.parse(String((postCall?.[1] as RequestInit).body))).toEqual({
+      name: '新平台',
+      slug: 'new-platform',
+      summary: '会议平台',
+      status: 'active',
+      health: 'unset',
+      description_markdown: '',
+      lead_user_id: 'u1',
+      member_ids: ['u1'],
+      target_date: null,
+    })
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '新建项目' })).not.toBeInTheDocument())
+    await waitFor(() => expect(
+      apiMock.mock.calls.filter(([path]) => path === '/api/projects').length,
+    ).toBeGreaterThanOrEqual(2))
   })
 })
