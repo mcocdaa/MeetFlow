@@ -109,16 +109,17 @@ async function load(more = false) {
   loading.value = true
   error.value = ''
   const query = buildQuery()
+  const projectRequest = more ? Promise.resolve(null) : api<Project[]>('/api/projects')
   try {
     const [projectRows, page] = await Promise.all([
-      api<Project[]>('/api/projects'),
+      projectRequest,
       api<Page<MeetingRow>>(`/api/meetings?${query}`),
     ])
     if (revision !== loadRevision) return
-    projects.value = projectRows
+    if (projectRows) projects.value = projectRows
     meetings.value = more ? [...meetings.value, ...page.items] : page.items
     total.value = page.total
-    offset.value += PAGE_SIZE
+    offset.value = meetings.value.length
   } catch (caught) {
     if (revision === loadRevision) error.value = errorMessage(caught, '会议加载失败')
   } finally {
@@ -165,8 +166,8 @@ onMounted(load)
           <label>会议系列<select v-model="activeSeriesFilter" @change="syncSeriesFilterToUrl"><option value="">全部系列</option><option v-if="activeSeriesFilter && !hasActiveSeriesOption" :value="activeSeriesFilter">当前筛选系列（不可用）</option><option v-for="series in seriesOptions" :key="series.id" :value="series.id">{{ series.title }}</option></select></label>
           <label>会议状态<select v-model="statusFilter"><option value="">全部状态</option><option value="draft">草稿</option><option value="ready">待开始</option><option value="in_progress">进行中</option><option value="completed">已完成</option><option value="canceled">已取消</option></select></label>
           <label>参与者<select v-model="participantFilter"><option value="">全部参与者</option><option v-for="member in memberOptions" :key="member.id" :value="member.id">{{ member.display_name }}</option></select></label>
-          <label>开始时间窗<n-date-picker v-model:value="startAfter" type="datetime" clearable :virtual-scroll="false" /></label>
-          <label>结束时间窗<n-date-picker v-model:value="startBefore" type="datetime" clearable :virtual-scroll="false" /></label>
+          <label>开始时间不早于<n-date-picker v-model:value="startAfter" type="datetime" clearable :virtual-scroll="false" /></label>
+          <label>开始时间不晚于<n-date-picker v-model:value="startBefore" type="datetime" clearable :virtual-scroll="false" /></label>
         </div>
         <p>已加载 {{ meetings.length }} / 共 {{ total }} 场会议</p>
         <p class="meeting-scope-note">搜索与系列筛选仅作用于已加载页</p>

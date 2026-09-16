@@ -74,4 +74,25 @@ describe('global workspace views', () => {
     expect(new Date(payload.scheduled_start).getTime()).toBeLessThan(new Date(payload.scheduled_end).getTime())
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/meetings/m2'))
   })
+
+  it('rejects a whitespace-only meeting title before calling the API', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/projects') return Promise.resolve([project])
+      if (path.startsWith('/api/meetings?')) return Promise.resolve({ items: [], total: 0, limit: 50, offset: 0 })
+      return Promise.resolve({})
+    })
+    render(MeetingsView)
+    await fireEvent.click(await screen.findByRole('button', { name: '新建会议' }))
+
+    await fireEvent.update(await screen.findByLabelText('会议标题'), '   ')
+    await fireEvent.update(screen.getByLabelText('开始时间'), '2026-07-24T10:00')
+    await fireEvent.update(screen.getByLabelText('结束时间'), '2026-07-24T11:00')
+    await fireEvent.click(screen.getByRole('button', { name: '创建会议' }))
+
+    expect(await screen.findByText('请输入会议标题')).toBeInTheDocument()
+    const posted = apiMock.mock.calls.some(([path, init]) => (
+      path === '/api/projects/p1/meetings' && (init as RequestInit | undefined)?.method === 'POST'
+    ))
+    expect(posted).toBe(false)
+  })
 })

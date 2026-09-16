@@ -43,7 +43,12 @@ const projectOptions = computed(() => props.projects.map((project) => ({
 
 const rules = computed<FormRules>(() => ({
   project_id: { required: true, message: '请选择所属项目', trigger: ['change', 'blur'] },
-  title: { required: true, message: '请输入会议标题', trigger: ['input', 'blur'] },
+  title: {
+    required: true,
+    message: '请输入会议标题',
+    transform: (value: string) => value.trim(),
+    trigger: ['input', 'blur'],
+  },
   scheduled_start: { required: true, message: '请选择开始时间', trigger: ['change', 'blur'] },
   scheduled_end: [
     { required: true, message: '请选择结束时间', trigger: ['change', 'blur'] },

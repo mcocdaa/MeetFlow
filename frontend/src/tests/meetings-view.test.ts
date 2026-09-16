@@ -37,10 +37,18 @@ function renderList(search = '') {
     if (path === '/api/projects') return Promise.resolve([project])
     if (path.includes('status=completed')) return Promise.resolve(page([meetings[1]], 1))
     if (path.includes('status=canceled')) return Promise.resolve(page([meetings[2]], 1))
-    if (path.includes('offset=50')) return Promise.resolve({ items: [meetings[1], meetings[2]], total: 3, limit: 50, offset: 50 })
     return Promise.resolve(page(meetings))
   })
   return render(MeetingsView)
+}
+
+async function pickNow(label: RegExp) {
+  const control = screen.getByLabelText(label)
+  const input = (control.tagName === 'INPUT' ? control : control.querySelector('input')) as HTMLInputElement
+  await fireEvent.focus(input)
+  // MeetingsView tests render without the zhCN provider, so match both locales.
+  const nowButtons = await screen.findAllByText(/^(此刻|Now)$/)
+  await fireEvent.click(nowButtons[nowButtons.length - 1])
 }
 
 describe('meeting list advanced search', () => {
@@ -87,10 +95,10 @@ describe('meeting list advanced search', () => {
     expect(await screen.findByText('已取消的评审')).toBeVisible()
   })
 
-  it('loads more meetings with the offset cursor and reports the loaded range', async () => {
+  it('loads more meetings with the loaded-length offset and reports the loaded range', async () => {
     apiMock.mockImplementation((path: string) => {
       if (path === '/api/projects') return Promise.resolve([project])
-      if (path.includes('offset=50')) return Promise.resolve({ items: [meetings[1], meetings[2]], total: 3, limit: 50, offset: 50 })
+      if (path.includes('offset=1')) return Promise.resolve({ items: [meetings[1], meetings[2]], total: 3, limit: 50, offset: 1 })
       return Promise.resolve(page([meetings[0]], 3))
     })
 
@@ -106,7 +114,26 @@ describe('meeting list advanced search', () => {
     expect(await screen.findByText('临时评审')).toBeVisible()
     expect(screen.getByText('已加载 3 / 共 3 场会议')).toBeVisible()
     expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument()
-    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('offset=50')))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('offset=1')))
+    expect(apiMock.mock.calls.filter(([path]) => path === '/api/projects')).toHaveLength(1)
+  })
+
+  it('wires every server-side filter into the meetings request', async () => {
+    renderList()
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings?limit=50&offset=0'))
+
+    await fireEvent.click(await screen.findByRole('button', { name: '高级筛选' }))
+    await fireEvent.update(screen.getByLabelText('项目'), 'p1')
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('project_id=p1')))
+
+    await fireEvent.update(screen.getByLabelText('参与者'), 'u2')
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('participant_user_id=u2')))
+
+    await pickNow(/开始时间不早于/)
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringMatching(/start_after=\d{4}-\d{2}-\d{2}T/)))
+
+    await pickNow(/开始时间不晚于/)
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringMatching(/start_before=\d{4}-\d{2}-\d{2}T/)))
   })
 
   it('opens and highlights the series filter from the shared series URL, then clears it', async () => {
