@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
+import { fireEvent, screen, waitFor } from '@testing-library/vue'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import AdminPluginsView from '../views/AdminPluginsView.vue'
+import { renderWithProviders } from './helpers'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
 vi.mock('../api/client', () => ({ api: apiMock }))
@@ -22,17 +23,23 @@ const plugin = {
   capabilities: { exporters: ['ai-summary.markdown'], event_subscriptions: [], ui_slots: ['home.secondary-card'] },
 }
 
-beforeEach(() => apiMock.mockReset())
+const failedEvent = {
+  event_id: 'evt-1', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout',
+}
+
+beforeEach(() => {
+  apiMock.mockReset()
+})
 
 it('renders manifest-driven fields and saves replacement secret values', async () => {
   apiMock.mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce(plugin).mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] })
-  render(AdminPluginsView)
+  renderWithProviders(AdminPluginsView)
   expect(await screen.findByText('AI Meeting Summary')).toBeInTheDocument()
   expect(screen.getByText('ai-summary.markdown')).toBeInTheDocument()
   expect(screen.getByText('已配置')).toBeInTheDocument()
   await fireEvent.update(screen.getByLabelText('API Key'), 'new-secret')
   await fireEvent.update(screen.getByLabelText('数量'), '10')
-  await fireEvent.click(screen.getByRole('checkbox', { name: '包含已完成' }))
+  await fireEvent.click(screen.getByRole('switch', { name: '包含已完成' }))
   await fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
   expect(apiMock).toHaveBeenCalledWith('/api/admin/plugins/ai-summary/config', expect.objectContaining({
     method: 'PUT', body: expect.stringContaining('new-secret'),
@@ -41,30 +48,68 @@ it('renders manifest-driven fields and saves replacement secret values', async (
   expect(JSON.parse(configCall?.[1].body)).toMatchObject({ limit: 10, include_done: true })
 })
 
+it('clears a stored secret after confirming in the popconfirm', async () => {
+  apiMock
+    .mockResolvedValueOnce({ plugins: [plugin], errors: [] })
+    .mockResolvedValueOnce({ items: [] })
+    .mockResolvedValueOnce(plugin)
+    .mockResolvedValueOnce({ plugins: [plugin], errors: [] })
+    .mockResolvedValueOnce({ items: [] })
+  renderWithProviders(AdminPluginsView)
+  await screen.findByText('已配置')
+
+  await fireEvent.click(screen.getByRole('button', { name: '清除 API Key' }))
+  expect(await screen.findByText('确定清除已保存的敏感配置吗？')).toBeVisible()
+  await fireEvent.click(screen.getByRole('button', { name: '确认清除' }))
+
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/admin/plugins/ai-summary/config', {
+    method: 'PUT', body: JSON.stringify({ api_key: null }),
+  }))
+})
+
 it('shows discovery errors that do not have a valid plugin descriptor', async () => {
   apiMock.mockResolvedValue({ plugins: [], errors: [{ plugin_id: 'registry', error_type: 'ManifestError', message: '插件清单无效' }] })
-  render(AdminPluginsView)
+  renderWithProviders(AdminPluginsView)
   expect(await screen.findByText(/插件清单无效/)).toBeInTheDocument()
 })
 
 it('shows that enabled state changes take effect after restart', async () => {
   apiMock.mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce(plugin).mockResolvedValueOnce({ plugins: [plugin], errors: [] }).mockResolvedValueOnce({ items: [] })
-  render(AdminPluginsView)
+  renderWithProviders(AdminPluginsView)
   await screen.findByText('AI Meeting Summary')
-  await fireEvent.click(screen.getByRole('checkbox', { name: '启用 AI Meeting Summary' }))
+
+  await fireEvent.click(screen.getByRole('switch', { name: '启用 AI Meeting Summary' }))
+
   expect(apiMock).toHaveBeenCalledWith('/api/admin/plugins/ai-summary/enabled', expect.objectContaining({ method: 'PUT' }))
   expect(screen.getByText('重启后生效')).toBeInTheDocument()
 })
 
-it('shows failed outbox events without exposing event payloads', async () => {
-  apiMock.mockResolvedValueOnce({ plugins: [], errors: [] }).mockResolvedValueOnce({
-    items: [{ event_id: 'evt-1', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }],
-  })
-  render(AdminPluginsView)
-  expect(await screen.findByText(/meeting\.completed · 已重试 5 次/)).toBeInTheDocument()
-  expect(screen.getByText(/timeout/)).toBeInTheDocument()
+it('shows context scope and external network capability badges', async () => {
+  const networked = {
+    ...plugin,
+    capabilities: { ...plugin.capabilities, context_scopes: ['project', 'meeting'], external_network: true },
+  }
+  apiMock.mockResolvedValueOnce({ plugins: [networked], errors: [] }).mockResolvedValueOnce({ items: [] })
+  renderWithProviders(AdminPluginsView)
+
+  expect(await screen.findByText('上下文范围：project')).toBeInTheDocument()
+  expect(screen.getByText('上下文范围：meeting')).toBeInTheDocument()
+  const warning = screen.getByText('可访问外部网络').closest('.n-tag')
+  expect(warning).not.toBeNull()
+  expect(warning).toHaveClass('capability-warning')
 })
 
+it('shows failed outbox events in a table capped at the fixed limit', async () => {
+  apiMock.mockResolvedValueOnce({ plugins: [], errors: [] }).mockResolvedValueOnce({ items: [failedEvent] })
+  renderWithProviders(AdminPluginsView)
+
+  expect(await screen.findByText('meeting.completed')).toBeInTheDocument()
+  expect(screen.getByText('5')).toBeInTheDocument()
+  expect(screen.getByText('timeout')).toBeInTheDocument()
+  expect(screen.getByText('最多显示 50 条，可用状态筛选')).toBeInTheDocument()
+  expect(document.querySelector('.n-data-table')).not.toBeNull()
+  expect(apiMock).toHaveBeenCalledWith('/api/admin/plugins/events?status=failed&limit=50')
+})
 
 it('keeps primary failed events visible when diagnostics refresh fails', async () => {
   apiMock
@@ -75,44 +120,43 @@ it('keeps primary failed events visible when diagnostics refresh fails', async (
     })
     .mockRejectedValueOnce(new Error('诊断接口不可用'))
 
-  render(AdminPluginsView)
+  renderWithProviders(AdminPluginsView)
 
-  expect(await screen.findByText(/meeting\.completed · 已重试 5 次/)).toBeInTheDocument()
+  expect(await screen.findByText('meeting.completed')).toBeInTheDocument()
 })
-
 
 it('retries one failed event and refreshes the diagnostic list', async () => {
   let resolveRetry!: (value: unknown) => void
   const retryResponse = new Promise((resolve) => { resolveRetry = resolve })
-  const failedEvent = { event_id: 'evt-retry', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }
+  const retryEvent = { event_id: 'evt-retry', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }
   apiMock
     .mockResolvedValueOnce({ plugins: [], errors: [] })
-    .mockResolvedValueOnce({ items: [failedEvent] })
+    .mockResolvedValueOnce({ items: [retryEvent] })
     .mockReturnValueOnce(retryResponse)
     .mockResolvedValueOnce({ plugins: [], errors: [] })
     .mockResolvedValueOnce({ items: [] })
-  render(AdminPluginsView)
-  await screen.findByText(/meeting\.completed · 已重试 5 次/)
+  renderWithProviders(AdminPluginsView)
+  await screen.findByText('meeting.completed')
 
   await fireEvent.click(screen.getByRole('button', { name: '重试' }))
-  expect(screen.getByRole('button', { name: '重试中…' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /重试中…/ })).toBeDisabled()
   resolveRetry({ status: 'queued' })
 
   await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/admin/plugins/events/evt-retry/retry', { method: 'POST' }))
-  await waitFor(() => expect(screen.queryByText(/meeting\.completed · 已重试 5 次/)).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByText('meeting.completed')).not.toBeInTheDocument())
 })
 
 it('keeps a failed event visible when retry fails', async () => {
-  const failedEvent = { event_id: 'evt-error', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }
+  const errorEvent = { event_id: 'evt-error', event_type: 'meeting.completed', status: 'failed', attempts: 5, last_error: 'timeout' }
   apiMock
     .mockResolvedValueOnce({ plugins: [], errors: [] })
-    .mockResolvedValueOnce({ items: [failedEvent] })
+    .mockResolvedValueOnce({ items: [errorEvent] })
     .mockRejectedValueOnce(new Error('重试接口不可用'))
-  render(AdminPluginsView)
-  await screen.findByText(/meeting\.completed · 已重试 5 次/)
+  renderWithProviders(AdminPluginsView)
+  await screen.findByText('meeting.completed')
 
   await fireEvent.click(screen.getByRole('button', { name: '重试' }))
 
   expect(await screen.findByText('重试接口不可用')).toBeInTheDocument()
-  expect(screen.getByText(/meeting\.completed · 已重试 5 次/)).toBeInTheDocument()
+  expect(screen.getByText('meeting.completed')).toBeInTheDocument()
 })
