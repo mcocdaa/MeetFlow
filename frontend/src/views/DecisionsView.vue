@@ -127,7 +127,7 @@ function reviewerBadges(row: Decision) {
     type: REVIEW_STATUS_TYPES[reviewer.status] ?? 'default',
     class: 'reviewer-badge',
   }, {
-    default: () => `${nameOf(reviewer.user_id)}·${REVIEW_STATUS_LABELS[reviewer.status]}`,
+    default: () => `${nameOf(reviewer.user_id)}·${REVIEW_STATUS_LABELS[reviewer.status] ?? reviewer.status}`,
   })))
 }
 

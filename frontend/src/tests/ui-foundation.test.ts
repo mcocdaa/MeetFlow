@@ -317,7 +317,7 @@ describe('icon glyph policy', () => {
     // Spec §4.3: functional icons must be Lucide SVG wrapped in NIcon; the brand "M"
     // mark (a logo, not a functional icon) is explicitly kept and is not in this list.
     const forbidden = ['⌕', '•••', '✓', '○', '→', '⌁', '⌄', '×', '✕', '✦', '◎', '●']
-    const sources = import.meta.glob(['../**/*.vue', '../**/*.ts'], {
+    const sources = import.meta.glob(['../**/*.vue', '../**/*.ts', '../**/*.css'], {
       query: '?raw',
       import: 'default',
       eager: true,
@@ -327,7 +327,7 @@ describe('icon glyph policy', () => {
     for (const [path, content] of Object.entries(sources)) {
       // Test files keep deliberate anti-regression assertions (for example
       // plugin-editor-slot.test.ts asserting `not.toHaveTextContent('✦')`).
-      if (path.includes('.test.')) continue
+      if (path.includes('.test.') || path.includes('.spec.')) continue
       for (const glyph of forbidden) {
         if (content.includes(glyph)) offenders.push(`${path}: ${glyph}`)
       }

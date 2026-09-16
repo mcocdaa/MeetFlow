@@ -72,7 +72,8 @@ it('nests the workspace shell in a naive layout with sider and content', () => {
   }
 })
 
-it('shows administrator navigation only to administrators', async () => {  render(App)
+it('shows administrator navigation only to administrators', async () => {
+  render(App)
   expect(screen.getByRole('link', { name: '用户' })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: '插件' })).toBeInTheDocument()
   session.user = { ...session.user!, role: 'member' }

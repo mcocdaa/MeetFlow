@@ -287,7 +287,7 @@ onMounted(load)
     </section>
     <section v-if="applicationUsers.length" class="panel">
       <div class="section-heading"><h2>账号申请</h2><span class="muted">待审批和已拒绝的申请记录</span></div>
-        <n-data-table :columns="applicationColumns" :data="applicationUsers" :bordered="false" size="small" :scroll-x="760" />
+      <n-data-table :columns="applicationColumns" :data="applicationUsers" :bordered="false" size="small" :scroll-x="760" />
     </section>
     <details v-if="archivedUsers.length" class="panel archive-section">
       <summary>已归档成员 ({{ archivedUsers.length }})</summary>
