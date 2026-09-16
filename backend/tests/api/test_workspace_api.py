@@ -76,6 +76,41 @@ def test_targeted_attachments_and_nested_meeting_detail(authenticated_client):
     assert detail["agenda_items"][0]["actions"][0]["content"] == "Publish image"
 
 
+def test_global_meetings_honors_project_id(authenticated_client):
+    user, project, meeting, _ = create_workspace(authenticated_client)
+    other = authenticated_client.post(
+        "/api/projects",
+        json={
+            "name": "Other",
+            "slug": "other",
+            "status": "active",
+            "lead_user_id": user["id"],
+            "member_ids": [user["id"]],
+        },
+    ).json()
+    start = datetime.now(timezone.utc) + timedelta(days=2)
+    other_meeting = authenticated_client.post(
+        f"/api/projects/{other['id']}/meetings",
+        json={
+            "title": "Other planning",
+            "scheduled_start": start.isoformat(),
+            "scheduled_end": (start + timedelta(hours=1)).isoformat(),
+            "host_user_id": user["id"],
+            "participants": [{"user_id": user["id"], "participation_role": "host"}],
+        },
+    ).json()
+
+    filtered = authenticated_client.get("/api/meetings", params={"project_id": project["id"]})
+    assert filtered.status_code == 200
+    filtered_page = filtered.json()
+    assert [item["id"] for item in filtered_page["items"]] == [meeting["id"]]
+    assert filtered_page["total"] == 1
+
+    unfiltered = authenticated_client.get("/api/meetings")
+    assert unfiltered.status_code == 200
+    assert {item["id"] for item in unfiltered.json()["items"]} == {meeting["id"], other_meeting["id"]}
+
+
 def test_invalid_attachment_target_does_not_write_file(authenticated_client, settings):
     response = authenticated_client.post(
         "/api/attachments/project/missing",
