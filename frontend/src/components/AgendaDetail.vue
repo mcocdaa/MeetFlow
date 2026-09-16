@@ -96,7 +96,7 @@ const canConvert = computed(() => props.canContribute && !meetingLocked.value &&
 const canCopy = computed(() => props.canContribute && !meetingLocked.value && props.item.status === 'skipped')
 const migrateOptions = computed(() => props.meeting.agenda_items
   .filter((row) => row.id !== props.item.id)
-  .map((row) => ({ label: `${row.title} · 版本 ${row.version}`, value: row.id })))
+  .map((row) => ({ label: row.title, value: row.id })))
 const actualDurationText = computed(() => {
   const seconds = props.item.actual_duration_seconds
   if (props.item.status !== 'completed' || seconds === null || seconds === undefined) return ''
@@ -418,7 +418,7 @@ async function submitCopy() {
       <n-drawer-content title="复制到其他会议" closable>
         <p class="muted">只有已跳过的议题可以复制到之后的会议。</p>
         <label class="agenda-command-field">目标会议
-          <n-select v-model:value="copyTargetId" class="copy-target-select" :options="copyOptions.map((option) => ({ label: `${option.title} · 版本 ${option.version}`, value: option.id }))" :loading="copyLoading" :disabled="copySaving" :virtual-scroll="false" :input-props="{ 'aria-label': '目标会议' }" placeholder="选择目标会议" />
+          <n-select v-model:value="copyTargetId" class="copy-target-select" :options="copyOptions.map((option) => ({ label: option.title, value: option.id }))" :loading="copyLoading" :disabled="copySaving" :virtual-scroll="false" :input-props="{ 'aria-label': '目标会议' }" placeholder="选择目标会议" />
         </label>
         <p v-if="copyError" class="notice notice-error" role="alert">{{ copyError }}</p>
         <template #footer>

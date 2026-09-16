@@ -143,9 +143,17 @@ function hasMoreReplies(comment: MeetingComment) {
   return (comment.reply_count ?? 0) > comment.replies.length || Boolean(comment.reply_next_cursor)
 }
 
-function replyTotal(comment: MeetingComment) {
-  if (comment.reply_count !== undefined) return comment.reply_count
-  return comment.replies.length + (comment.reply_next_cursor ? 1 : 0)
+/**
+ * The API has no exact reply total: `reply_next_cursor` only proves there is more than
+ * what is loaded, so the fallback label is explicitly open-ended (`4+`).
+ */
+function replyTotalLabel(comment: MeetingComment) {
+  if (comment.reply_count !== undefined) return String(comment.reply_count)
+  return `${comment.replies.length + 1}+`
+}
+
+function isFocusedComment(comment: MeetingComment) {
+  return highlightedId.value === comment.id || comment.replies.some((reply) => reply.id === highlightedId.value)
 }
 
 async function loadReplies(comment: MeetingComment) {
@@ -175,7 +183,7 @@ onBeforeUnmount(() => {
     <p v-if="error" class="notice notice-error">{{ error }}</p>
     <p v-if="!focusFound && !loading" class="empty-inline" data-testid="comment-focus-missing">该评论在更早的讨论中</p>
     <n-list :show-divider="false" class="comment-list">
-      <n-list-item v-for="comment in comments" :key="comment.id" :data-comment-id="comment.id" :class="{ 'is-focused': highlightedId === comment.id }">
+      <n-list-item v-for="comment in comments" :key="comment.id" :data-comment-id="comment.id" :class="{ 'is-focused': isFocusedComment(comment) }">
         <article class="comment-thread" :class="{ resolved: Boolean(comment.resolved_at) }">
           <header>
             <strong>{{ comment.creator.display_name }}</strong>
@@ -204,8 +212,8 @@ onBeforeUnmount(() => {
             </template>
           </div>
           <div v-if="comment.replies.length || hasMoreReplies(comment)" class="comment-replies">
-            <article v-for="reply in comment.replies" :key="reply.id" class="comment-reply"><strong>{{ reply.creator.display_name }}</strong><p>{{ reply.body_markdown }}</p></article>
-            <n-button v-if="hasMoreReplies(comment)" size="small" quaternary :loading="repliesLoadingId === comment.id" :disabled="Boolean(repliesLoadingId)" @click="loadReplies(comment)">查看全部回复（{{ replyTotal(comment) }}）</n-button>
+            <article v-for="reply in comment.replies" :key="reply.id" :data-comment-id="reply.id" class="comment-reply"><strong>{{ reply.creator.display_name }}</strong><p>{{ reply.body_markdown }}</p></article>
+            <n-button v-if="hasMoreReplies(comment)" size="small" quaternary :loading="repliesLoadingId === comment.id" :disabled="Boolean(repliesLoadingId)" @click="loadReplies(comment)">查看全部回复（{{ replyTotalLabel(comment) }}）</n-button>
           </div>
         </article>
       </n-list-item>

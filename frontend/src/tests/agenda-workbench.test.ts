@@ -561,6 +561,28 @@ describe('agenda workbench', () => {
     }))
   })
 
+  it('hides queue commands when the meeting is locked', () => {
+    const meeting = { ...meetingFixture(), status: 'canceled' as const }
+    renderWithProviders(AgendaQueue, { props: { meeting, canContribute: true } })
+
+    expect(screen.getByTestId('agenda-queue')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /更多操作/ })).not.toBeInTheDocument()
+  })
+
+  it('hides skip, cancel and move for an item that cannot transition', async () => {
+    const meeting = meetingFixture()
+    const skipped = { ...meeting.agenda_items[0], status: 'skipped' as const }
+    renderWithProviders(AgendaQueue, { props: { meeting: { ...meeting, agenda_items: [skipped, meeting.agenda_items[1]] }, canContribute: true } })
+
+    await fireEvent.click(screen.getByRole('button', { name: '议题“进展同步”的更多操作' }))
+
+    expect(await screen.findByRole('button', { name: '编辑详情' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '删除议题' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '跳过' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '取消议题' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '移动议题' })).not.toBeInTheDocument()
+  })
+
   it('moves an agenda item with the four-way version payload', async () => {
     apiMock.mockImplementation((path: string) => {
       if (path.startsWith('/api/meetings?')) {

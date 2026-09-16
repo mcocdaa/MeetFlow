@@ -105,6 +105,27 @@ describe('meeting comments', () => {
     expect(screen.queryByRole('button', { name: /查看全部回复/ })).not.toBeInTheDocument()
   })
 
+  it('focuses a deep-linked reply and marks its thread without the missing hint', async () => {
+    apiMock.mockResolvedValue(page([
+      comment({ id: 'c1', replies: [comment({ id: 'r1', parent_id: 'c1', body_markdown: '第一条回复' })] }),
+    ]))
+    render(MeetingCommentsPanel, { props: { meeting, focusCommentId: 'r1' } })
+
+    expect(await screen.findByText('第一条回复')).toBeVisible()
+    expect(document.querySelector('[data-comment-id="r1"]')).not.toBeNull()
+    expect(screen.queryByTestId('comment-focus-missing')).not.toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('[data-comment-id="c1"]')).toHaveClass('is-focused'))
+  })
+
+  it('marks a reply total that is only known to be higher as open-ended', async () => {
+    const replies = [1, 2, 3].map((index) => comment({ id: `r${index}`, parent_id: 'c1', body_markdown: `回复 ${index}` }))
+    apiMock.mockResolvedValue(page([comment({ reply_next_cursor: 'r3', replies })]))
+    render(MeetingCommentsPanel, { props: { meeting } })
+
+    await screen.findByText('回复 1')
+    expect(screen.getByRole('button', { name: '查看全部回复（4+）' })).toBeVisible()
+  })
+
   it('renders mention badges under the comment body', async () => {
     apiMock.mockResolvedValue(page([comment({ mentions: [{ id: 'u2', username: 'qiao', display_name: '乔安' }] })]))
     render(MeetingCommentsPanel, { props: { meeting } })

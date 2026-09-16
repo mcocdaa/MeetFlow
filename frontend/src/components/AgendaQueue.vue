@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, h } from 'vue'
+import { computed, ref, watch, h } from 'vue'
 import { MoreHorizontal } from '@lucide/vue'
 import { NButton, NDrawer, NDrawerContent, NDropdown, NIcon, NInputNumber, NPopconfirm, NSelect } from 'naive-ui'
 import { statusLabel } from '../utils/labels'
@@ -195,6 +195,13 @@ async function submitMove() {
   }
 }
 
+const meetingLocked = computed(() => props.meeting.status === 'completed' || props.meeting.status === 'canceled')
+
+/** Skip/cancel/move are only accepted by the backend for planned or in-progress items. */
+function canRunFlowCommand(item: AgendaItem) {
+  return item.status === 'planned' || item.status === 'in_progress'
+}
+
 function menuOptions(item: AgendaItem) {
   const option = (key: string, label: string, danger = false) => ({
     key,
@@ -203,13 +210,16 @@ function menuOptions(item: AgendaItem) {
       class: ['agenda-menu-item', danger && 'agenda-menu-item--danger'],
     }, label),
   })
-  return [
-    option('edit', '编辑详情'),
-    option('skip', '跳过'),
-    option('cancel', '取消议题'),
-    option('move', '移动议题'),
-    option('delete', '删除议题', true),
-  ]
+  const options = [option('edit', '编辑详情')]
+  if (canRunFlowCommand(item)) {
+    options.push(
+      option('skip', '跳过'),
+      option('cancel', '取消议题'),
+      option('move', '移动议题'),
+    )
+  }
+  options.push(option('delete', '删除议题', true))
+  return options
 }
 
 function onMenuShow(item: AgendaItem, value: boolean) {
@@ -240,7 +250,7 @@ function onMenuSelect(item: AgendaItem, key: string) {
     <div class="agenda-queue-list">
       <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" :draggable="canContribute" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
         <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
-        <div v-if="canContribute" class="agenda-menu">
+        <div v-if="canContribute && !meetingLocked" class="agenda-menu">
           <n-dropdown
             trigger="click"
             :options="menuOptions(item)"
@@ -276,7 +286,7 @@ function onMenuSelect(item: AgendaItem, key: string) {
           <n-select
             v-model:value="moveForm.target_meeting_id"
             class="move-target-select"
-            :options="moveOptions.map((option) => ({ label: `${option.title} · 版本 ${option.version}`, value: option.id }))"
+            :options="moveOptions.map((option) => ({ label: option.title, value: option.id }))"
             :loading="moveLoading"
             :disabled="moveSaving"
             :virtual-scroll="false"
