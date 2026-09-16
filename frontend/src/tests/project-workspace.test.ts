@@ -3,15 +3,25 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectDetailView from '../views/ProjectDetailView.vue'
+import { ApiError } from '../api/client'
 import { session } from '../auth/session'
 import { registerEditorAssistant } from '../plugins/registry'
 import { renderWithProviders } from './helpers'
 import '../styles.css'
 
-const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
-vi.mock('../api/client', () => ({ api: apiMock }))
+const { apiMock, pushMock, replaceMock, routeMock } = vi.hoisted(() => ({
+  apiMock: vi.fn(),
+  pushMock: vi.fn(),
+  replaceMock: vi.fn(),
+  routeMock: { params: { id: 'p1' }, query: {} as Record<string, string> },
+}))
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
+  api: apiMock,
+}))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { id: 'p1' } }),
+  useRoute: () => routeMock,
+  useRouter: () => ({ push: pushMock, replace: replaceMock }),
   RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
 }))
 vi.mock('../components/MarkdownEditor.vue', () => ({
@@ -54,6 +64,9 @@ function defaultProjectResponse(path: string) {
 describe('project workspace', () => {
   beforeEach(() => {
     apiMock.mockReset()
+    pushMock.mockReset()
+    replaceMock.mockReset()
+    routeMock.query = {}
     session.user = { id: 'u1', username: 'lin', display_name: '林宇', role: 'member', status: 'active' }
     session.loaded = true
     apiMock.mockImplementation(defaultProjectResponse)
@@ -96,6 +109,7 @@ describe('project workspace', () => {
     expect(await screen.findByRole('heading', { name: 'MeetFlow' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '编辑项目' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '新建' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '删除项目' })).not.toBeInTheDocument()
 
     await fireEvent.click(screen.getByRole('tab', { name: '动态' }))
     expect(screen.queryByLabelText('进展记录')).not.toBeInTheDocument()
@@ -127,8 +141,8 @@ describe('project workspace', () => {
   it('opens an action drawer from the global New menu', async () => {
     renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
-    await fireEvent.click(screen.getByRole('menuitem', { name: '行动项' }))
-    expect(screen.getByRole('dialog', { name: '添加行动项' })).toBeInTheDocument()
+    await fireEvent.click(await screen.findByRole('button', { name: '行动项' }))
+    expect(await screen.findByRole('dialog', { name: '添加行动项' })).toBeInTheDocument()
   })
 
   it('loads project actions in the Actions tab', async () => {
@@ -158,9 +172,70 @@ describe('project workspace', () => {
   it('opens a project-scoped meeting drawer from Next meeting', async () => {
     renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
-    await fireEvent.click(screen.getByRole('menuitem', { name: '会议' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '会议' }))
 
     expect(screen.getByRole('dialog', { name: '添加会议' })).toBeInTheDocument()
     expect(screen.getByLabelText('会议标题')).toBeInTheDocument()
+  })
+
+  it('activates the tab from the ?tab= query and keeps the URL in sync', async () => {
+    routeMock.query = { tab: 'activity' }
+    renderWithProviders(ProjectDetailView)
+
+    await screen.findByRole('heading', { name: 'MeetFlow' })
+    expect(screen.getByRole('tab', { name: '动态' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByLabelText('进展记录')).toBeInTheDocument()
+
+    await fireEvent.click(screen.getByRole('tab', { name: '会议' }))
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith({ query: { tab: 'meetings' } }))
+  })
+
+  it('deletes an empty project after typing its name to confirm', async () => {
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/projects/p1' && init?.method === 'DELETE') return Promise.resolve(undefined)
+      return defaultProjectResponse(path)
+    })
+
+    renderWithProviders(ProjectDetailView)
+    await screen.findByRole('heading', { name: 'MeetFlow' })
+    await fireEvent.click(screen.getByRole('button', { name: '删除项目' }))
+    expect(await screen.findByText(/仅当项目下没有会议且没有项目附件时才能删除/)).toBeInTheDocument()
+
+    await fireEvent.update(screen.getByLabelText('输入项目名称确认'), 'MeetFlow')
+    await fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/projects/p1', { method: 'DELETE' }))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/projects'))
+  })
+
+  it.each([
+    [new ApiError(409, 'project_not_empty', '项目下已有会议，不能删除')],
+    [new ApiError(409, 'project_has_attachments', '项目已有附件，不能删除')],
+    [new ApiError(403, 'project_delete_forbidden', '只有管理员或项目负责人可以删除项目')],
+  ])('shows the backend delete constraint without navigating away (%s)', async (failure) => {
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/projects/p1' && init?.method === 'DELETE') return Promise.reject(failure)
+      return defaultProjectResponse(path)
+    })
+
+    renderWithProviders(ProjectDetailView)
+    await screen.findByRole('heading', { name: 'MeetFlow' })
+    await fireEvent.click(screen.getByRole('button', { name: '删除项目' }))
+    await fireEvent.update(await screen.findByLabelText('输入项目名称确认'), 'MeetFlow')
+    await fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    expect(await screen.findByText(failure.message)).toBeInTheDocument()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('requires the exact project name before sending the delete request', async () => {
+    renderWithProviders(ProjectDetailView)
+    await screen.findByRole('heading', { name: 'MeetFlow' })
+    await fireEvent.click(screen.getByRole('button', { name: '删除项目' }))
+    await fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
+
+    expect(await screen.findByText('请输入完整项目名称以确认删除')).toBeInTheDocument()
+    expect(apiMock).not.toHaveBeenCalledWith('/api/projects/p1', { method: 'DELETE' })
+    expect(pushMock).not.toHaveBeenCalled()
   })
 })
