@@ -149,11 +149,9 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
           </RouterLink>
         </header>
         <p v-if="canApplyHint(job)" class="ai-task-apply-hint">在发起页面应用此结果</p>
-        <div v-if="job.error_code || job.error_message" class="ai-task-error">
-          <p v-if="job.error_code">错误码：{{ job.error_code }}</p>
-          <p v-if="job.error_message">{{ job.error_message }}</p>
+        <div v-if="job.error_message" class="ai-task-error">
+          <p>{{ job.error_message }}</p>
         </div>
-        <details v-if="job.error_detail" class="task-error-detail"><summary>查看技术详情</summary><pre>{{ job.error_detail }}</pre></details>
         <ul class="ai-task-meta">
           <li v-if="job.rerun_of_id">重跑自任务 #{{ job.rerun_of_id }}</li>
           <li v-if="job.applied_by">应用人：{{ nameOf(job.applied_by) }}</li>

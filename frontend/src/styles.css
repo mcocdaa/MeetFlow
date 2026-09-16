@@ -139,8 +139,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .markdown img { max-width: 100%; }
 .markdown a { color: var(--green); }
 
-.upload-box { display: flex; align-items: center; gap: 12px; padding: 18px; border: 1px dashed #bdc8c1; border-radius: 12px; background: #f5f6f1; }
-.upload-box > div { margin-right: auto; }
+.upload-box { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 18px; border: 1px dashed #bdc8c1; border-radius: 12px; background: #f5f6f1; }
+.upload-box > div { flex: 1 1 200px; min-width: 0; margin-right: auto; }
+.upload-box strong { white-space: nowrap; }
 .upload-box p { margin: 2px 0 0; color: var(--muted); font-size: .75rem; }
 .attachment-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
 .attachment-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: white; }
@@ -313,6 +314,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .decision-open { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .decision-open strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .decision-source { padding: 3px 10px; border-radius: 999px; color: var(--green-dark); background: var(--green-soft); font-size: .72rem; font-weight: 700; text-decoration: none; }
+.completed-outcome-accordion .n-collapse-item__header { padding-left: 10px; }
 @media (prefers-reduced-motion: reduce) {
   /* 自有过渡与动画在此关闭；Naive 组件自带 reduced-motion 支持，无需重复覆盖。 */
   .button, input, textarea, select, .agenda-detail-enter-active, .agenda-detail-leave-active, .meeting-live .status-pill[data-status="in_progress"], .agenda-queue-row.selected.agenda-status-in_progress { transition: none; animation: none; }

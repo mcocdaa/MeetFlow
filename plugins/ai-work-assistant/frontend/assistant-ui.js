@@ -159,10 +159,14 @@ function createTaskExtension(pluginApi) {
   return {
     props: { job: { type: Object, required: true } },
     setup(props) {
-      return () => h('details', { class: 'ai-work-assistant-task' }, [
-        h('summary', '查看 AI 结果'),
-        props.job.result?.markdown ? h('pre', props.job.result.markdown) : null,
-      ])
+      // Keep the card quiet for jobs without a result (failed/queued): an empty
+      // "查看 AI 结果" disclosure would only add noise next to the error message.
+      return () => (props.job.result?.markdown
+        ? h('details', { class: 'ai-work-assistant-task' }, [
+          h('summary', '查看 AI 结果'),
+          h('pre', props.job.result.markdown),
+        ])
+        : null)
     },
   }
 }
