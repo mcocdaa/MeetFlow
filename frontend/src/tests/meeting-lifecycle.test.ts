@@ -15,7 +15,7 @@ vi.mock('../components/MarkdownEditor.vue', () => ({
 }))
 
 const user = { id: 'u1', username: 'lin', display_name: '林宇' }
-function fixture(status: 'draft' | 'ready' | 'in_progress' | 'completed', unresolved = 0) {
+function fixture(status: 'draft' | 'ready' | 'in_progress' | 'completed' | 'canceled', unresolved = 0) {
   const agenda = Array.from({ length: Math.max(unresolved, 1) }, (_, index) => ({
     id: `a${index + 1}`, meeting_id: 'm1', title: index ? `待处理议题 ${index + 1}` : '发布方案', agenda_type: 'decision',
     notes_markdown: '', status: unresolved ? (index ? 'planned' : 'in_progress') : 'completed', position: index, proposer: null, presenter: null,
@@ -60,14 +60,71 @@ describe('meeting lifecycle workspace', () => {
   beforeEach(() => apiMock.mockReset())
 
   it.each([
-    ['draft', '开始会议', 'button'],
-    ['in_progress', '完成议题并进入下一项', undefined],
-    ['completed', '添加更正', undefined],
-  ] as const)('renders %s meeting controls', async (status, control, selector) => {
+    ['draft', '开始会议'],
+    ['ready', '开始会议'],
+    ['in_progress', '完成议题并进入下一项'],
+    ['completed', '添加更正'],
+  ] as const)('renders %s meeting controls', async (status, control) => {
     apiMock.mockResolvedValue(fixture(status, status === 'in_progress' ? 1 : 0))
     render(MeetingWorkspaceView)
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1'))
-    expect(await screen.findByText(control, { selector })).toBeVisible()
+    expect(await screen.findByRole('button', { name: control })).toBeVisible()
+  })
+
+  it.each(['draft', 'ready'] as const)('offers both cancel and start actions for a %s meeting', async (status) => {
+    apiMock.mockResolvedValue(fixture(status))
+    render(MeetingWorkspaceView)
+
+    expect(await screen.findByRole('button', { name: '开始会议' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消会议' })).toBeInTheDocument()
+  })
+
+  it.each(['draft', 'ready', 'in_progress'] as const)('cancels a %s meeting after confirmation without promising skips or snapshots', async (status) => {
+    const canceled = fixture('canceled')
+    apiMock
+      .mockResolvedValueOnce(fixture(status, status === 'in_progress' ? 1 : 0))
+      .mockResolvedValueOnce(canceled)
+    render(MeetingWorkspaceView)
+
+    await fireEvent.click(await screen.findByRole('button', { name: '取消会议' }))
+    const confirm = await screen.findByRole('button', { name: '确认' })
+    const panel = confirm.closest('.n-popconfirm__panel')
+    expect(panel).not.toBeNull()
+    expect(panel).toHaveTextContent('会议将标记为已取消且不可重开')
+    expect(panel).not.toHaveTextContent('跳过')
+    expect(panel).not.toHaveTextContent('快照')
+
+    await fireEvent.click(confirm)
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/cancel', {
+      method: 'POST', body: JSON.stringify({ expected_version: 4 }),
+    }))
+  })
+
+  it('reopens a completed meeting after confirmation', async () => {
+    apiMock.mockResolvedValueOnce(fixture('completed')).mockResolvedValueOnce(fixture('in_progress'))
+    render(MeetingWorkspaceView)
+
+    await fireEvent.click(await screen.findByRole('button', { name: '重新打开' }))
+    const confirm = await screen.findByRole('button', { name: '确认' })
+    await fireEvent.click(confirm)
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1/reopen', {
+      method: 'POST', body: JSON.stringify({ expected_version: 4 }),
+    }))
+  })
+
+  it('keeps a canceled meeting view-only with exports but no state actions', async () => {
+    apiMock.mockResolvedValue(fixture('canceled'))
+    render(MeetingWorkspaceView)
+
+    expect(await screen.findByRole('heading', { name: '迭代评审' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新打开' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开始会议' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '结束会议' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '取消会议' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '导出 Markdown' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '导出 JSON' })).toBeInTheDocument()
   })
 
   it('keeps a comment-only attendee in read-only meeting mode', async () => {
@@ -79,6 +136,9 @@ describe('meeting lifecycle workspace', () => {
     expect(await screen.findByRole('heading', { name: '迭代评审' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '准备信息' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '开始会议' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '取消会议' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '结束会议' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新打开' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '+ 议题' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '评论' })).toBeInTheDocument()
     expect(screen.getByLabelText('议题标题')).toHaveAttribute('readonly')

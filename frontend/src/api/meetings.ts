@@ -1,7 +1,7 @@
 import { api, apiDownload } from './client'
 import type { Meeting } from '../domain/meetings'
 
-export type LifecycleAction = 'start' | 'finish'
+export type LifecycleAction = 'start' | 'finish' | 'cancel' | 'reopen'
 
 export type MeetingUpdate = {
   expected_version: number

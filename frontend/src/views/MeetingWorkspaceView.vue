@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { NButton, NPopconfirm } from 'naive-ui'
 import StatusPill from '../components/StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
@@ -50,6 +51,9 @@ const needsSave = computed(() => dirty.value || saveState.value === 'error' || s
 const busy = computed(() => saving.value || lifecycleAction.value !== null)
 const canContribute = computed(() => meeting.value?.capabilities?.can_contribute ?? false)
 const canComment = computed(() => meeting.value?.capabilities?.can_comment ?? false)
+const isPreparationStatus = computed(() => meeting.value?.status === 'draft' || meeting.value?.status === 'ready')
+const canCancelMeeting = computed(() => isPreparationStatus.value || meeting.value?.status === 'in_progress')
+const canExportMeeting = computed(() => meeting.value?.status === 'completed' || meeting.value?.status === 'canceled')
 const liveElapsed = computed(() => {
   if (!meeting.value?.started_at) return ''
   const elapsedSeconds = Math.max(0, Math.floor((now.value - parseUtcTimestamp(meeting.value.started_at).getTime()) / 1000))
@@ -205,11 +209,23 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <template #actions>
-          <button v-if="canContribute && meeting.status === 'completed'" class="button button-quiet" :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.markdown')">{{ exportAction === 'meeting-export.markdown' ? '导出中…' : '导出 Markdown' }}</button>
-          <button v-if="canContribute && meeting.status === 'completed'" class="button button-quiet" :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.json')">{{ exportAction === 'meeting-export.json' ? '导出中…' : '导出 JSON' }}</button>
-          <button v-if="canContribute && (meeting.status === 'draft' || meeting.status === 'ready')" class="button button-quiet" :disabled="busy" @click="preparationOpen = true">准备信息</button>
-          <button v-if="canContribute && (meeting.status === 'draft' || meeting.status === 'ready')" class="button button-primary" :disabled="busy" @click="lifecycle('start')">{{ lifecycleAction === 'start' ? '开始中' : '开始会议' }}</button>
-          <button v-else-if="canContribute && meeting.status === 'in_progress'" class="button button-primary" :disabled="busy" @click="lifecycle('finish')">{{ lifecycleAction === 'finish' ? '结束中' : '结束会议' }}</button>
+          <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.markdown')">{{ exportAction === 'meeting-export.markdown' ? '导出中…' : '导出 Markdown' }}</n-button>
+          <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.json')">{{ exportAction === 'meeting-export.json' ? '导出中…' : '导出 JSON' }}</n-button>
+          <n-button v-if="canContribute && isPreparationStatus" quaternary :disabled="busy" @click="preparationOpen = true">准备信息</n-button>
+          <n-button v-if="canContribute && isPreparationStatus" type="primary" :loading="lifecycleAction === 'start'" :disabled="busy" @click="lifecycle('start')">开始会议</n-button>
+          <n-button v-else-if="canContribute && meeting.status === 'in_progress'" type="primary" :loading="lifecycleAction === 'finish'" :disabled="busy" @click="lifecycle('finish')">结束会议</n-button>
+          <n-popconfirm v-if="canContribute && canCancelMeeting" positive-text="确认" negative-text="取消" @positive-click="lifecycle('cancel')">
+            <template #trigger>
+              <n-button quaternary :loading="lifecycleAction === 'cancel'" :disabled="busy">取消会议</n-button>
+            </template>
+            <span data-testid="meeting-cancel-confirm">会议将标记为已取消且不可重开。</span>
+          </n-popconfirm>
+          <n-popconfirm v-if="canContribute && meeting.status === 'completed'" positive-text="确认" negative-text="取消" @positive-click="lifecycle('reopen')">
+            <template #trigger>
+              <n-button quaternary :loading="lifecycleAction === 'reopen'" :disabled="busy">重新打开</n-button>
+            </template>
+            <span data-testid="meeting-reopen-confirm">重新打开后会议回到进行中，再次结束时生成新的历史快照。</span>
+          </n-popconfirm>
         </template>
       </PageHeader>
 

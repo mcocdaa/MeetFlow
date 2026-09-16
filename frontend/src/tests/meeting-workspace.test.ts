@@ -64,6 +64,7 @@ describe('meeting workspace', () => {
 
     expect(await screen.findByRole('heading', { name: '迭代评审' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '开始会议' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '取消会议' })).not.toBeInTheDocument()
   })
 
   it('keeps preparation fields on demand instead of above the active agenda', async () => {
