@@ -35,6 +35,16 @@ const actionRows = [
   { id: 'a2', project_id: 'p1', meeting_id: null, content: '整理纪要', owner_user_id: 'u9', due_date: null, priority: 'normal', status: 'in_progress', version: 2, is_derived: false, completed_at: null },
 ]
 
+const decisionRows = [
+  {
+    id: 'd1', project_id: 'p1', meeting_id: 'm1', agenda_item_id: null,
+    title: '采用方案 A', decision_markdown: '采用方案 A 落地', rationale_markdown: '成本更低',
+    status: 'proposed', is_derived: false, created_by: 'u1', decided_by_user_id: null,
+    reviewers: [{ user_id: 'u2', status: 'pending', responded_at: null, comment: '' }],
+    version: 3, created_at: '2026-07-24T02:00:00Z', updated_at: '2026-07-24T02:00:00Z',
+  },
+]
+
 function mockActions(items: unknown[] = actionRows, total = items.length) {
   apiMock.mockImplementation((path: string, init?: RequestInit) => {
     if (path === '/api/projects') return Promise.resolve([project])
@@ -44,10 +54,24 @@ function mockActions(items: unknown[] = actionRows, total = items.length) {
   })
 }
 
+function mockDecisions(items: unknown[] = decisionRows, total = items.length) {
+  apiMock.mockImplementation((path: string) => {
+    if (path === '/api/projects') return Promise.resolve([project])
+    if (path.startsWith('/api/decisions?')) return Promise.resolve({ items, total, limit: 50, offset: 0 })
+    return Promise.resolve({})
+  })
+}
+
 function actionCalls() {
   return apiMock.mock.calls
     .map(([path]) => String(path))
     .filter((path) => path.startsWith('/api/actions?'))
+}
+
+function decisionCalls() {
+  return apiMock.mock.calls
+    .map(([path]) => String(path))
+    .filter((path) => path.startsWith('/api/decisions?'))
 }
 
 describe('global workspace views', () => {
@@ -62,12 +86,61 @@ describe('global workspace views', () => {
       : Promise.resolve({ items: [], total: 0, limit: 50, offset: 0 }))
   })
 
-  it('filters decisions by project and status', async () => {
-    render(DecisionsView)
+  it('filters decisions by project and status with remote pagination', async () => {
+    mockDecisions()
+    renderWithProviders(DecisionsView)
     await screen.findByRole('heading', { name: '决策日志' })
     await fireEvent.update(screen.getByLabelText('状态'), 'proposed')
     await fireEvent.update(screen.getByLabelText('项目'), 'p1')
-    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/decisions?project_id=p1&status=proposed'))
+    await waitFor(() => {
+      const filtered = decisionCalls().find((path) => path.includes('project_id=p1'))
+      expect(filtered).toBeTruthy()
+      expect(filtered).toContain('status=proposed')
+      expect(filtered).toContain('limit=50&offset=0')
+    })
+  })
+
+  it('filters decisions by reviewer chosen from the aggregated name map', async () => {
+    mockDecisions()
+    renderWithProviders(DecisionsView)
+    await screen.findByRole('heading', { name: '决策日志' })
+
+    await fireEvent.click(document.querySelector('.decision-reviewer-filter .n-base-selection')!)
+    const option = await waitFor(() => {
+      const candidate = [...document.querySelectorAll('.n-base-select-option__content')]
+        .find((element) => element.textContent === '林宇')
+      if (!candidate) throw new Error('reviewer option is not open yet')
+      return candidate
+    })
+    await fireEvent.click(option)
+
+    await waitFor(() => expect(decisionCalls().some((path) => path.includes('reviewer_user_id=u1'))).toBe(true))
+  })
+
+  it('renders the decision table and opens the detail drawer from a row click', async () => {
+    mockDecisions()
+    renderWithProviders(DecisionsView)
+
+    expect(await screen.findByText('采用方案 A')).toBeInTheDocument()
+    expect(document.querySelector('.n-data-table')).not.toBeNull()
+    expect(screen.queryByLabelText('更新日期从')).not.toBeInTheDocument()
+
+    await fireEvent.click(screen.getByText('采用方案 A'))
+
+    expect(await screen.findByRole('heading', { name: '决策详情' })).toBeInTheDocument()
+    expect(await screen.findByText('采用方案 A 落地')).toBeInTheDocument()
+  })
+
+  it('highlights the deep-linked decision row', async () => {
+    routeState.query = { highlight: 'd1' }
+    mockDecisions()
+    renderWithProviders(DecisionsView)
+
+    await waitFor(() => {
+      const row = document.querySelector('[data-row-key="d1"]')
+      expect(row).not.toBeNull()
+      expect(row).toHaveClass('decision-row-highlight')
+    })
   })
 
   it('shows actions assigned to the current user by default with server pagination', async () => {
