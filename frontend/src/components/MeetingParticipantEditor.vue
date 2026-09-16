@@ -69,6 +69,7 @@ function removeRow(index: number) {
         :options="optionsFor(index)"
         :placeholder="'选择成员'"
         :disabled="disabled"
+        :virtual-scroll="false"
         filterable
         @update:value="(value: string | null) => updateRow(index, { user_id: value ?? '' })"
       />
