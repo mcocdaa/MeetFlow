@@ -197,7 +197,7 @@ it('does not offer dismiss on applied or dismissed jobs', async () => {
   renderView()
 
   expect((await screen.findAllByText('已应用')).length).toBeGreaterThan(0)
-  expect(screen.getByText('已丢弃')).toBeInTheDocument()
+  expect(screen.getByText('已丢弃结果')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '丢弃' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /应用/ })).not.toBeInTheDocument()
 })

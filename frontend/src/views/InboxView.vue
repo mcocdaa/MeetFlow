@@ -212,6 +212,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 14px;
+  text-decoration: none;
 }
 
 .inbox-unread-dot {

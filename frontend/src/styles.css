@@ -306,6 +306,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 @keyframes agenda-current-wash { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
 .agenda-menu-item { width: 100%; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }.agenda-menu-item--danger { color: var(--red); }.agenda-menu-anchor { display: inline-block; width: 1px; height: 1px; }.move-field, .agenda-command-field { display: grid; gap: 6px; margin: 0 0 16px; color: #626c79; font-size: .78rem; }
 .agenda-detail-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }.agenda-timing { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 0; color: #62717e; font-size: .78rem; font-variant-numeric: tabular-nums; }.agenda-command-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }.agenda-attachments { margin-top: 30px; padding-top: 24px; border-top: 1px solid #e5e8ec; }.agenda-attachments .section-heading { margin-bottom: 12px; }
+.user-cell { display: flex; align-items: center; gap: 10px; }
+.attachment-panel { display: grid; gap: 14px; }
+.decision-row { padding: 12px 14px; border: 1px solid #e6e9ed; border-radius: 10px; background: #fff; }
+.decision-row:hover { border-color: #cfd8d3; box-shadow: 0 4px 14px rgba(29, 39, 57, .05); }
+.decision-open { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.decision-open strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decision-source { padding: 3px 10px; border-radius: 999px; color: var(--green-dark); background: var(--green-soft); font-size: .72rem; font-weight: 700; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   /* 自有过渡与动画在此关闭；Naive 组件自带 reduced-motion 支持，无需重复覆盖。 */
   .button, input, textarea, select, .agenda-detail-enter-active, .agenda-detail-leave-active, .meeting-live .status-pill[data-status="in_progress"], .agenda-queue-row.selected.agenda-status-in_progress { transition: none; animation: none; }
