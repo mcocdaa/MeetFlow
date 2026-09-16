@@ -30,6 +30,7 @@ const loading = ref(true)
 const lifecycleAction = ref<LifecycleAction | null>(null)
 const error = ref('')
 const commentsOpen = ref(false)
+const focusCommentId = ref<string | null>(null)
 const preparationOpen = ref(false)
 const materialsOpen = ref(false)
 const materialItems = ref<Attachment[]>([])
@@ -262,6 +263,16 @@ function removeMaterial(id: string) {
   materialItems.value = materialItems.value.filter((attachment) => attachment.id !== id)
 }
 
+function syncCommentDeepLink() {
+  const comment = route.query.comment
+  if (typeof comment === 'string' && comment) {
+    focusCommentId.value = comment
+    commentsOpen.value = true
+  } else {
+    focusCommentId.value = null
+  }
+}
+
 function confirmLeave() {
   return window.confirm('会议草稿尚未保存，确定离开吗？')
 }
@@ -327,9 +338,11 @@ async function downloadExport(exporterId: string) {
 let clockHandle: number | undefined
 onMounted(() => {
   void load()
+  syncCommentDeepLink()
   clockHandle = window.setInterval(() => { now.value = Date.now() }, 1_000)
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
+watch(() => route.query.comment, () => { syncCommentDeepLink() })
 onBeforeUnmount(() => {
   if (clockHandle !== undefined) window.clearInterval(clockHandle)
   window.removeEventListener('beforeunload', handleBeforeUnload)
@@ -455,7 +468,7 @@ onBeforeUnmount(() => {
         </n-drawer>
         <n-drawer v-if="canComment" :show="commentsOpen" placement="right" :width="'min(560px, 100vw)'" @update:show="(value: boolean) => { if (!value) commentsOpen = false }">
           <n-drawer-content title="评论" closable>
-            <MeetingCommentsPanel :meeting="meeting" />
+            <MeetingCommentsPanel :meeting="meeting" :focus-comment-id="focusCommentId" />
           </n-drawer-content>
         </n-drawer>
       </template>

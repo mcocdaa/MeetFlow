@@ -2,13 +2,18 @@ import { defineComponent, onBeforeUnmount, onMounted } from 'vue'
 import { fireEvent, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { apiMock, apiDownloadMock, editorBuffer } = vi.hoisted(() => ({ apiMock: vi.fn(), apiDownloadMock: vi.fn(), editorBuffer: { value: '' } }))
+const { apiMock, apiDownloadMock, editorBuffer, routeState } = vi.hoisted(() => ({
+  apiMock: vi.fn(),
+  apiDownloadMock: vi.fn(),
+  editorBuffer: { value: '' },
+  routeState: { query: {} as Record<string, string> },
+}))
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
   return { ...actual, api: apiMock, apiDownload: apiDownloadMock }
 })
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { id: 'm1' } }),
+  useRoute: () => ({ params: { id: 'm1' }, query: routeState.query }),
   onBeforeRouteLeave: () => undefined,
 }))
 vi.mock('../components/MarkdownEditor.vue', () => ({
@@ -54,6 +59,22 @@ function projectFixture() {
   }
 }
 
+function commentFixture(id: string, body: string) {
+  return {
+    id, parent_id: null, body_markdown: body, version: 1, creator: user, mentions: [], edited_at: null,
+    created_at: '2026-07-24T02:00:00Z', replies: [], reply_next_cursor: null, resolved_at: null,
+    resolved_by: null, can_edit: false, can_delete: false, can_resolve: false,
+  }
+}
+
+function commentDeepLinkApi(items: ReturnType<typeof commentFixture>[]) {
+  return (path: string) => {
+    if (path.startsWith('/api/comments?')) return Promise.resolve({ items, next_cursor: null })
+    if (path.startsWith('/api/projects/')) return Promise.resolve(projectFixture())
+    return Promise.resolve(meetingFixture())
+  }
+}
+
 const meeting = {
   id: 'm1', project: { id: 'p1', name: 'MeetFlow', slug: 'meetflow' }, series: null, title: '迭代评审', purpose_markdown: '', scheduled_start: '2026-07-24T02:00:00Z', scheduled_end: '2026-07-24T03:00:00Z', status: 'ready', host: user, recorder: user, summary_markdown: '', raw_notes_markdown: '', version: 2,
   capabilities: { can_manage: true, can_contribute: true, can_comment: true },
@@ -72,7 +93,13 @@ function meetingFixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('meeting workspace', () => {
-  beforeEach(() => { apiMock.mockReset(); apiDownloadMock.mockReset(); apiMock.mockResolvedValue(meeting); editorBuffer.value = '' })
+  beforeEach(() => {
+    apiMock.mockReset()
+    apiDownloadMock.mockReset()
+    apiMock.mockResolvedValue(meeting)
+    editorBuffer.value = ''
+    routeState.query = {}
+  })
 
   it('safely falls back to read-only when an older response lacks capabilities', async () => {
     apiMock.mockResolvedValue(meetingFixture({ capabilities: undefined }))
@@ -357,5 +384,23 @@ describe('meeting workspace', () => {
     const event = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('opens the comments drawer from the ?comment deep link and renders the target comment', async () => {
+    routeState.query = { comment: 'c9' }
+    apiMock.mockImplementation(commentDeepLinkApi([commentFixture('c9', '深链评论')]))
+    renderWithProviders(MeetingWorkspaceView)
+
+    expect(await screen.findByText('深链评论')).toBeVisible()
+    expect(document.querySelector('[data-comment-id="c9"]')).not.toBeNull()
+  })
+
+  it('shows the earlier-discussion hint when the deep-linked comment is not loaded', async () => {
+    routeState.query = { comment: 'c9' }
+    apiMock.mockImplementation(commentDeepLinkApi([commentFixture('c1', '另一条评论')]))
+    renderWithProviders(MeetingWorkspaceView)
+
+    expect(await screen.findByTestId('comment-focus-missing')).toBeVisible()
+    expect(document.querySelector('[data-comment-id="c9"]')).toBeNull()
   })
 })

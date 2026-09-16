@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, type TextareaHTMLAttributes } from 'vue'
+import { NInput } from 'naive-ui'
 
 type Participant = { user: { id: string; username: string; display_name: string } }
 const props = defineProps<{ modelValue: string; participants: Participant[]; label: string }>()
@@ -10,13 +11,20 @@ const query = ref('')
 const mentioned = ref<string[]>([])
 const current = ref(props.modelValue)
 const matches = computed(() => props.participants.filter((item) => `${item.user.display_name} ${item.user.username}`.toLowerCase().includes(query.value.toLowerCase())))
+const inputProps = computed<TextareaHTMLAttributes>(() => ({
+  'aria-label': props.label,
+  role: 'combobox',
+  'aria-autocomplete': 'list',
+  'aria-expanded': open.value && matches.value.length > 0 ? 'true' : 'false',
+  'aria-controls': 'mention-listbox',
+  'aria-activedescendant': open.value ? `mention-${active.value}` : undefined,
+}))
 
 watch(() => props.modelValue, (value) => {
   if (value !== current.value) current.value = value
 })
 
-function input(event: Event) {
-  const value = (event.target as HTMLTextAreaElement).value
+function update(value: string) {
   current.value = value
   const match = value.match(/@([^\s@]*)$/)
   query.value = match?.[1] ?? ''
@@ -45,7 +53,14 @@ function keydown(event: KeyboardEvent) {
 
 <template>
   <div class="mention-textarea">
-    <textarea role="combobox" :aria-label="label" aria-autocomplete="list" :aria-expanded="open && matches.length > 0" aria-controls="mention-listbox" :aria-activedescendant="open ? `mention-${active}` : undefined" :value="current" @input="input" @keydown="keydown" />
+    <n-input
+      type="textarea"
+      :value="current"
+      :autosize="{ minRows: 3 }"
+      :input-props="inputProps"
+      @update:value="update"
+      @keydown="keydown"
+    />
     <ul v-if="open && matches.length" id="mention-listbox" role="listbox" aria-label="会议参与者">
       <li v-for="(participant, index) in matches" :id="`mention-${index}`" :key="participant.user.id" role="option" :aria-selected="index === active" @mousedown.prevent="insert(participant)">{{ participant.user.display_name }} @{{ participant.user.username }}</li>
     </ul>
