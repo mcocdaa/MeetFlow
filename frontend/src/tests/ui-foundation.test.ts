@@ -1,11 +1,13 @@
 import { fireEvent, screen } from '@testing-library/vue'
 import { NButton, NDataTable, type DataTableColumns, useDialog } from 'naive-ui'
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import AppAvatar from '../components/AppAvatar.vue'
+import MeetingParticipantEditor from '../components/MeetingParticipantEditor.vue'
 import PageHeader from '../components/PageHeader.vue'
 import StatusPill from '../components/StatusPill.vue'
+import type { ParticipationRole } from '../domain/meetings'
 import { naiveThemeOverrides, priorityTone, statusTone } from '../theme/naive'
 import { activityLabel } from '../utils/activity'
 import { can } from '../utils/capabilities'
@@ -106,6 +108,73 @@ describe('AppAvatar', () => {
 
     const avatar = container.querySelector('.n-avatar')
     expect(avatar?.getAttribute('style') ?? '').toContain('green-soft')
+  })
+})
+
+describe('MeetingParticipantEditor', () => {
+  type Row = { user_id: string; participation_role: ParticipationRole }
+  const members = [
+    { id: 'u1', username: 'lin', display_name: '林宇' },
+    { id: 'u2', username: 'chen', display_name: '陈晨' },
+  ]
+
+  function renderEditor(initial: Row[], disabled = false) {
+    const updates: Row[][] = []
+    const value = ref<Row[]>(initial)
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(MeetingParticipantEditor, {
+            modelValue: value.value,
+            memberOptions: members,
+            disabled,
+            'onUpdate:modelValue': (next: Row[]) => {
+              updates.push(next)
+              value.value = next
+            },
+          })
+      },
+    })
+
+    return { ...renderWithProviders(Host), updates }
+  }
+
+  it('renders controlled participant rows and appends an attendee row', async () => {
+    const { updates, container } = renderEditor([{ user_id: 'u1', participation_role: 'host' }])
+
+    expect(container.querySelectorAll('.participant-editor-row')).toHaveLength(1)
+    expect(screen.getByText('林宇')).toBeInTheDocument()
+    expect(screen.getByText('主持')).toBeInTheDocument()
+
+    await fireEvent.click(screen.getByRole('button', { name: '添加参与人' }))
+
+    expect(updates).toEqual([
+      [
+        { user_id: 'u1', participation_role: 'host' },
+        { user_id: '', participation_role: 'attendee' },
+      ],
+    ])
+    expect(container.querySelectorAll('.participant-editor-row')).toHaveLength(2)
+  })
+
+  it('removes a row through the update event', async () => {
+    const { updates, container } = renderEditor([
+      { user_id: 'u1', participation_role: 'host' },
+      { user_id: 'u2', participation_role: 'attendee' },
+    ])
+
+    await fireEvent.click(screen.getAllByRole('button', { name: '移除参与人' })[1])
+
+    expect(updates).toEqual([[{ user_id: 'u1', participation_role: 'host' }]])
+    expect(container.querySelectorAll('.participant-editor-row')).toHaveLength(1)
+  })
+
+  it('hides add and remove actions when disabled', () => {
+    const { container } = renderEditor([{ user_id: 'u1', participation_role: 'host' }], true)
+
+    expect(container.querySelectorAll('.participant-editor-row')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '添加参与人' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '移除参与人' })).not.toBeInTheDocument()
   })
 })
 

@@ -1,3 +1,12 @@
+import type { ParticipationRole } from '../domain/meetings'
+
+export const PARTICIPATION_ROLE_LABELS: Record<ParticipationRole, string> = {
+  host: '主持',
+  recorder: '记录',
+  presenter: '主讲',
+  attendee: '参与',
+}
+
 export type StatusKind =
   | 'meeting'
   | 'agenda'
