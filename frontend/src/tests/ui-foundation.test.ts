@@ -1,7 +1,7 @@
 import { fireEvent, screen } from '@testing-library/vue'
 import { NButton, NDataTable, type DataTableColumns, useDialog } from 'naive-ui'
 import { defineComponent, h, ref } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import AppAvatar from '../components/AppAvatar.vue'
 import MeetingParticipantEditor from '../components/MeetingParticipantEditor.vue'
@@ -11,6 +11,8 @@ import type { ParticipationRole } from '../domain/meetings'
 import { naiveThemeOverrides, priorityTone, statusTone } from '../theme/naive'
 import { activityLabel } from '../utils/activity'
 import { can } from '../utils/capabilities'
+import { notificationHref } from '../utils/links'
+import { nameOf, userNames } from '../composables/useUserNameMap'
 import { renderWithProviders } from './helpers'
 
 describe('naive theme', () => {
@@ -219,6 +221,48 @@ describe('capabilities', () => {
     ).toBe(true)
     expect(can(null, 'view')).toBe(false)
     expect(can({}, 'comment')).toBe(false)
+  })
+})
+
+describe('user name map', () => {
+  afterEach(() => {
+    userNames.value = {}
+  })
+
+  it('falls back to the readable id prefix and the empty placeholder', () => {
+    expect(nameOf(null)).toBe('未指定')
+    expect(nameOf(undefined)).toBe('未指定')
+    expect(nameOf('abcdef1234567890')).toBe('用户·abcdef12')
+  })
+
+  it('prefers the name aggregated from project memberships', () => {
+    userNames.value = { u1: '林宇' }
+
+    expect(nameOf('u1')).toBe('林宇')
+    expect(nameOf('u2')).toBe('用户·u2')
+  })
+})
+
+describe('notification deep links', () => {
+  it('prefers the source comment anchor when the notification belongs to a meeting', () => {
+    expect(notificationHref({
+      subject: { type: 'action_item', id: 'a1' },
+      meeting: { id: 'm1' },
+      source_comment: { id: 'c1' },
+    })).toBe('/meetings/m1?comment=c1')
+  })
+
+  it('falls back to the subject deep link without a source comment', () => {
+    expect(notificationHref({
+      subject: { type: 'decision', id: 'd1' },
+      meeting: null,
+      source_comment: null,
+    })).toBe('/decisions?highlight=d1')
+    expect(notificationHref({
+      subject: { type: 'agenda_item', id: 'a1' },
+      meeting: { id: 'm1' },
+      source_comment: null,
+    })).toBe('/meetings/m1')
   })
 })
 
