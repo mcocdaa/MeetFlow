@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NAlert, NButton, NForm, NFormItem, NInput, type FormInst, type FormRules } from 'naive-ui'
+import { CheckCircle2 } from '@lucide/vue'
+import { NAlert, NButton, NForm, NFormItem, NIcon, NInput, type FormInst, type FormRules } from 'naive-ui'
 import { reactive, ref } from 'vue'
 import { errorMessage } from '../utils/errors'
 
@@ -60,7 +61,7 @@ async function submit() {
       <p class="eyebrow">加入共享工作区</p>
       <h1 id="register-title">申请 MeetFlow 账号</h1>
       <div v-if="submitted" class="success-state">
-        <span class="success-icon">✓</span>
+        <NIcon class="success-icon" :size="56" aria-hidden="true"><CheckCircle2 /></NIcon>
         <h2>申请已提交</h2>
         <p>申请已提交，请等待管理员批准。</p>
       </div>

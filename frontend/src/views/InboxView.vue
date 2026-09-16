@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NAlert, NButton, NEmpty, NList, NListItem } from 'naive-ui'
+import { ChevronRight } from '@lucide/vue'
+import { NAlert, NButton, NEmpty, NIcon, NList, NListItem } from 'naive-ui'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
@@ -185,7 +186,7 @@ onBeforeUnmount(() => {
               <h3>{{ message(item) }}</h3>
               <p class="attention-reasons"><time>{{ formatDateTime(item.created_at) }}</time><span v-if="item.read_at" class="muted"> · 已读</span></p>
             </div>
-            <span class="arrow-link" aria-hidden="true">→</span>
+            <NIcon aria-hidden="true" :size="18"><ChevronRight /></NIcon>
           </RouterLink>
         </n-list-item>
       </n-list>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ChevronRight } from '@lucide/vue'
+import { NIcon } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
 import StatusPill from './StatusPill.vue'
 import { RouterLink } from 'vue-router'
@@ -68,7 +70,7 @@ onMounted(async () => {
       <RouterLink v-if="project.next_meeting" class="next-meeting-card" :to="`/meetings/${project.next_meeting.id}`">
         <strong>{{ project.next_meeting.title }}</strong>
         <time>{{ formatDateTime(project.next_meeting.scheduled_start) }}</time>
-        <span><StatusPill :status="project.next_meeting.status" kind="meeting" /> · 打开会议 →</span>
+        <span><StatusPill :status="project.next_meeting.status" kind="meeting" /> · 打开会议 <NIcon aria-hidden="true" :size="16"><ChevronRight /></NIcon></span>
       </RouterLink>
       <p v-else class="muted">暂未安排下一次会议。</p>
     </section>

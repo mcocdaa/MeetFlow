@@ -125,7 +125,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .auth-layout-single { display: grid; grid-template-columns: 1fr; background: radial-gradient(circle at 50% 0, #e2eee7, var(--canvas) 46%); }
 .auth-layout-single .auth-card { padding: 38px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); box-shadow: var(--shadow); }
 .success-state { padding: 24px 0; text-align: center; }
-.success-icon { width: 56px; height: 56px; margin: 0 auto 15px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--green); font-size: 1.5rem; font-weight: 900; }
+.success-icon { display: block; margin: 0 auto 15px; color: var(--green); }
 
 .create-meeting .section-heading { margin-bottom: 20px; }
 .create-meeting .form-actions { margin-top: 4px; }

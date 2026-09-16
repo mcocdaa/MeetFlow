@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput } from 'naive-ui'
+import { ChevronRight } from '@lucide/vue'
+import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NIcon, NInput } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
 import StatusPill from '../components/StatusPill.vue'
 import { errorMessage } from '../utils/errors'
@@ -96,7 +97,7 @@ onMounted(load)
         <div class="project-card-top"><span class="health-dot" :data-health="project.health"></span><span>{{ healthLabels[project.health] }}</span><StatusPill :status="project.status" kind="project" /></div>
         <h2>{{ project.name }}</h2><p>{{ project.summary || '尚未填写项目说明' }}</p>
         <dl><div><dt>负责人</dt><dd>{{ project.lead?.display_name ?? '未指定' }}</dd></div><div><dt>目标日期</dt><dd>{{ project.target_date ?? '未设置' }}</dd></div><div><dt>成员</dt><dd>{{ project.memberships.length }}</dd></div></dl>
-        <span class="text-link">打开项目 →</span>
+        <span class="text-link">打开项目 <NIcon aria-hidden="true" :size="16"><ChevronRight /></NIcon></span>
       </RouterLink>
     </section>
     <div v-else class="empty-state"><strong>没有匹配的项目</strong><p>调整筛选条件，或建立一个新项目。</p></div>
