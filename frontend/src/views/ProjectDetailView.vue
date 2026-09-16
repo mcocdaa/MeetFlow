@@ -15,6 +15,7 @@ import ProjectActivityTab from '../components/ProjectActivityTab.vue'
 import ProjectCreatePanel from '../components/ProjectCreatePanel.vue'
 import ProjectOverview from '../components/ProjectOverview.vue'
 import ProjectRecordTabs from '../components/ProjectRecordTabs.vue'
+import SeriesEditDrawer from '../components/SeriesEditDrawer.vue'
 import VersionConflictDialog from '../components/VersionConflictDialog.vue'
 import { useVersionedSave } from '../composables/useVersionedSave'
 import type {
@@ -69,9 +70,7 @@ const memberOptions = computed(() => (project.value?.memberships ?? []).map((row
   value: row.user.id,
 })))
 const panelKind = computed(() => (
-  drawerKind.value === 'series' || drawerKind.value === 'decision' || drawerKind.value === 'action'
-    ? drawerKind.value
-    : null
+  drawerKind.value === 'decision' || drawerKind.value === 'action' ? drawerKind.value : null
 ))
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'overview', label: '概览' },
@@ -445,7 +444,7 @@ onMounted(load)
             <ProjectOverview :project="project" :attention="attention" :open-actions="openActions" :can-contribute="canContribute" @schedule-meeting="openCreate('meeting')" @open-tab="selectTab" />
           </NTabPane>
           <NTabPane name="meetings" tab="会议" :tab-props="tabA11y('meetings')">
-            <ProjectRecordTabs :project="project" tab="meetings" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" />
+            <ProjectRecordTabs :project="project" tab="meetings" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
           <NTabPane name="actions" tab="行动项" :tab-props="tabA11y('actions')">
             <ProjectRecordTabs :project="project" tab="actions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" />
@@ -472,6 +471,14 @@ onMounted(load)
         :default-project-id="project.id"
         @close="drawerKind = ''"
         @created="created('meeting')"
+      />
+      <SeriesEditDrawer
+        :show="drawerKind === 'series'"
+        mode="create"
+        :project-id="project.id"
+        :members="project.memberships.map((row) => row.user)"
+        @close="drawerKind = ''"
+        @saved="created('series')"
       />
       <ProjectCreatePanel
         v-if="panelKind"

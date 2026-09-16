@@ -31,6 +31,34 @@ export type MeetingSeries = Versioned & {
   status: string
 }
 
+export type StandingAgendaItem = {
+  id: string
+  title: string
+  agenda_type: AgendaType
+  default_owner: UserRef | null
+  default_duration_minutes: number | null
+  position: number
+}
+
+export type MeetingSeriesDetail = Versioned & {
+  id: string
+  project: { id: string; name: string; slug: string }
+  title: string
+  purpose_markdown: string
+  recurrence_description: string
+  recurrence: MeetingSeriesRecurrence
+  default_duration_minutes: number
+  default_host: UserRef | null
+  default_recorder: UserRef | null
+  status: string
+  participants: MeetingParticipant[]
+  standing_items: StandingAgendaItem[]
+  created_by: UserRef
+  updated_by: UserRef
+  created_at: string
+  updated_at: string
+}
+
 export type AgendaDraft = {
   title: string
   agenda_type: AgendaType

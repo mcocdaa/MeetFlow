@@ -6,9 +6,6 @@ import { api } from '../api/client'
 import { renderWithProviders } from './helpers'
 
 vi.mock('../api/client', () => ({ api: vi.fn() }))
-vi.mock('../auth/session', () => ({
-  session: { user: { id: 'u1', username: 'lin', display_name: '林宇' } },
-}))
 
 const apiMock = vi.mocked(api)
 const project = {
@@ -38,51 +35,8 @@ async function selectOption(selectSelector: string, label: string) {
   await fireEvent.click(option)
 }
 
-describe('project series form', () => {
+describe('project create panel', () => {
   beforeEach(() => { apiMock.mockReset() })
-
-  it('submits a weekly series with an explicit timezone and local start time', async () => {
-    apiMock.mockResolvedValueOnce({ id: 's1' } as never)
-    renderWithProviders(ProjectCreatePanel, { props: { show: true, kind: 'series', project } })
-
-    await fireEvent.update(screen.getByLabelText('系列标题'), '产品周会')
-    await fireEvent.update(screen.getByLabelText('重复频率'), 'weekly')
-    await fireEvent.update(screen.getByLabelText('每周星期'), '0')
-    await fireEvent.update(screen.getByLabelText('开始时间'), '10:00')
-    await fireEvent.update(screen.getByLabelText('时区'), 'Asia/Shanghai')
-    await fireEvent.click(screen.getByRole('button', { name: '添加系列' }))
-
-    expect(apiMock).toHaveBeenCalledWith('/api/projects/p1/meeting-series', expect.objectContaining({ method: 'POST' }))
-    expect(requestBody()).toMatchObject({
-      title: '产品周会',
-      recurrence_frequency: 'weekly',
-      recurrence_weekday: 0,
-      recurrence_local_time: '10:00:00',
-      recurrence_timezone: 'Asia/Shanghai',
-      recurrence_anchor_date: expect.any(String),
-    })
-  })
-
-  it('uses the browser local calendar date as the default recurrence anchor', () => {
-    class LocalCalendarDate extends Date {
-      constructor() {
-        super('2026-07-31T16:30:00.000Z')
-      }
-
-      getFullYear() { return 2026 }
-      getMonth() { return 7 }
-      getDate() { return 1 }
-    }
-
-    vi.stubGlobal('Date', LocalCalendarDate)
-    try {
-      renderWithProviders(ProjectCreatePanel, { props: { show: true, kind: 'series', project } })
-
-      expect(screen.getByLabelText('起始日期')).toHaveValue('2026-08-01')
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
 
   it('submits a decision with reviewers and falls back to the title as its content', async () => {
     apiMock.mockResolvedValueOnce({ id: 'd1' } as never)
