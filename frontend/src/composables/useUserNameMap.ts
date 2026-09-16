@@ -14,13 +14,20 @@ import type { Project } from '../domain/projects'
 
 export const userNames = ref<Record<string, string>>({})
 
-/** Loads the `userId -> display_name` map; keeps the previous map when the request fails. */
-export async function loadUserNames(): Promise<void> {
+export function resetUserNames(): void {
+  userNames.value = {}
+}
+
+/**
+ * Loads the `userId -> display_name` map and returns the fetched projects so callers do not
+ * re-request `/api/projects`; keeps the previous map when the request fails.
+ */
+export async function loadUserNames(): Promise<Project[]> {
   let projects: Project[]
   try {
     projects = await api<Project[]>('/api/projects')
   } catch {
-    return
+    return []
   }
 
   const next: Record<string, string> = {}
@@ -32,6 +39,7 @@ export async function loadUserNames(): Promise<void> {
     }
   }
   userNames.value = next
+  return projects ?? []
 }
 
 /** Resolves a user id to a readable name, falling back to a shortened id. */

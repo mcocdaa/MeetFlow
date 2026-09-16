@@ -38,6 +38,8 @@ const target = ref<Decision | null>(null)
 const highlightedId = ref<string | null>(null)
 let firstRun = true
 let highlightHandle: number | undefined
+let loadToken = 0
+let appliedHighlight = ''
 
 const projectNames = computed(() => Object.fromEntries(projects.value.map((project) => [project.id, project.name])))
 const reviewerOptions = computed(() => Object.entries(userNames.value).map(([id, name]) => ({ label: name, value: id })))
@@ -62,7 +64,8 @@ function query() {
 /** Locates the `?highlight=` row: scroll to it and flash the row unless reduced motion is requested. */
 function focusHighlight() {
   const highlighted = typeof route.query.highlight === 'string' ? route.query.highlight : ''
-  if (!highlighted || !rows.value.some((row) => row.id === highlighted)) return
+  if (!highlighted || highlighted === appliedHighlight || !rows.value.some((row) => row.id === highlighted)) return
+  appliedHighlight = highlighted
   void nextTick(() => {
     const element = document.querySelector(`[data-row-key="${highlighted}"]`)
     element?.scrollIntoView?.({ block: 'center' })
@@ -76,17 +79,20 @@ function focusHighlight() {
 }
 
 async function load() {
+  const token = ++loadToken
   loading.value = true
   error.value = ''
   try {
     const result = await api<Page<Decision>>(query())
+    if (token !== loadToken) return
     rows.value = result?.items ?? []
     total.value = result?.total ?? 0
     focusHighlight()
   } catch (caught) {
+    if (token !== loadToken) return
     error.value = errorMessage(caught, '决策加载失败')
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 
@@ -175,10 +181,7 @@ watch(() => [filters.project, filters.status, filters.reviewer], () => {
 })
 
 onMounted(async () => {
-  const projectsRequest = api<Project[]>('/api/projects').catch(() => [] as Project[])
-  const namesRequest = loadUserNames()
-  projects.value = await projectsRequest
-  await namesRequest
+  projects.value = await loadUserNames()
   firstRun = false
   await load()
 })

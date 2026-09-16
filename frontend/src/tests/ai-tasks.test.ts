@@ -136,7 +136,7 @@ it('dismisses a terminal unapplied job after confirming in the popconfirm', asyn
 })
 
 it('shows the backend dismiss conflict message verbatim', async () => {
-  const conflict = Object.assign(new Error('当前 AI 草稿无法丢弃'), {
+  const conflict = Object.assign(new Error('后端拒绝：该结果已被应用，无法丢弃'), {
     status: 409,
     code: 'plugin_job_not_dismissible',
   })
@@ -152,7 +152,7 @@ it('shows the backend dismiss conflict message verbatim', async () => {
   await fireEvent.click(screen.getByRole('button', { name: '丢弃' }))
   await fireEvent.click(await screen.findByRole('button', { name: '确认' }))
 
-  expect(await screen.findByText('当前 AI 草稿无法丢弃')).toBeInTheDocument()
+  expect(await screen.findByText('后端拒绝：该结果已被应用，无法丢弃')).toBeInTheDocument()
 })
 
 it('renders error_code, rerun source, actor, and timestamps in the card metadata', async () => {

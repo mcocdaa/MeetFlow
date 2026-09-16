@@ -42,8 +42,9 @@ const actionBusy = ref('')
 const highlightedId = ref<string | null>(null)
 let firstRun = true
 let highlightHandle: number | undefined
+let loadToken = 0
+let appliedHighlight = ''
 
-const projectNames = computed(() => Object.fromEntries(projects.value.map((project) => [project.id, project.name])))
 /** Owner options for the edit drawer, aggregated from project memberships (no directory endpoint). */
 const memberOptions = computed<UserRef[]>(() => Object.entries(userNames.value).map(([id, displayName]) => ({
   id,
@@ -75,7 +76,8 @@ function query() {
 /** Locates the `?highlight=` row: scroll to it and flash the row unless reduced motion is requested. */
 function focusHighlight() {
   const target = typeof route.query.highlight === 'string' ? route.query.highlight : ''
-  if (!target || !rows.value.some((row) => row.id === target)) return
+  if (!target || target === appliedHighlight || !rows.value.some((row) => row.id === target)) return
+  appliedHighlight = target
   void nextTick(() => {
     const element = document.querySelector(`[data-row-key="${target}"]`)
     element?.scrollIntoView?.({ block: 'center' })
@@ -89,17 +91,20 @@ function focusHighlight() {
 }
 
 async function load() {
+  const token = ++loadToken
   loading.value = true
   error.value = ''
   try {
     const result = await api<Page<ActionRow>>(query())
+    if (token !== loadToken) return
     rows.value = result?.items ?? []
     total.value = result?.total ?? 0
     focusHighlight()
   } catch (caught) {
+    if (token !== loadToken) return
     error.value = errorMessage(caught, '行动项加载失败')
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 
@@ -247,10 +252,7 @@ watch(() => [filters.owner, filters.status, filters.project, filters.due], () =>
 })
 
 onMounted(async () => {
-  const projectsRequest = api<Project[]>('/api/projects').catch(() => [] as Project[])
-  const namesRequest = loadUserNames()
-  projects.value = await projectsRequest
-  await namesRequest
+  projects.value = await loadUserNames()
   firstRun = false
   await load()
 })

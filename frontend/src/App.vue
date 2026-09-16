@@ -12,6 +12,7 @@ import { clearSession, session, type SessionUser } from './auth/session'
 import AppAvatar from './components/AppAvatar.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import { resetUnread, startUnreadPolling, unreadCount } from './composables/useInboxUnread'
+import { resetUserNames } from './composables/useUserNameMap'
 import { loadPluginFrontendModules } from './plugins/runtime'
 import { naiveThemeOverrides } from './theme/naive'
 
@@ -60,7 +61,10 @@ watch(
     stopUnreadPolling?.()
     stopUnreadPolling = null
     if (user) stopUnreadPolling = startUnreadPolling(router)
-    else resetUnread()
+    else {
+      resetUnread()
+      resetUserNames()
+    }
   },
   { immediate: true },
 )
