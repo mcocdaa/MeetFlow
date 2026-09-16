@@ -1,3 +1,4 @@
+import type { DecisionReviewStatus } from '../domain/outcomes'
 import type { ParticipationRole } from '../domain/meetings'
 
 export const PARTICIPATION_ROLE_LABELS: Record<ParticipationRole, string> = {
@@ -5,6 +6,13 @@ export const PARTICIPATION_ROLE_LABELS: Record<ParticipationRole, string> = {
   recorder: '记录',
   presenter: '主讲',
   attendee: '参与',
+}
+
+/** 决策评审人状态文案（DecisionsView 全局表与 DecisionDetailDrawer 共用）。 */
+export const REVIEW_STATUS_LABELS: Record<DecisionReviewStatus, string> = {
+  pending: '待评审',
+  approved: '已同意',
+  changes_requested: '需修改',
 }
 
 export type StatusKind =

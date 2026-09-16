@@ -43,11 +43,11 @@ watch(() => props.meeting.agenda_items, (items) => {
 }, { deep: true })
 
 function startDrag(id: string) {
-  if (props.canContribute && !saving.value) draggingId.value = id
+  if (props.canContribute && !meetingLocked.value && !saving.value) draggingId.value = id
 }
 
 async function dropOn(targetId: string) {
-  if (!props.canContribute || saving.value || !draggingId.value || draggingId.value === targetId) return
+  if (!props.canContribute || meetingLocked.value || saving.value || !draggingId.value || draggingId.value === targetId) return
   const previous = [...ordered.value]
   const source = previous.find((item) => item.id === draggingId.value)
   const targetIndex = previous.findIndex((item) => item.id === targetId)
@@ -248,7 +248,7 @@ function onMenuSelect(item: AgendaItem, key: string) {
     </form>
     <p v-if="error || openError" class="notice notice-error">{{ error || openError }}</p>
     <div class="agenda-queue-list">
-      <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" :draggable="canContribute" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
+      <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" :draggable="canContribute && !meetingLocked" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
         <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
         <div v-if="canContribute && !meetingLocked" class="agenda-menu">
           <n-dropdown

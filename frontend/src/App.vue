@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Bell } from '@lucide/vue'
 import {
-  NBadge, NConfigProvider, NDialogProvider, NDropdown, NIcon,
+  NBadge, NConfigProvider, NDialogProvider, NDropdown, NIcon, NLayout, NLayoutContent,
   NMessageProvider, dateZhCN, zhCN,
 } from 'naive-ui'
 import { onBeforeUnmount, onMounted, watch } from 'vue'
@@ -83,26 +83,28 @@ onBeforeUnmount(() => {
       <NDialogProvider>
         <div class="app-shell">
           <template v-if="session.user">
-            <AppSidebar />
-            <section class="workspace-main">
-              <header class="workspace-topbar">
-                <span class="workspace-label">共享工作区</span>
-                <div class="topbar-actions">
-                  <NBadge :value="unreadCount" :show="unreadCount > 0">
-                    <button type="button" class="icon-button" aria-label="收件箱" @click="router.push('/inbox')">
-                      <NIcon :size="18"><Bell :size="18" aria-hidden="true" /></NIcon>
-                    </button>
-                  </NBadge>
-                  <NDropdown :options="accountOptions" trigger="click" @select="onAccountSelect">
-                    <button type="button" class="account-menu-trigger" aria-label="账户菜单">
-                      <AppAvatar :name="session.user.display_name" :color="session.user.avatar_color" :size="30" />
-                      <span>{{ session.user.display_name }}</span>
-                    </button>
-                  </NDropdown>
-                </div>
-              </header>
-              <RouterView @logged-in="onLoggedIn" />
-            </section>
+            <NLayout has-sider class="shell-layout">
+              <AppSidebar />
+              <NLayoutContent class="workspace-main">
+                <header class="workspace-topbar">
+                  <span class="workspace-label">共享工作区</span>
+                  <div class="topbar-actions">
+                    <NBadge :value="unreadCount" :show="unreadCount > 0">
+                      <button type="button" class="icon-button" aria-label="收件箱" @click="router.push('/inbox')">
+                        <NIcon :size="18"><Bell :size="18" aria-hidden="true" /></NIcon>
+                      </button>
+                    </NBadge>
+                    <NDropdown :options="accountOptions" trigger="click" @select="onAccountSelect">
+                      <button type="button" class="account-menu-trigger" aria-label="账户菜单">
+                        <AppAvatar :name="session.user.display_name" :color="session.user.avatar_color" :size="30" />
+                        <span>{{ session.user.display_name }}</span>
+                      </button>
+                    </NDropdown>
+                  </div>
+                </header>
+                <RouterView @logged-in="onLoggedIn" />
+              </NLayoutContent>
+            </NLayout>
           </template>
           <RouterView v-else @logged-in="onLoggedIn" />
         </div>

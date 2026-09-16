@@ -44,6 +44,10 @@ function statusLabel(job: PluginJob) {
   return '未完成'
 }
 
+function canApplyHint(job: PluginJob) {
+  return job.status === 'succeeded' && !job.applied_at && !job.dismissed_at
+}
+
 function statusTone(job: PluginJob) {
   if (job.dismissed_at) return 'dismissed'
   if (job.applied_at) return 'applied'
@@ -144,10 +148,10 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
             回到{{ sourceLabel(job) }}
           </RouterLink>
         </header>
-        <p class="ai-task-apply-hint">在发起页面应用此结果</p>
-        <p v-if="job.error_code" class="ai-task-error-code">错误码：{{ job.error_code }}</p>
-        <p v-if="job.error_message" class="notice notice-error">{{ job.error_message }}</p>
-        <details v-if="job.error_detail" class="task-error-detail"><summary>查看技术详情</summary><pre>{{ job.error_detail }}</pre></details>
+        <p v-if="canApplyHint(job)" class="ai-task-apply-hint">在发起页面应用此结果</p>
+        <div v-if="job.error_message" class="ai-task-error">
+          <p>{{ job.error_message }}</p>
+        </div>
         <ul class="ai-task-meta">
           <li v-if="job.rerun_of_id">重跑自任务 #{{ job.rerun_of_id }}</li>
           <li v-if="job.applied_by">应用人：{{ nameOf(job.applied_by) }}</li>
@@ -158,8 +162,6 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
           <li v-if="job.finished_at">完成时间：{{ formatDateTime(job.finished_at) }}</li>
         </ul>
         <PluginTaskExtension :job="job" />
-        <p v-if="job.applied_at" class="notice">已应用</p>
-        <p v-else-if="job.dismissed_at" class="notice">已丢弃</p>
         <div class="row-actions">
           <n-button v-if="canCancel(job)" quaternary :loading="jobBusy === job.id" :disabled="Boolean(jobBusy)" @click="cancel(job)">取消任务</n-button>
           <n-button v-if="canRerun(job)" quaternary :loading="jobBusy === job.id" :disabled="Boolean(jobBusy)" @click="rerun(job)">重新运行</n-button>
@@ -189,17 +191,27 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
   font-size: 13px;
 }
 
-.ai-task-error-code {
-  margin: 0 0 6px;
-  color: var(--red, #ae3f36);
+.ai-task-error {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid #f0d3ce;
+  border-radius: 8px;
+  color: #8d312a;
+  background: #fdf6f5;
   font-size: 13px;
+}
+
+.ai-task-error p {
+  margin: 0;
 }
 
 .ai-task-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 20px;
-  margin: 8px 0;
+  margin: 10px 0 4px;
   padding: 0;
   list-style: none;
   color: var(--muted, #66727f);

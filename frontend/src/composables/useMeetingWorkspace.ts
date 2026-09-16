@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { api, ApiError } from '../api/client'
 import type { MeetingUpdate } from '../api/meetings'
 import type { Meeting } from '../domain/meetings'
+import { toLocalInput } from '../utils/time'
 
 export type MeetingDraft = {
   title: string
@@ -15,12 +16,6 @@ export type MeetingDraft = {
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error' | 'conflict'
 type Requester = <T = unknown>(path: string, init?: RequestInit) => Promise<T>
-
-function toLocalInput(value: string) {
-  const date = new Date(value)
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
-}
 
 function draftFor(value: Meeting): MeetingDraft {
   return {

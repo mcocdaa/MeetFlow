@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { fireEvent, screen } from '@testing-library/vue'
 import { NButton, NDataTable, type DataTableColumns, useDialog } from 'naive-ui'
 import { defineComponent, h, ref } from 'vue'
@@ -308,5 +309,30 @@ describe('activity labels', () => {
     )
 
     expect(uncovered).toEqual([])
+  })
+})
+
+describe('icon glyph policy', () => {
+  it('uses lucide svg icons instead of unicode glyphs in the source tree', () => {
+    // Spec §4.3: functional icons must be Lucide SVG wrapped in NIcon; the brand "M"
+    // mark (a logo, not a functional icon) is explicitly kept and is not in this list.
+    const forbidden = ['⌕', '•••', '✓', '○', '→', '⌁', '⌄', '×', '✕', '✦', '◎', '●']
+    const sources = import.meta.glob(['../**/*.vue', '../**/*.ts', '../**/*.css'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>
+
+    const offenders: string[] = []
+    for (const [path, content] of Object.entries(sources)) {
+      // Test files keep deliberate anti-regression assertions (for example
+      // plugin-editor-slot.test.ts asserting `not.toHaveTextContent('✦')`).
+      if (path.includes('.test.') || path.includes('.spec.')) continue
+      for (const glyph of forbidden) {
+        if (content.includes(glyph)) offenders.push(`${path}: ${glyph}`)
+      }
+    }
+
+    expect(offenders).toEqual([])
   })
 })

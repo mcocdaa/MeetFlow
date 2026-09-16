@@ -278,7 +278,7 @@ onMounted(() => { void load() })
     <div v-if="unmatchedErrors.length" class="plugin-errors"><p v-for="item in unmatchedErrors" :key="`${item.plugin_id}-${item.error_type}`" class="notice notice-error">{{ item.plugin_id }} · {{ item.message }}</p></div>
     <section v-if="failedEvents.length" class="plugin-errors" aria-labelledby="plugin-event-errors-title">
       <h2 id="plugin-event-errors-title">事件失败</h2>
-      <n-data-table :columns="eventColumns" :data="failedEvents" :bordered="false" size="small" />
+      <n-data-table :columns="eventColumns" :data="failedEvents" :bordered="false" size="small" :scroll-x="720" />
       <p class="plugin-events-note">最多显示 {{ EVENT_LIMIT }} 条，可用状态筛选</p>
     </section>
     <div v-if="!plugins.length" class="empty-state"><strong>没有发现插件</strong><p>将插件挂载到服务器插件目录并重启后，它们会显示在这里。</p></div>

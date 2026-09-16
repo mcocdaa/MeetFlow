@@ -52,6 +52,26 @@ it('uses workspace navigation instead of the legacy meeting archive shell', () =
   expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
 })
 
+it('nests the workspace shell in a naive layout with sider and content', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    render(App)
+
+    const layout = document.querySelector('.n-layout.shell-layout')
+    const sider = document.querySelector('.n-layout-sider.workspace-sidebar')
+    const content = document.querySelector('.n-layout-content.workspace-main')
+
+    expect(layout).not.toBeNull()
+    expect(sider).not.toBeNull()
+    expect(content).not.toBeNull()
+    expect(sider?.parentElement?.style.display).toBe('flex')
+    // Naive warns when a sider sits in a layout without `has-sider`.
+    expect(warnSpy.mock.calls.flat().join(' ')).not.toContain('has-sider')
+  } finally {
+    warnSpy.mockRestore()
+  }
+})
+
 it('shows administrator navigation only to administrators', async () => {
   render(App)
   expect(screen.getByRole('link', { name: '用户' })).toBeInTheDocument()

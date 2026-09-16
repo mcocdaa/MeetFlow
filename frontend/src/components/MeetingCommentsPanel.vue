@@ -7,6 +7,7 @@ import { api } from '../api/client'
 import type { CommentPage, MeetingComment } from '../domain/comments'
 import type { Meeting } from '../domain/meetings'
 import { formatDateTime } from '../utils/time'
+import AppAvatar from './AppAvatar.vue'
 import MentionTextarea from './MentionTextarea.vue'
 
 const props = withDefaults(defineProps<{ meeting: Meeting; focusCommentId?: string | null }>(), { focusCommentId: null })
@@ -186,9 +187,12 @@ onBeforeUnmount(() => {
       <n-list-item v-for="comment in comments" :key="comment.id" :data-comment-id="comment.id" :class="{ 'is-focused': isFocusedComment(comment) }">
         <article class="comment-thread" :class="{ resolved: Boolean(comment.resolved_at) }">
           <header>
-            <strong>{{ comment.creator.display_name }}</strong>
-            <time v-if="comment.created_at">{{ formatDateTime(comment.created_at) }}</time>
-            <n-button v-if="comment.can_resolve" size="small" quaternary :loading="togglingId === comment.id" :disabled="Boolean(togglingId)" @click="toggle(comment)">{{ comment.resolved_at ? '重开' : '解决' }}</n-button>
+            <AppAvatar :name="comment.creator.display_name" :color="comment.creator.avatar_color" :size="28" />
+            <div class="comment-author">
+              <strong>{{ comment.creator.display_name }}</strong>
+              <time v-if="comment.created_at">{{ formatDateTime(comment.created_at) }}</time>
+            </div>
+            <n-button v-if="comment.can_resolve" class="comment-resolve" size="small" quaternary :loading="togglingId === comment.id" :disabled="Boolean(togglingId)" @click="toggle(comment)">{{ comment.resolved_at ? '重开' : '解决' }}</n-button>
           </header>
           <n-input v-if="editingId === comment.id" v-model:value="editBody" type="textarea" :autosize="{ minRows: 2 }" :input-props="{ 'aria-label': '编辑评论' }" />
           <template v-else>
@@ -212,7 +216,16 @@ onBeforeUnmount(() => {
             </template>
           </div>
           <div v-if="comment.replies.length || hasMoreReplies(comment)" class="comment-replies">
-            <article v-for="reply in comment.replies" :key="reply.id" :data-comment-id="reply.id" class="comment-reply"><strong>{{ reply.creator.display_name }}</strong><p>{{ reply.body_markdown }}</p></article>
+            <article v-for="reply in comment.replies" :key="reply.id" :data-comment-id="reply.id" class="comment-reply">
+              <AppAvatar :name="reply.creator.display_name" :color="reply.creator.avatar_color" :size="22" />
+              <div class="comment-reply-body">
+                <div class="comment-author">
+                  <strong>{{ reply.creator.display_name }}</strong>
+                  <time v-if="reply.created_at">{{ formatDateTime(reply.created_at) }}</time>
+                </div>
+                <p>{{ reply.body_markdown }}</p>
+              </div>
+            </article>
             <n-button v-if="hasMoreReplies(comment)" size="small" quaternary :loading="repliesLoadingId === comment.id" :disabled="Boolean(repliesLoadingId)" @click="loadReplies(comment)">查看全部回复（{{ replyTotalLabel(comment) }}）</n-button>
           </div>
         </article>
@@ -220,6 +233,65 @@ onBeforeUnmount(() => {
     </n-list>
     <n-button v-if="nextCursor" quaternary :loading="loadingMore" :disabled="loadingMore" @click="loadMore">加载更多</n-button>
     <p v-if="loading" class="muted">正在加载评论…</p>
-    <form @submit.prevent="submit"><p class="muted">输入 @ 可提及会议成员</p><MentionTextarea v-model="body" v-model:mention-ids="mentionIds" label="评论内容" :participants="meeting.participants" /><div class="form-actions"><button v-if="replyTo" type="button" class="button button-quiet" @click="replyTo = null">取消回复</button><button class="button button-primary" :disabled="submitting">发送评论</button></div></form>
+    <form class="comment-composer" @submit.prevent="submit">
+      <MentionTextarea v-model="body" v-model:mention-ids="mentionIds" label="评论内容" :participants="meeting.participants" />
+      <p class="comment-hint">输入 @ 可提及会议成员</p>
+      <div class="form-actions"><button v-if="replyTo" type="button" class="button button-quiet" @click="replyTo = null">取消回复</button><button class="button button-primary" :disabled="submitting">发送评论</button></div>
+    </form>
   </section>
 </template>
+
+<style scoped>
+.comment-thread {
+  padding: 14px;
+}
+
+.comment-thread header {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.comment-author {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.comment-author time {
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.comment-resolve {
+  margin-left: auto;
+}
+
+.comment-reply {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.comment-reply-body {
+  min-width: 0;
+}
+
+.comment-reply-body p {
+  margin: 3px 0 0;
+}
+
+.comment-composer {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #e1e5eb;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.comment-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: .72rem;
+}
+</style>

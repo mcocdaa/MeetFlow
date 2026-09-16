@@ -95,13 +95,9 @@ it('keeps base task errors when no task extension is registered', async () => {
   renderView()
   expect(await screen.findByText('AI 服务额度不足；请充值或更换有可用额度的 API Key。')).toBeInTheDocument()
   expect(screen.getByText('unregistered-plugin · ai-work-assistant.project_progress')).toBeInTheDocument()
-  const detail = await screen.findByText(/Insufficient Balance/)
-  const disclosure = detail.closest('details')
-
-  expect(disclosure).not.toBeNull()
-  expect(disclosure?.open).toBe(false)
-  await fireEvent.click(screen.getByText('查看技术详情'))
-  expect(disclosure?.open).toBe(true)
+  // The card keeps the human-readable error only; error_code/error_detail are not stacked on top.
+  expect(screen.queryByText(/Insufficient Balance/)).not.toBeInTheDocument()
+  expect(screen.queryByText('查看技术详情')).not.toBeInTheDocument()
 })
 
 it('returns agenda work to its owning meeting from the task history', async () => {
@@ -155,11 +151,10 @@ it('shows the backend dismiss conflict message verbatim', async () => {
   expect(await screen.findByText('后端拒绝：该结果已被应用，无法丢弃')).toBeInTheDocument()
 })
 
-it('renders error_code, rerun source, actor, and timestamps in the card metadata', async () => {
+it('renders rerun source, actor, and timestamps in the card metadata', async () => {
   mockJobs([jobFixture({
     id: 'job-9',
     status: 'failed',
-    error_code: 'quota_exceeded',
     rerun_of_id: 'job-0',
     applied_by: 'u1',
     applied_at: '2026-07-24T02:00:00Z',
@@ -170,8 +165,7 @@ it('renders error_code, rerun source, actor, and timestamps in the card metadata
 
   renderView()
 
-  expect(await screen.findByText('错误码：quota_exceeded')).toBeInTheDocument()
-  expect(screen.getByText('重跑自任务 #job-0')).toBeInTheDocument()
+  expect(await screen.findByText('重跑自任务 #job-0')).toBeInTheDocument()
   expect(screen.getByText('应用人：林宇')).toBeInTheDocument()
   expect(screen.getByText(`应用时间：${formatDateTime('2026-07-24T02:00:00Z')}`)).toBeInTheDocument()
   expect(screen.getByText('丢弃人：林宇')).toBeInTheDocument()
@@ -197,7 +191,7 @@ it('does not offer dismiss on applied or dismissed jobs', async () => {
   renderView()
 
   expect((await screen.findAllByText('已应用')).length).toBeGreaterThan(0)
-  expect(screen.getByText('已丢弃')).toBeInTheDocument()
+  expect(screen.getByText('已丢弃结果')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '丢弃' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /应用/ })).not.toBeInTheDocument()
 })

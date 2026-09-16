@@ -22,7 +22,7 @@ import PluginSlot from '../components/PluginSlot.vue'
 import type { Attachment, Meeting, MeetingParticipantWrite } from '../domain/meetings'
 import type { Project } from '../domain/projects'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
-import { formatDateTime, parseUtcTimestamp } from '../utils/time'
+import { formatDateTime, parseUtcTimestamp, toLocalInput } from '../utils/time'
 
 
 const route = useRoute()
@@ -100,14 +100,6 @@ const preparationRules: FormRules = {
     trigger: ['change', 'blur'],
   },
 }
-
-function toLocalInput(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
-}
-
 /** Participants plus host/recorder, deduplicated: the fallback member list when the project cannot be read. */
 function currentMemberRefs(value: Meeting): UserRef[] {
   const seen = new Set<string>()
