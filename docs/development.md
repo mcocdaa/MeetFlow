@@ -5,7 +5,8 @@
 ## 架构概览
 
 - 后端是 Python 3.12 上的 FastAPI 和 SQLAlchemy 服务；路由、领域服务与数据模型都位于 `backend/app/`。
-- 前端是 Vue 3、TypeScript 与 Vite，源码位于 `frontend/src/`；生产构建由同一个 FastAPI 服务提供。
+- 前端是 Vue 3、TypeScript 与 Vite，源码位于 `frontend/src/`；生产构建由同一个 FastAPI 服务提供。UI 使用 Naive UI（仅浅色主题）并保留深绿品牌：`frontend/src/theme/naive.ts` 维护 `themeOverrides` 与状态色映射（`statusTone`/`priorityTone`），品牌 token 的唯一权威值仍是 `frontend/src/styles.css` 的 `:root`（改一处必须两处同步）。图标一律 `@lucide/vue` 组件经 `NIcon` 渲染，字母头像统一走 `AppAvatar`（优先使用后端 `avatar_color`）；编辑器与富文本渲染沿用 Milkdown Crepe 与 marked + DOMPurify；状态保持既有 reactive 单例模式（`auth/session.ts`、`useInboxUnread`、`useUserNameMap`），不引入 Pinia。
+- 跨页交互约定：创建/编辑实体用右侧 `n-drawer` 表单（宽度 `min(560px, 100vw)`），确认/破坏性操作优先 `n-popconfirm`（信息量大时 `n-dialog`）；瞬时反馈用 `n-message`，页面级错误保留行内 `n-alert`；稠密全局列表（行动项、决策、管理员用户、插件事件）用 `n-data-table` + 服务端筛选分页，富内容面（首页、项目、会议、工作区）保留卡片/行布局。
 - SQLite 保存结构化数据，附件和备份保存在数据目录。容器运行时的持久化目录是 `/app/data`，部署时对应宿主机的 `./data/`。
 - 生产镜像只有一个应用容器。Vue 资源在构建阶段生成，运行阶段启动 Uvicorn 和内置的插件任务 worker。
 - 会议系列的固定周期实例由应用进程内的低频 worker 创建；读取系列、会议列表和开始固定实例也会补算，因而不依赖外部 Cron。
@@ -38,6 +39,8 @@ npm --prefix frontend run build
 ```
 
 也可以从 `frontend/` 目录运行 `npm test` 和 `npm run build`。不要在仓库根目录直接运行 npm 命令，因为根目录没有前端 `package.json`。
+
+前端测试基于 Vitest + @testing-library/vue + jsdom；Naive UI 组件依赖 `frontend/src/tests/setup.ts` 的全局 jsdom 补丁（`ResizeObserver`、`window.matchMedia`、`Element.prototype.scrollTo`）。弹出层（drawer/dialog/popconfirm/dropdown）Teleport 到 `document.body`，测试统一用全局 `screen.findBy...` 查询；`n-data-table` 在 jsdom 下不启用虚拟滚动与固定列，需要横向滚动时显式设置 `scroll-x`。
 
 需要对运行中的实例做端到端 API 冒烟时，运行 `scripts/smoke_api.py`。它会写入真实数据，只应指向一次性或专用测试实例：
 
