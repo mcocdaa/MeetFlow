@@ -151,8 +151,8 @@ describe('project workspace', () => {
 
   it('loads project actions in the Actions tab', async () => {
     apiMock.mockImplementation((path: string) => {
-      if (path === '/api/actions?project_id=p1&status=open') {
-        return Promise.resolve({ items: [{ id: 'a1', content: '确认范围', status: 'open', priority: 'high', owner_user_id: 'u1', due_date: '2026-07-25', meeting_id: 'm1' }], total: 1 })
+      if (path === '/api/actions?project_id=p1') {
+        return Promise.resolve({ items: [{ id: 'a1', content: '确认范围', status: 'open', priority: 'high', owner_user_id: 'u1', due_date: '2026-07-25', meeting_id: 'm1', version: 1, is_derived: false }], total: 1 })
       }
       return defaultProjectResponse(path)
     })

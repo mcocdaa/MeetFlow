@@ -67,6 +67,9 @@ export type ProjectActionSummary = {
   owner_user_id: string | null
   due_date: string | null
   meeting_id: string | null
+  version?: number
+  is_derived?: boolean
+  completed_at?: string | null
 }
 
 export type ProjectDetail = Project & {

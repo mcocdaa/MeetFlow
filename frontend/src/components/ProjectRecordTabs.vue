@@ -9,8 +9,10 @@ import { api } from '../api/client'
 import { priorityLabel } from '../utils/labels'
 import { formatDateTime } from '../utils/time'
 import AttachmentPanel from './AttachmentPanel.vue'
+import ActionEditDrawer from './ActionEditDrawer.vue'
 import SeriesEditDrawer from './SeriesEditDrawer.vue'
 import type { MeetingSeriesDetail } from '../domain/meetings'
+import type { ActionStatus } from '../domain/outcomes'
 import type { Page } from '../api/contracts'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
 
@@ -35,6 +37,8 @@ const rows = ref<Array<MeetingRow | ProjectActionSummary | DecisionRow>>([])
 const loading = ref(false)
 const error = ref('')
 const editSeries = ref<SeriesRow | null>(null)
+const editAction = ref<ProjectActionSummary | null>(null)
+const actionBusy = ref('')
 const archivingId = ref('')
 const occurrenceSeries = ref<SeriesRow | null>(null)
 const occurrenceTitle = ref('')
@@ -47,7 +51,7 @@ const memberRefs = () => props.project.memberships.map((row) => row.user)
 
 function endpoint() {
   if (props.tab === 'meetings') return `/api/meetings?project_id=${props.project.id}`
-  if (props.tab === 'actions') return `/api/actions?project_id=${props.project.id}&status=open`
+  if (props.tab === 'actions') return `/api/actions?project_id=${props.project.id}`
   return `/api/decisions?project_id=${props.project.id}`
 }
 
@@ -73,6 +77,41 @@ function openSeriesEdit(series: SeriesRow) {
 function seriesSaved() {
   editSeries.value = null
   emit('changed')
+}
+
+function ownerName(userId: string | null) {
+  if (!userId) return '未指派'
+  const row = props.project.memberships.find((item) => item.user.id === userId)
+  return row?.user.display_name || row?.user.username || '未指派'
+}
+
+function openActionEdit(item: ProjectActionSummary) {
+  if (!props.canContribute || item.is_derived) return
+  editAction.value = item
+}
+
+async function actionSaved() {
+  editAction.value = null
+  await load()
+  emit('changed')
+}
+
+async function transitionAction(item: ProjectActionSummary, status: ActionStatus) {
+  if (!props.canContribute || item.is_derived || actionBusy.value) return
+  actionBusy.value = item.id
+  error.value = ''
+  try {
+    await api(`/api/actions/${item.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status, expected_version: item.version ?? 1 }),
+    })
+    await load()
+    emit('changed')
+  } catch (reason) {
+    error.value = errorMessage(reason, '行动项更新失败')
+  } finally {
+    actionBusy.value = ''
+  }
 }
 
 async function archiveSeries(series: SeriesRow) {
@@ -162,10 +201,27 @@ onMounted(load)
     <template v-else-if="tab === 'actions'">
       <header class="section-heading"><h2>项目行动项</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'action')">添加行动项</button></header>
       <p v-if="loading" class="muted">正在加载行动项…</p>
-      <div class="project-record-list">
-        <RouterLink v-for="item in rows as ProjectActionSummary[]" :key="item.id" class="project-record-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/actions?highlight=${item.id}`"><strong>{{ item.content }}</strong><span><StatusPill :status="item.status" kind="action" /> · {{ item.due_date ?? '未设期限' }} · {{ priorityLabel(item.priority) }}</span></RouterLink>
+      <div class="project-record-list action-list">
+        <div v-for="item in rows as ProjectActionSummary[]" :key="item.id" class="project-record-row action-row">
+          <div class="action-row-main">
+            <strong>{{ item.content }}</strong>
+            <span><StatusPill :status="item.status" kind="action" /> · {{ ownerName(item.owner_user_id) }} · {{ item.due_date ?? '未设期限' }} · {{ priorityLabel(item.priority) }}</span>
+            <span v-if="item.completed_at" class="muted">完成于 {{ formatDateTime(item.completed_at) }}</span>
+          </div>
+          <div v-if="canContribute && !item.is_derived" class="row-actions">
+            <button class="button button-quiet" type="button" :aria-label="`编辑行动项“${item.content}”`" :disabled="actionBusy === item.id" @click="openActionEdit(item)">编辑</button>
+            <button v-if="item.status === 'open'" class="button button-primary" type="button" :aria-label="`开始行动项“${item.content}”`" :disabled="actionBusy === item.id" @click="transitionAction(item, 'in_progress')">开始</button>
+            <button v-if="item.status === 'in_progress'" class="button button-primary" type="button" :aria-label="`完成行动项“${item.content}”`" :disabled="actionBusy === item.id" @click="transitionAction(item, 'done')">完成</button>
+            <n-popconfirm v-if="item.status === 'open' || item.status === 'in_progress'" positive-text="确认" negative-text="取消" @positive-click="transitionAction(item, 'canceled')">
+              <template #trigger>
+                <button class="button button-quiet" type="button" :aria-label="`取消行动项“${item.content}”`" :disabled="actionBusy === item.id">取消</button>
+              </template>
+              确定取消行动项“{{ item.content }}”吗？
+            </n-popconfirm>
+          </div>
+        </div>
       </div>
-      <p v-if="!loading && !rows.length" class="muted">当前没有未完成行动项。</p>
+      <p v-if="!loading && !rows.length" class="muted">当前没有行动项。</p>
     </template>
 
     <template v-else-if="tab === 'decisions'">
@@ -192,6 +248,14 @@ onMounted(load)
       :members="memberRefs()"
       @close="editSeries = null"
       @saved="seriesSaved"
+    />
+
+    <ActionEditDrawer
+      :show="Boolean(editAction)"
+      :action="editAction"
+      :members="memberRefs()"
+      @close="editAction = null"
+      @saved="actionSaved"
     />
 
     <NDrawer
