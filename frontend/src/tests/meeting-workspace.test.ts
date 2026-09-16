@@ -173,6 +173,27 @@ describe('meeting workspace', () => {
     })
   })
 
+  it('keeps unsaved minutes when the preparation info is saved', async () => {
+    const initial = meetingFixture({ version: 2, summary_markdown: '服务器上的旧纪要' })
+    const savedPreparation = meetingFixture({ version: 3, title: '迭代评审（已更新）', summary_markdown: '服务器上的旧纪要' })
+    apiMock
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(projectFixture())
+      .mockResolvedValueOnce(savedPreparation)
+    renderWithProviders(MeetingWorkspaceView)
+    await screen.findByText('Current topic')
+
+    await fireEvent.update(screen.getByLabelText('会议纪要'), '尚未保存的新纪要')
+    await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
+    await screen.findByText('会议准备')
+    await fireEvent.update(screen.getByLabelText('会议标题'), '迭代评审（已更新）')
+    await fireEvent.click(screen.getByRole('button', { name: '保存准备信息' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/meetings/m1', expect.objectContaining({ method: 'PUT' })))
+    expect(screen.getByLabelText('会议纪要')).toHaveValue('尚未保存的新纪要')
+    expect(screen.getByRole('button', { name: '保存会议纪要' })).toBeEnabled()
+  })
+
   it('falls back to the current participants when the project members cannot be read', async () => {
     apiMock
       .mockResolvedValueOnce(meetingFixture())
@@ -199,7 +220,16 @@ describe('meeting workspace', () => {
     await screen.findByText('会议准备')
     await fireEvent.click(screen.getByRole('button', { name: '保存准备信息' }))
 
-    expect(await screen.findByText('已结束的会议不可直接修改')).toBeVisible()
+    const toast = await waitFor(() => {
+      const element = document.querySelector('.n-message')
+      if (!element) throw new Error('message toast is not shown yet')
+      return element
+    })
+    expect(within(toast as HTMLElement).getByText('已结束的会议不可直接修改')).toBeVisible()
+    const preparation = document.querySelector('.meeting-preparation')
+    expect(preparation).not.toBeNull()
+    expect((preparation as HTMLElement).querySelector('.notice-error')).toBeNull()
+    expect(within(preparation as HTMLElement).queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('keeps a generated meeting summary local until the minutes are explicitly saved', async () => {

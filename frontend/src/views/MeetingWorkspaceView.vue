@@ -197,7 +197,7 @@ async function savePreparation() {
         participants: preparationForm.value.participants.filter((row) => row.user_id),
       }),
     })
-    acceptMeeting(saved, true)
+    acceptPreparation(saved)
     preparationOpen.value = false
   } catch (caught) {
     if (caught instanceof ApiError && caught.code === 'meeting_locked') message.error(caught.message)
@@ -210,6 +210,19 @@ async function savePreparation() {
 function acceptMeeting(value: Meeting, resetDraft: boolean) {
   workspace.accept(value, resetDraft)
   if (resetDraft) materialItems.value = value.attachments ?? []
+}
+
+/**
+ * Replaces the prep-owned meeting fields after a preparation save without resetting the
+ * workspace draft, so unsaved 会议纪要/原始笔记 stay in the editor and stay dirty.
+ * The prep PUT omits those fields, so `draftFor(value)` would otherwise restore stale text.
+ */
+function acceptPreparation(value: Meeting) {
+  acceptMeeting(value, false)
+  draft.value.title = value.title
+  draft.value.purpose_markdown = value.purpose_markdown
+  draft.value.scheduled_start = toLocalInput(value.scheduled_start)
+  draft.value.scheduled_end = toLocalInput(value.scheduled_end)
 }
 
 async function persistMeetingDraft(): Promise<boolean> {
