@@ -130,6 +130,7 @@ def global_meetings(
     page = query_meetings(
         session,
         include_details=True,
+        project_id=project_id,
         status=status,
         participant_user_id=participant_user_id,
         start_after=start_after,

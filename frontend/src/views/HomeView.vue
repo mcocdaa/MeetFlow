@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
+import { NBadge, NCard, NEmpty, NSkeleton } from 'naive-ui'
+
 import { api } from '../api/client'
 import { formatDateTime } from '../utils/time'
 import { streamPluginAction } from '../api/plugin-stream'
@@ -136,30 +138,54 @@ onBeforeUnmount(cancelWorkBrief)
   <main class="workspace-page">
     <header class="workspace-page-heading">
       <div><p class="eyebrow">For you</p><h1>今天需要你关注的事</h1><p>把跨项目的待办、评审和会议准备收拢到一个队列。</p></div>
-      <button class="button button-quiet" @click="load">刷新</button>
+      <div class="home-heading-actions">
+        <span v-if="response" class="unread-summary">
+          <n-badge :value="response.unread_count" :show="response.unread_count > 0" />
+          <span>{{ response.unread_count }} 条未读提醒</span>
+        </span>
+        <button class="button button-quiet" @click="load">刷新</button>
+      </div>
     </header>
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
-    <p v-if="loading" class="empty-state">正在整理你的工作区…</p>
+    <div v-if="loading" class="home-loading">
+      <p class="empty-state">正在整理你的工作区…</p>
+      <n-skeleton text :repeat="3" />
+    </div>
     <div v-else class="home-workspace">
       <div class="attention-layout">
-        <section class="workspace-section" aria-labelledby="priority-queue-title">
+        <n-card
+          tag="section"
+          class="workspace-section home-attention-card"
+          aria-labelledby="priority-queue-title"
+          content-class="home-card-body"
+          content-style="padding: 0"
+        >
           <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2 id="priority-queue-title">需要关注</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> 项</span></div>
           <div v-if="priorities.length" class="attention-list"><AttentionCard v-for="item in priorities" :key="`${item.subject_type}:${item.subject_id}`" :item="item" /></div>
-          <div v-else class="empty-state compact"><strong>目前没有需要立即处理的事项</strong><p>新的指派、评审和回复会出现在这里。</p></div>
-        </section>
-        <aside class="workspace-section upcoming-panel" aria-labelledby="upcoming-meetings-title">
+          <n-empty v-else class="empty-state compact" description="目前没有需要立即处理的事项">
+            <p>新的指派、评审和回复会出现在这里。</p>
+          </n-empty>
+        </n-card>
+        <n-card
+          tag="aside"
+          class="workspace-section upcoming-panel"
+          aria-labelledby="upcoming-meetings-title"
+          content-class="home-card-body"
+          content-style="padding: 0"
+        >
           <div class="section-heading"><div><p class="eyebrow">Next up</p><h2 id="upcoming-meetings-title">近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
           <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ formatDateTime(item.scheduled_start) }}</time></RouterLink>
-          <p v-if="!meetings.length" class="muted">未来七天没有需要你参加的会议。</p>
-        </aside>
+          <n-empty v-if="!meetings.length" class="empty-state compact" description="未来七天没有需要你参加的会议。" />
+        </n-card>
       </div>
 
-      <section class="workspace-section ai-work-brief-panel">
+      <n-card tag="section" class="workspace-section ai-work-brief-panel" content-class="home-card-body" content-style="padding: 0">
         <div class="ai-work-brief-heading">
           <div>
             <p class="eyebrow">Work brief</p>
             <h2>AI 工作简报</h2>
             <p>{{ workBriefEnabled ? '汇总你全部项目中的当前工作，仅供阅读。' : '加载工作简报插件后，可汇总你的跨项目工作。' }}</p>
+            <span v-if="workBrief?.generated_at" class="brief-generated-at">上次生成于 {{ formatDateTime(workBrief.generated_at) }}</span>
           </div>
           <div v-if="workBriefEnabled" class="ai-brief-actions">
             <button class="button button-small" :disabled="workBriefRunning" @click="generateWorkBrief">{{ workBriefRunning ? '正在生成…' : '生成工作简报' }}</button>
@@ -172,7 +198,7 @@ onBeforeUnmount(cancelWorkBrief)
           <p v-if="workBriefRunning && !workBriefStreamMarkdown" class="muted">正在汇总全部项目的当前工作…</p>
           <MarkdownView v-else :source="displayedWorkBriefMarkdown" />
         </section>
-      </section>
+      </n-card>
       <PluginSlot slot="home.secondary-card" target-type="home" target-id="home" />
     </div>
   </main>

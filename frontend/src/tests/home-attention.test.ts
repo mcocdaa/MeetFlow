@@ -35,11 +35,42 @@ describe('personal workspace home', () => {
     expect(await screen.findByText('测试 reward')).toBeInTheDocument()
     expect(screen.getByText('已逾期 · 有新回复')).toBeInTheDocument()
     expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
+    expect(screen.queryByText('→')).not.toBeInTheDocument()
+    expect(document.querySelector('.attention-card svg')).not.toBeNull()
 
     const priorityQueue = screen.getByRole('region', { name: '需要关注' })
     const upcomingMeetings = screen.getByRole('complementary', { name: '近期会议' })
     expect(priorityQueue).toHaveClass('workspace-section')
     expect(upcomingMeetings).toHaveClass('workspace-section', 'upcoming-panel')
+  })
+
+  it('surfaces the unread count and the work brief generation time', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/attention') return Promise.resolve({
+        items: [{
+          subject_type: 'action', subject_id: 'a1', title: '测试 reward',
+          project: { id: 'p1', name: '训练平台', slug: 'training' },
+          reasons: ['action_overdue'], due_date: null, status: 'open',
+        }],
+        notifications: [], mentions: [], unread_count: 3, truncated: false,
+      })
+      if (path === '/api/plugins/actions') return Promise.resolve([{ action_id: 'ai-work-assistant.user_work_brief' }])
+      if (path === '/api/work-brief') return Promise.resolve({ content_markdown: '本周简报', generated_at: '2026-07-29T02:00:00Z' })
+      return Promise.resolve([])
+    })
+
+    render(HomeView, { global: { stubs: { RouterLink } } })
+
+    expect(await screen.findByText('3 条未读提醒')).toBeInTheDocument()
+    expect(await screen.findByText(/上次生成于/)).toBeInTheDocument()
+  })
+
+  it('shows the loading copy together with a skeleton while attention loads', () => {
+    apiMock.mockImplementation(() => new Promise(() => {}))
+    render(HomeView, { global: { stubs: { RouterLink } } })
+
+    expect(screen.getByText('正在整理你的工作区…')).toBeInTheDocument()
+    expect(document.querySelector('.n-skeleton')).not.toBeNull()
   })
 
   it('offers a global work brief instead of linking to one project update editor', async () => {

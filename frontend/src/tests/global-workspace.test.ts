@@ -42,18 +42,57 @@ describe('global workspace views', () => {
   it('creates a meeting through its project-scoped endpoint', async () => {
     apiMock.mockImplementation((path: string, init?: RequestInit) => {
       if (path === '/api/projects') return Promise.resolve([project])
-      if (path === '/api/meetings') return Promise.resolve({ items: [], total: 0, limit: 50, offset: 0 })
+      if (path.startsWith('/api/meetings?')) return Promise.resolve({ items: [], total: 0, limit: 50, offset: 0 })
       if (path === '/api/projects/p1/meetings' && init?.method === 'POST') return Promise.resolve({ id: 'm2' })
       return Promise.resolve({})
     })
     render(MeetingsView)
     await fireEvent.click(await screen.findByRole('button', { name: '新建会议' }))
-    await fireEvent.update(screen.getByLabelText('所属项目'), 'p1')
+
+    expect(await screen.findByLabelText('会议标题')).toBeVisible()
+    await fireEvent.click(document.querySelector('.n-select .n-base-selection')!)
+    const projectOption = await waitFor(() => {
+      const option = [...document.querySelectorAll('.n-base-select-option__content')]
+        .find((candidate) => candidate.textContent === 'MeetFlow')
+      if (!option) throw new Error('project option is not open yet')
+      return option
+    })
+    await fireEvent.click(projectOption)
     await fireEvent.update(screen.getByLabelText('会议标题'), '产品评审')
     await fireEvent.update(screen.getByLabelText('开始时间'), '2026-07-24T10:00')
     await fireEvent.update(screen.getByLabelText('结束时间'), '2026-07-24T11:00')
     await fireEvent.click(screen.getByRole('button', { name: '创建会议' }))
+
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/projects/p1/meetings', expect.objectContaining({ method: 'POST' })))
-    expect(pushMock).toHaveBeenCalledWith('/meetings/m2')
+    const postCall = apiMock.mock.calls.find(([path, init]) => (
+      path === '/api/projects/p1/meetings' && (init as RequestInit | undefined)?.method === 'POST'
+    ))
+    const payload = JSON.parse((postCall?.[1] as RequestInit).body as string)
+    expect(payload.participants).toContainEqual({ user_id: 'u1', participation_role: 'host' })
+    expect(payload.scheduled_start).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    expect(payload.scheduled_end).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    expect(new Date(payload.scheduled_start).getTime()).toBeLessThan(new Date(payload.scheduled_end).getTime())
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/meetings/m2'))
+  })
+
+  it('rejects a whitespace-only meeting title before calling the API', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/projects') return Promise.resolve([project])
+      if (path.startsWith('/api/meetings?')) return Promise.resolve({ items: [], total: 0, limit: 50, offset: 0 })
+      return Promise.resolve({})
+    })
+    render(MeetingsView)
+    await fireEvent.click(await screen.findByRole('button', { name: '新建会议' }))
+
+    await fireEvent.update(await screen.findByLabelText('会议标题'), '   ')
+    await fireEvent.update(screen.getByLabelText('开始时间'), '2026-07-24T10:00')
+    await fireEvent.update(screen.getByLabelText('结束时间'), '2026-07-24T11:00')
+    await fireEvent.click(screen.getByRole('button', { name: '创建会议' }))
+
+    expect(await screen.findByText('请输入会议标题')).toBeInTheDocument()
+    const posted = apiMock.mock.calls.some(([path, init]) => (
+      path === '/api/projects/p1/meetings' && (init as RequestInit | undefined)?.method === 'POST'
+    ))
+    expect(posted).toBe(false)
   })
 })
