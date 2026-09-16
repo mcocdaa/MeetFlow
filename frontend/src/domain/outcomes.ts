@@ -56,10 +56,15 @@ export type OpenQuestion = Versioned & {
   meeting_id: string | null
   agenda_item_id: string | null
   question_markdown: string
-  owner: UserRef | null
+  owner_user_id?: string | null
+  owner?: UserRef | null
   status: OpenQuestionStatus
   is_derived?: boolean
-  created_by: UserRef
+  scheduled_meeting_id?: string | null
+  resolved_by_decision_id?: string | null
+  converted_from_agenda_item_id?: string | null
+  source_agenda_item_id?: string | null
+  created_by: UserRef | string
   created_at: string
   updated_at: string
 }

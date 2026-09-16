@@ -14,6 +14,7 @@ import PageHeader from '../components/PageHeader.vue'
 import ProjectActivityTab from '../components/ProjectActivityTab.vue'
 import ProjectCreatePanel from '../components/ProjectCreatePanel.vue'
 import ProjectOverview from '../components/ProjectOverview.vue'
+import ProjectQuestionsTab from '../components/ProjectQuestionsTab.vue'
 import ProjectRecordTabs from '../components/ProjectRecordTabs.vue'
 import SeriesEditDrawer from '../components/SeriesEditDrawer.vue'
 import VersionConflictDialog from '../components/VersionConflictDialog.vue'
@@ -453,7 +454,7 @@ onMounted(load)
             <ProjectRecordTabs :project="project" tab="decisions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
           <NTabPane name="questions" tab="开放问题" :tab-props="tabA11y('questions')">
-            <p class="muted">开放问题列表将在后续任务中接入。</p>
+            <ProjectQuestionsTab :project="project" :can-contribute="canContribute" @reload="load" />
           </NTabPane>
           <NTabPane name="files" tab="文件" :tab-props="tabA11y('files')">
             <ProjectRecordTabs :project="project" tab="files" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" />
