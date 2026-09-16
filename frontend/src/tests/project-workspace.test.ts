@@ -41,7 +41,10 @@ vi.mock('../components/MarkdownEditor.vue', () => ({
 const project = {
   id: 'p1', name: 'MeetFlow', slug: 'meetflow', summary: '团队会议工作区', description_markdown: '项目说明',
   status: 'active', health: 'on_track', lead: { id: 'u1', username: 'lin', display_name: '林宇' }, target_date: '2026-08-01', version: 3,
-  memberships: [{ role: 'member', user: { id: 'u1', username: 'lin', display_name: '林宇' } }],
+  memberships: [
+    { role: 'member', user: { id: 'u1', username: 'lin', display_name: '林宇' } },
+    { role: 'stakeholder', user: { id: 'u2', username: 'qiao', display_name: '乔一' } },
+  ],
   capabilities: { can_manage: true, can_contribute: true, can_comment: true },
   updates: [{ id: 'up1', project_id: 'p1', health: 'on_track', content_markdown: '完成后端契约', source: 'human', created_by: { id: 'u1', username: 'lin', display_name: '林宇' }, created_at: '2026-07-22T10:00:00Z', updated_at: '2026-07-22T10:00:00Z' }],
   next_meeting: { id: 'm1', title: '迭代评审', scheduled_start: '2026-07-24T02:00:00Z', status: 'ready' },
@@ -188,6 +191,96 @@ describe('project workspace', () => {
 
     await fireEvent.click(screen.getByRole('tab', { name: '会议' }))
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith({ query: { tab: 'meetings' } }))
+  })
+
+  it('opens the project edit drawer with members and read-only roles', async () => {
+    renderWithProviders(ProjectDetailView)
+    await screen.findByRole('heading', { name: 'MeetFlow' })
+    await fireEvent.click(screen.getByRole('button', { name: '编辑项目' }))
+
+    expect(await screen.findByRole('heading', { name: '编辑项目' })).toBeInTheDocument()
+    expect(screen.getByLabelText('名称')).toHaveValue('MeetFlow')
+    expect(screen.getByLabelText('摘要')).toHaveValue('团队会议工作区')
+    expect(screen.getByLabelText('目标日期')).toHaveValue('2026-08-01')
+    const drawer = document.querySelector('.n-drawer-container') as HTMLElement
+    expect(within(drawer).getByText('状态')).toBeInTheDocument()
+    expect(within(drawer).getByText('健康度')).toBeInTheDocument()
+    expect(within(drawer).getByText('负责人')).toBeInTheDocument()
+    expect(within(drawer).getByText('成员')).toBeInTheDocument()
+    expect(within(drawer).getByText('林宇 · 成员')).toBeInTheDocument()
+    expect(within(drawer).getByText('乔一 · 干系人')).toBeInTheDocument()
+    expect(screen.getByText('移除成员会立即撤销其项目访问，但不会删除其历史记录。')).toBeInTheDocument()
+    expect(screen.getByText('干系人可查看不可编辑；当前没有成员角色指引入口。')).toBeInTheDocument()
+  })
+
+  it('saves project edits with expected version, lead, and the resulting member list', async () => {
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/projects/p1' && init?.method === 'PUT') {
+        return Promise.resolve({ ...project, name: 'MeetFlow 2', version: 4 })
+      }
+      return defaultProjectResponse(path)
+    })
+
+    renderWithProviders(ProjectDetailView)
+    await screen.findByRole('heading', { name: 'MeetFlow' })
+    await fireEvent.click(screen.getByRole('button', { name: '编辑项目' }))
+    await screen.findByRole('heading', { name: '编辑项目' })
+
+    await fireEvent.update(screen.getByLabelText('名称'), 'MeetFlow 2')
+    await fireEvent.click(document.querySelector('.project-edit-member-select .n-base-selection')!)
+    const memberOption = await waitFor(() => {
+      const option = [...document.querySelectorAll('.n-base-select-option__content')]
+        .find((candidate) => candidate.textContent === '乔一')
+      if (!option) throw new Error('member option is not open yet')
+      return option
+    })
+    await fireEvent.click(memberOption)
+    await fireEvent.click(screen.getByRole('button', { name: '保存项目' }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/projects/p1', expect.objectContaining({ method: 'PUT' })))
+    const putCall = apiMock.mock.calls.find(([path, init]) => (
+      path === '/api/projects/p1' && (init as RequestInit | undefined)?.method === 'PUT'
+    ))
+    const payload = JSON.parse((putCall?.[1] as RequestInit).body as string)
+    expect(payload).toMatchObject({
+      name: 'MeetFlow 2',
+      expected_version: 3,
+      lead_user_id: 'u1',
+      member_ids: ['u1'],
+    })
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '编辑项目' })).not.toBeInTheDocument())
+  })
+
+  it('resolves a project edit version conflict through the shared dialog', async () => {
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/projects/p1' && init?.method === 'PUT') {
+        const payload = JSON.parse(String((init as RequestInit).body))
+        if (payload.expected_version === 3) {
+          return Promise.reject(new ApiError(409, 'version_conflict', '内容已更新', { actual_version: 4 }))
+        }
+        return Promise.resolve({ ...project, name: 'MeetFlow 2', version: 5 })
+      }
+      return defaultProjectResponse(path)
+    })
+
+    renderWithProviders(ProjectDetailView)
+    await screen.findByRole('heading', { name: 'MeetFlow' })
+    await fireEvent.click(screen.getByRole('button', { name: '编辑项目' }))
+    await screen.findByRole('heading', { name: '编辑项目' })
+    await fireEvent.update(screen.getByLabelText('名称'), 'MeetFlow 2')
+    await fireEvent.click(screen.getByRole('button', { name: '保存项目' }))
+
+    expect(await screen.findByText('内容已被其他成员更新')).toBeInTheDocument()
+    await screen.findByText(/名称：MeetFlow 2/)
+    await fireEvent.click(screen.getByRole('button', { name: '用本地草稿覆盖' }))
+
+    await waitFor(() => {
+      const puts = apiMock.mock.calls.filter(([path, init]) => (
+        path === '/api/projects/p1' && (init as RequestInit | undefined)?.method === 'PUT'
+      ))
+      expect(puts).toHaveLength(2)
+      expect(JSON.parse(String((puts[1][1] as RequestInit).body)).expected_version).toBe(4)
+    })
   })
 
   it('deletes an empty project after typing its name to confirm', async () => {
