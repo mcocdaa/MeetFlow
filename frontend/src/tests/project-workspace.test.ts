@@ -1,10 +1,11 @@
 import { defineComponent, onBeforeUnmount, onMounted } from 'vue'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
+import { fireEvent, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import { session } from '../auth/session'
 import { registerEditorAssistant } from '../plugins/registry'
+import { renderWithProviders } from './helpers'
 import '../styles.css'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
@@ -59,7 +60,7 @@ describe('project workspace', () => {
   })
 
   it('keeps overview focused on project state and actionable summaries', async () => {
-    render(ProjectDetailView)
+    renderWithProviders(ProjectDetailView)
     expect(await screen.findByRole('heading', { name: 'MeetFlow' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '项目状态' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '下一次会议' })).toBeInTheDocument()
@@ -70,7 +71,7 @@ describe('project workspace', () => {
   })
 
   it('stretches dashboard cards within each overview row', async () => {
-    const { container } = render(ProjectDetailView)
+    const { container } = renderWithProviders(ProjectDetailView)
 
     await screen.findByRole('heading', { name: '项目状态' })
     const grid = container.querySelector<HTMLElement>('.project-overview-grid')
@@ -90,7 +91,7 @@ describe('project workspace', () => {
       return defaultProjectResponse(path)
     })
 
-    render(ProjectDetailView)
+    renderWithProviders(ProjectDetailView)
 
     expect(await screen.findByRole('heading', { name: 'MeetFlow' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '编辑项目' })).not.toBeInTheDocument()
@@ -109,7 +110,7 @@ describe('project workspace', () => {
 
   it('keeps project progress editing with its AI assistance in Activity', async () => {
     registerEditorAssistant('project-update-editor', ProjectUpdateAssistant)
-    render(ProjectDetailView)
+    renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('tab', { name: '动态' }))
     expect(screen.getByLabelText('进展记录')).toBeInTheDocument()
     const updateEditor = screen.getByTestId('project-update-editor')
@@ -124,7 +125,7 @@ describe('project workspace', () => {
   })
 
   it('opens an action drawer from the global New menu', async () => {
-    render(ProjectDetailView)
+    renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
     await fireEvent.click(screen.getByRole('menuitem', { name: '行动项' }))
     expect(screen.getByRole('dialog', { name: '添加行动项' })).toBeInTheDocument()
@@ -138,13 +139,13 @@ describe('project workspace', () => {
       return defaultProjectResponse(path)
     })
 
-    render(ProjectDetailView)
+    renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('tab', { name: '行动项' }))
     expect(await screen.findByText('确认范围')).toBeInTheDocument()
   })
 
   it('appends a human progress update and reloads authoritative data', async () => {
-    render(ProjectDetailView)
+    renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('tab', { name: '动态' }))
     await fireEvent.update(screen.getByLabelText('进展记录'), '完成 1.0 前端壳层')
     await fireEvent.click(screen.getByRole('button', { name: '发布进展' }))
@@ -155,7 +156,7 @@ describe('project workspace', () => {
   })
 
   it('opens a project-scoped meeting drawer from Next meeting', async () => {
-    render(ProjectDetailView)
+    renderWithProviders(ProjectDetailView)
     await fireEvent.click(await screen.findByRole('button', { name: '新建' }))
     await fireEvent.click(screen.getByRole('menuitem', { name: '会议' }))
 

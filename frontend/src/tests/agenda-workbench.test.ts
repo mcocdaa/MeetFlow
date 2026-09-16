@@ -1,5 +1,5 @@
 import { defineComponent, ref } from 'vue'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/vue'
+import { fireEvent, screen, waitFor, within } from '@testing-library/vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AgendaDetail from '../components/AgendaDetail.vue'
@@ -7,6 +7,7 @@ import AgendaQueue from '../components/AgendaQueue.vue'
 import AgendaWorkbench from '../components/AgendaWorkbench.vue'
 import type { AgendaItem } from '../domain/meetings'
 import { registerEditorAssistant } from '../plugins/registry'
+import { renderWithProviders } from './helpers'
 
 const ActionContextProbe = defineComponent({
   props: ['context'],
@@ -107,7 +108,7 @@ describe('agenda workbench', () => {
 
   it('keeps the active topic and selectable queue in one shared workbench surface', async () => {
     apiMock.mockResolvedValueOnce({ ...meetingFixture().agenda_items[1], status: 'in_progress', version: 2 })
-    render(AgendaWorkbench, { props: { meeting: meetingFixture(), canContribute: true } })
+    renderWithProviders(AgendaWorkbench, { props: { meeting: meetingFixture(), canContribute: true } })
     const workbench = screen.getByTestId('meeting-workbench')
     const detail = screen.getByTestId('agenda-detail')
     const queue = screen.getByTestId('agenda-queue')
@@ -129,7 +130,7 @@ describe('agenda workbench', () => {
   })
 
   it('keeps the empty topic affordance and queue inside the shared surface', () => {
-    render(AgendaWorkbench, { props: { meeting: emptyMeetingFixture(), canContribute: true } })
+    renderWithProviders(AgendaWorkbench, { props: { meeting: emptyMeetingFixture(), canContribute: true } })
     const workbench = screen.getByTestId('meeting-workbench')
     const detail = screen.getByTestId('agenda-detail')
     const queue = screen.getByTestId('agenda-queue')
@@ -146,7 +147,7 @@ describe('agenda workbench', () => {
   it('uses a five minute estimate for a newly queued topic', async () => {
     const added = { ...meetingFixture().agenda_items[0], id: 'a3', title: '新的议题', estimated_minutes: 5 }
     apiMock.mockResolvedValueOnce(added)
-    render(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
+    renderWithProviders(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
 
     await fireEvent.click(screen.getByRole('button', { name: '+ 议题' }))
     expect(screen.getByLabelText('预计时长（分钟）')).toHaveValue(5)
@@ -160,7 +161,7 @@ describe('agenda workbench', () => {
   })
 
   it('does not expose agenda record versions but provides a standalone skip action posting /skip', async () => {
-    render(AgendaWorkbench, { props: { meeting: meetingFixture(), canContribute: true } })
+    renderWithProviders(AgendaWorkbench, { props: { meeting: meetingFixture(), canContribute: true } })
     expect(screen.queryByText(/版本\s*2/)).not.toBeInTheDocument()
 
     await fireEvent.click(screen.getByRole('button', { name: '议题“进展同步”的更多操作' }))
@@ -174,7 +175,7 @@ describe('agenda workbench', () => {
 
   it('does not render a separate start-topic action', () => {
     const planned = meetingFixture().agenda_items[1]
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: planned, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item: planned, canContribute: true } })
 
     expect(screen.queryByRole('button', { name: '开始此议题' })).not.toBeInTheDocument()
   })
@@ -182,7 +183,7 @@ describe('agenda workbench', () => {
   it('selects the first auto-started topic when the meeting becomes live', async () => {
     const ready = { ...meetingFixture(), status: 'ready' as const, agenda_items: meetingFixture().agenda_items.map((item) => ({ ...item, status: 'planned' as const })) }
     const live = { ...ready, status: 'in_progress' as const, agenda_items: [{ ...ready.agenda_items[0], status: 'in_progress' as const }, ...ready.agenda_items.slice(1)] }
-    const { rerender } = render(AgendaWorkbench, { props: { meeting: ready, canContribute: true } })
+    const { rerender } = renderWithProviders(AgendaWorkbench, { props: { meeting: ready, canContribute: true } })
 
     await fireEvent.click(screen.getByTestId('agenda-row-a2').querySelector('button')!)
     expect(screen.getByLabelText('议题标题')).toHaveValue('发布方案')
@@ -195,14 +196,14 @@ describe('agenda workbench', () => {
   it('preserves a completed topic as a non-current queue state', () => {
     const meeting = meetingFixture()
     const completed = { ...meeting.agenda_items[0], status: 'completed' } as AgendaItem
-    render(AgendaQueue, { props: { meeting: { ...meeting, agenda_items: [completed, ...meeting.agenda_items.slice(1)] }, selectedId: meeting.agenda_items[1].id, canContribute: true } })
+    renderWithProviders(AgendaQueue, { props: { meeting: { ...meeting, agenda_items: [completed, ...meeting.agenda_items.slice(1)] }, selectedId: meeting.agenda_items[1].id, canContribute: true } })
 
     expect(screen.getByTestId('agenda-row-a1')).toHaveClass('agenda-status-completed')
     expect(screen.getByTestId('agenda-row-a1')).not.toHaveClass('selected')
   })
 
   it('exposes a clean current draft flush that does not request or reload', async () => {
-    render(AgendaFlushHarness)
+    renderWithProviders(AgendaFlushHarness)
     await fireEvent.click(screen.getByRole('button', { name: '刷新当前议题草稿' }))
 
     await waitFor(() => expect(screen.getByTestId('flush-result')).toHaveTextContent('false'))
@@ -213,7 +214,7 @@ describe('agenda workbench', () => {
   it('flushes a dirty current draft once without emitting a workbench reload', async () => {
     const saved = { ...meetingFixture().agenda_items[0], title: '已确认进展', version: 3 }
     apiMock.mockResolvedValueOnce(saved)
-    render(AgendaFlushHarness)
+    renderWithProviders(AgendaFlushHarness)
 
     await fireEvent.update(screen.getByLabelText('议题标题'), '已确认进展')
     await fireEvent.click(screen.getByRole('button', { name: '刷新当前议题草稿' }))
@@ -232,7 +233,7 @@ describe('agenda workbench', () => {
   it('only manually saves a dirty topic and emits changed after success', async () => {
     const changed = vi.fn()
     apiMock.mockResolvedValueOnce({ ...meetingFixture().agenda_items[0], title: '更新后的进展', version: 3 })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true }, attrs: { onChanged: changed } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true }, attrs: { onChanged: changed } })
 
     await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
     expect(apiMock).not.toHaveBeenCalled()
@@ -248,7 +249,7 @@ describe('agenda workbench', () => {
     const notes = '@决策: 采用灰度发布'
     editorBuffer.value = notes
     apiMock.mockResolvedValueOnce({ ...item, notes_markdown: notes, version: 3 })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
 
@@ -266,7 +267,7 @@ describe('agenda workbench', () => {
     apiMock
       .mockResolvedValueOnce({ ...item, notes_markdown: notes, version: 3 })
       .mockResolvedValueOnce({ agenda_item: { ...item, notes_markdown: notes, version: 4 }, next_agenda_item_id: 'a2' })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true }, attrs: { onAdvance: advanced } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true }, attrs: { onAdvance: advanced } })
 
     await fireEvent.click(screen.getByRole('button', { name: '完成议题并进入下一项' }))
 
@@ -288,7 +289,7 @@ describe('agenda workbench', () => {
     apiMock
       .mockResolvedValueOnce({ ...item, title: '进展已确认', version: 3 })
       .mockResolvedValueOnce({ agenda_item: { ...item, title: '进展已确认', version: 4 }, next_agenda_item_id: 'a2' })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true }, attrs: { onChanged: changed, onAdvance: advanced } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true }, attrs: { onChanged: changed, onAdvance: advanced } })
 
     await fireEvent.update(screen.getByLabelText('议题标题'), '进展已确认')
     await fireEvent.click(screen.getByRole('button', { name: '保存议题' }))
@@ -302,7 +303,7 @@ describe('agenda workbench', () => {
   })
 
   it('sends the full ordered id list once after drop', async () => {
-    render(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
+    renderWithProviders(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
     await fireEvent.dragStart(screen.getByTestId('agenda-row-a2'))
     await fireEvent.drop(screen.getByTestId('agenda-row-a1'))
     await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1))
@@ -313,14 +314,14 @@ describe('agenda workbench', () => {
   })
 
   it('keeps outcome creation separate from meeting flow commands', () => {
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
     expect(screen.getByTestId('outcome-actions')).toHaveTextContent('+ 决策')
     expect(screen.getByTestId('flow-actions')).toHaveTextContent('完成议题并进入下一项')
     expect(screen.getByTestId('outcome-actions')).not.toContainElement(screen.getByRole('button', { name: '完成议题并进入下一项' }))
   })
 
   it('keeps the agenda notes label visible when no AI assistant is registered', () => {
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
 
     expect(screen.getByText('议题记录')).toBeVisible()
     expect(screen.queryByRole('button', { name: 'AI 工具' })).not.toBeInTheDocument()
@@ -330,7 +331,7 @@ describe('agenda workbench', () => {
     registerEditorAssistant('decision-composer', outcomeAssistantProbe('decision-assistant-clicks', 'AI 建议决策'))
     registerEditorAssistant('action-composer', outcomeAssistantProbe('action-assistant-clicks', 'AI 建议行动项'))
     registerEditorAssistant('question-composer', outcomeAssistantProbe('question-assistant-clicks', 'AI 梳理开放问题'))
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
 
     await fireEvent.click(screen.getByRole('button', { name: '+ 决策' }))
     expect(screen.getByTestId('decision-composer')).toContainElement(screen.getByLabelText('决策内容'))
@@ -370,7 +371,7 @@ describe('agenda workbench', () => {
     registerEditorAssistant('agenda-notes-editor', AgendaNotesAssistant)
     const item = meetingFixture().agenda_items[0]
     apiMock.mockResolvedValueOnce({ ...item, notes_markdown: '## AI 整理后的议题记录', version: item.version + 1 })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     const notes = screen.getByTestId('agenda-notes-editor')
     expect(notes).toContainElement(screen.getByLabelText('议题记录'))
@@ -390,7 +391,7 @@ describe('agenda workbench', () => {
   it('shows a useful guard when an agenda with outcomes cannot be deleted', async () => {
     const { ApiError } = await import('../api/client')
     apiMock.mockRejectedValueOnce(new ApiError(409, 'agenda_has_outcomes', '议题已有产出，不能直接删除'))
-    render(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
+    renderWithProviders(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
     await fireEvent.click(screen.getByRole('button', { name: '议题“进展同步”的更多操作' }))
     await fireEvent.click(await screen.findByRole('button', { name: '删除议题' }))
     expect(await screen.findByText('议题已有产出，请先迁移产出，或将议题标记为取消。')).toBeVisible()
@@ -400,7 +401,7 @@ describe('agenda workbench', () => {
   it('shows and saves the agenda proposer and presenter metadata', async () => {
     const item = { ...meetingFixture().agenda_items[0], proposer: users.lin, presenter: users.qiao }
     apiMock.mockResolvedValueOnce({ ...item, title: '进展同步（已确认）', version: 3 })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     expect(screen.getByLabelText('提案人')).toBeVisible()
     expect(screen.getByLabelText('主讲人')).toBeVisible()
@@ -424,7 +425,7 @@ describe('agenda workbench', () => {
       }
       return Promise.resolve({})
     })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
 
     await fireEvent.click(screen.getByLabelText('提案人'))
     const option = await waitFor(() => {
@@ -444,7 +445,7 @@ describe('agenda workbench', () => {
       started_at: '2026-07-24T02:00:00Z',
       completed_at: '2026-07-24T02:01:35Z',
     }
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     expect(screen.getByText('实际用时 1 分 35 秒')).toBeVisible()
     expect(screen.getByText(/开始 /)).toBeVisible()
@@ -454,7 +455,7 @@ describe('agenda workbench', () => {
   it('shows the live elapsed time while the topic is in progress', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 6, 30, 6, 40, 0))
     const meeting = { ...meetingFixture(), started_at: '2026-07-30T06:38:44.670756' }
-    render(AgendaDetail, { props: { meeting, item: meetingFixture().agenda_items[0], canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting, item: meetingFixture().agenda_items[0], canContribute: true } })
 
     expect(screen.getByText('已进行 00:01:15')).toBeVisible()
     now.mockRestore()
@@ -462,13 +463,13 @@ describe('agenda workbench', () => {
 
   it('marks a topic carried from an open question', () => {
     const item = { ...meetingFixture().agenda_items[0], carry_from_open_question_id: 'q1' }
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     expect(screen.getByText('来自开放问题')).toBeVisible()
   })
 
   it('renders the agenda attachment section', () => {
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item: meetingFixture().agenda_items[0], canContribute: true } })
 
     const section = screen.getByTestId('agenda-attachments')
     expect(within(section).getByText('还没有附件')).toBeVisible()
@@ -480,7 +481,7 @@ describe('agenda workbench', () => {
       ...meetingFixture().agenda_items[0],
       decisions: [{ id: 'd1', is_derived: false }] as AgendaItem['decisions'],
     }
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     await fireEvent.click(screen.getByRole('button', { name: '迁移产出' }))
     expect(await screen.findByRole('heading', { name: '迁移产出' })).toBeInTheDocument()
@@ -508,7 +509,7 @@ describe('agenda workbench', () => {
 
   it('converts a skipped topic into an open question after confirmation', async () => {
     const item = { ...meetingFixture().agenda_items[0], status: 'skipped' as const }
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     await fireEvent.click(screen.getByRole('button', { name: '转为开放问题' }))
     await fireEvent.click(await screen.findByRole('button', { name: '确认' }))
@@ -533,7 +534,7 @@ describe('agenda workbench', () => {
       }
       return Promise.resolve({})
     })
-    render(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
+    renderWithProviders(AgendaDetail, { props: { meeting: meetingFixture(), item, canContribute: true } })
 
     await fireEvent.click(screen.getByRole('button', { name: '复制到其他会议' }))
     expect(await screen.findByRole('heading', { name: '复制到其他会议' })).toBeInTheDocument()
@@ -573,7 +574,7 @@ describe('agenda workbench', () => {
       }
       return Promise.resolve({})
     })
-    render(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
+    renderWithProviders(AgendaQueue, { props: { meeting: meetingFixture(), canContribute: true } })
 
     await fireEvent.click(screen.getByRole('button', { name: '议题“进展同步”的更多操作' }))
     await fireEvent.click(await screen.findByRole('button', { name: '移动议题' }))
