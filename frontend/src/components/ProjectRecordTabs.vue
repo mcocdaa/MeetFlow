@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, NPopconfirm } from 'naive-ui'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import StatusPill from './StatusPill.vue'
 import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
@@ -10,16 +10,16 @@ import { priorityLabel } from '../utils/labels'
 import { formatDateTime } from '../utils/time'
 import AttachmentPanel from './AttachmentPanel.vue'
 import ActionEditDrawer from './ActionEditDrawer.vue'
+import DecisionDetailDrawer from './DecisionDetailDrawer.vue'
 import SeriesEditDrawer from './SeriesEditDrawer.vue'
 import type { MeetingSeriesDetail } from '../domain/meetings'
-import type { ActionStatus } from '../domain/outcomes'
+import type { ActionStatus, Decision } from '../domain/outcomes'
 import type { Page } from '../api/contracts'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
 
 type Tab = 'meetings' | 'actions' | 'decisions' | 'files'
 type MeetingRow = { id: string; title: string; scheduled_start: string; status: string }
 type SeriesRow = { id: string; title: string; recurrence_description: string; status: string }
-type DecisionRow = { id: string; title: string; status: string; meeting_id: string | null }
 
 const props = defineProps<{
   project: ProjectDetail
@@ -33,11 +33,12 @@ const emit = defineEmits<{
   changed: []
 }>()
 
-const rows = ref<Array<MeetingRow | ProjectActionSummary | DecisionRow>>([])
+const rows = ref<Array<MeetingRow | ProjectActionSummary | Decision>>([])
 const loading = ref(false)
 const error = ref('')
 const editSeries = ref<SeriesRow | null>(null)
 const editAction = ref<ProjectActionSummary | null>(null)
+const decisionTarget = ref<Decision | null>(null)
 const actionBusy = ref('')
 const archivingId = ref('')
 const occurrenceSeries = ref<SeriesRow | null>(null)
@@ -48,6 +49,9 @@ const occurrenceSaving = ref(false)
 const occurrenceError = ref('')
 
 const memberRefs = () => props.project.memberships.map((row) => row.user)
+const userNames = computed<Record<string, string>>(() => Object.fromEntries(
+  props.project.memberships.map((row) => [row.user.id, row.user.display_name || row.user.username]),
+))
 
 function endpoint() {
   if (props.tab === 'meetings') return `/api/meetings?project_id=${props.project.id}`
@@ -93,6 +97,19 @@ function openActionEdit(item: ProjectActionSummary) {
 async function actionSaved() {
   editAction.value = null
   await load()
+  emit('changed')
+}
+
+function openDecision(item: Decision) {
+  decisionTarget.value = item
+}
+
+async function decisionSaved() {
+  const current = decisionTarget.value
+  await load()
+  if (current) {
+    decisionTarget.value = (rows.value as Decision[]).find((item) => item.id === current.id) ?? null
+  }
   emit('changed')
 }
 
@@ -228,7 +245,13 @@ onMounted(load)
       <header class="section-heading"><h2>项目决策</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'decision')">添加决策</button></header>
       <p v-if="loading" class="muted">正在加载决策…</p>
       <div class="project-record-list">
-        <RouterLink v-for="item in rows as DecisionRow[]" :key="item.id" class="project-record-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/decisions?highlight=${item.id}`"><strong>{{ item.title }}</strong><span><StatusPill :status="item.status" kind="decision" /></span></RouterLink>
+        <div v-for="item in rows as Decision[]" :key="item.id" class="project-record-row decision-row">
+          <button type="button" class="decision-open" :aria-label="`查看决策“${item.title}”`" @click="openDecision(item)">
+            <strong>{{ item.title }}</strong>
+            <span><StatusPill :status="item.status" kind="decision" /></span>
+          </button>
+          <RouterLink v-if="item.meeting_id" class="decision-source" :to="`/meetings/${item.meeting_id}`">来源会议</RouterLink>
+        </div>
       </div>
       <p v-if="!loading && !rows.length" class="muted">尚未形成项目决策。</p>
     </template>
@@ -256,6 +279,16 @@ onMounted(load)
       :members="memberRefs()"
       @close="editAction = null"
       @saved="actionSaved"
+    />
+
+    <DecisionDetailDrawer
+      :show="Boolean(decisionTarget)"
+      :decision="decisionTarget"
+      :members="memberRefs()"
+      :user-names="userNames"
+      :can-contribute="canContribute"
+      @close="decisionTarget = null"
+      @saved="decisionSaved"
     />
 
     <NDrawer

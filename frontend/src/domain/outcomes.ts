@@ -1,9 +1,18 @@
 import type { UserRef, Versioned } from '../api/contracts'
 
 export type DecisionStatus = 'proposed' | 'final' | 'superseded' | 'withdrawn'
+export type DecisionReviewStatus = 'pending' | 'approved' | 'changes_requested'
 export type ActionStatus = 'open' | 'in_progress' | 'done' | 'canceled'
 export type ActionPriority = 'low' | 'normal' | 'high' | 'urgent'
 export type OpenQuestionStatus = 'open' | 'scheduled' | 'resolved' | 'dropped'
+
+export type DecisionReviewer = {
+  user_id: string
+  user?: UserRef | null
+  status: DecisionReviewStatus
+  responded_at: string | null
+  comment: string
+}
 
 export type Decision = Versioned & {
   id: string
@@ -15,7 +24,11 @@ export type Decision = Versioned & {
   rationale_markdown: string
   status: DecisionStatus
   is_derived?: boolean
-  created_by: UserRef
+  created_by: UserRef | string
+  decided_by?: UserRef | null
+  decided_by_user_id?: string | null
+  reviewers?: DecisionReviewer[]
+  supersedes_decision_id?: string | null
   created_at: string
   updated_at: string
 }

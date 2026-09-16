@@ -447,10 +447,10 @@ onMounted(load)
             <ProjectRecordTabs :project="project" tab="meetings" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
           <NTabPane name="actions" tab="行动项" :tab-props="tabA11y('actions')">
-            <ProjectRecordTabs :project="project" tab="actions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" />
+            <ProjectRecordTabs :project="project" tab="actions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
           <NTabPane name="decisions" tab="决策" :tab-props="tabA11y('decisions')">
-            <ProjectRecordTabs :project="project" tab="decisions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" />
+            <ProjectRecordTabs :project="project" tab="decisions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
           <NTabPane name="questions" tab="开放问题" :tab-props="tabA11y('questions')">
             <p class="muted">开放问题列表将在后续任务中接入。</p>
