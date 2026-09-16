@@ -5,8 +5,9 @@ import { computed, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { UserRef } from '../api/contracts'
 import { session } from '../auth/session'
-import type { Decision, DecisionReviewer, DecisionReviewStatus } from '../domain/outcomes'
+import type { Decision, DecisionReviewer } from '../domain/outcomes'
 import { errorMessage } from '../utils/errors'
+import { REVIEW_STATUS_LABELS } from '../utils/labels'
 import { formatDateTime } from '../utils/time'
 import MarkdownView from './MarkdownView.vue'
 import StatusPill from './StatusPill.vue'
@@ -66,11 +67,6 @@ const reviewStatusOptions = [
   { label: '同意', value: 'approved' },
   { label: '需修改', value: 'changes_requested' },
 ]
-const reviewStatusLabels: Record<DecisionReviewStatus, string> = {
-  pending: '待评审',
-  approved: '已同意',
-  changes_requested: '需修改',
-}
 
 function personName(value: UserRef | string | null | undefined): string {
   if (value && typeof value === 'object') return value.display_name || value.username
@@ -265,7 +261,7 @@ async function saveSupersede() {
           <div v-if="decision.reviewers?.length" class="reviewer-list">
             <div v-for="reviewer in decision.reviewers" :key="reviewer.user_id" class="reviewer-row">
               <strong>{{ reviewerName(reviewer) }}</strong>
-              <NTag size="small">{{ reviewStatusLabels[reviewer.status] }}</NTag>
+              <NTag size="small">{{ REVIEW_STATUS_LABELS[reviewer.status] }}</NTag>
               <span v-if="reviewer.responded_at" class="muted">{{ formatDateTime(reviewer.responded_at) }}</span>
               <span v-if="reviewer.comment">{{ reviewer.comment }}</span>
             </div>

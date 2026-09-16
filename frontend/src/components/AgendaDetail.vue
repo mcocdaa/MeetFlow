@@ -15,7 +15,7 @@ import type { MarkdownEditorHandle } from './MarkdownEditor.vue'
 import OutcomeComposer from './OutcomeComposer.vue'
 import PluginEditorSlot from './PluginEditorSlot.vue'
 import VersionConflictDialog from './VersionConflictDialog.vue'
-import { formatDateTime, parseUtcTimestamp } from '../utils/time'
+import { formatDateTime, formatDuration, parseUtcTimestamp } from '../utils/time'
 
 const props = defineProps<{ meeting: Meeting; item: AgendaItem; canContribute: boolean }>()
 const emit = defineEmits<{ changed: []; advance: [nextId: string | null] }>()
@@ -117,15 +117,6 @@ const liveElapsed = computed(() => {
   const seconds = elapsedSeconds % 60
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':')
 })
-
-function formatDuration(seconds: number) {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const remainder = seconds % 60
-  if (hours) return `${hours} 小时${minutes ? ` ${minutes} 分` : ''}${remainder ? ` ${remainder} 秒` : ''}`
-  if (!minutes) return `${remainder} 秒`
-  return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`
-}
 
 watch(() => props.item, (item) => {
   const next = draftFor(item)

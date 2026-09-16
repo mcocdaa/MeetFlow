@@ -6,7 +6,7 @@ import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { Meeting } from '../domain/meetings'
-import { formatDateTime, parseUtcTimestamp } from '../utils/time'
+import { formatDateTime, formatDuration, parseUtcTimestamp } from '../utils/time'
 import { priorityLabel } from '../utils/labels'
 import AttachmentPanel from './AttachmentPanel.vue'
 import MarkdownEditor from './MarkdownEditor.vue'
@@ -57,17 +57,6 @@ function nullableText(value: unknown): string | null {
 
 function nullableNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function duration(seconds: number | null): string {
-  if (seconds === null) return '—'
-  const hours = Math.floor(seconds / 3600)
-  const remainingSeconds = seconds % 3600
-  const minutes = Math.floor(remainingSeconds / 60)
-  const remainder = remainingSeconds % 60
-  if (hours) return `${hours} 小时${minutes ? ` ${minutes} 分` : ''}${remainder ? ` ${remainder} 秒` : ''}`
-  if (!minutes) return `${remainder} 秒`
-  return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`
 }
 
 function utcMilliseconds(value: string | null): number | null {
@@ -157,7 +146,7 @@ async function addAmendment() {
         <div v-if="canContribute" class="page-header-actions"><button class="button button-quiet" @click="amendmentOpen = !amendmentOpen">添加更正</button></div>
       </header>
       <p class="snapshot-meta">快照 #{{ meeting.current_snapshot?.completion_number ?? '—' }} · 原始记录保持只读</p>
-      <p class="completed-meeting-duration" data-testid="completed-meeting-duration">实际会议时长：{{ duration(actualMeetingDurationSeconds) }}</p>
+      <p class="completed-meeting-duration" data-testid="completed-meeting-duration">实际会议时长：{{ formatDuration(actualMeetingDurationSeconds) }}</p>
       <p v-if="actualMeetingWindow" class="completed-meeting-window" data-testid="completed-meeting-window">{{ actualMeetingWindow }}</p>
       <MarkdownView :source="String(snapshotMeeting.summary_markdown ?? meeting.summary_markdown)" empty-text="本次会议未填写摘要" />
     </n-card>
@@ -177,7 +166,7 @@ async function addAmendment() {
           </template>
           <div class="completed-outcome-body">
             <template v-if="item.notesMarkdown !== undefined">
-              <p class="completed-agenda-timing">预计 {{ item.estimatedMinutes ?? '—' }} 分钟 · 实际 {{ duration(item.actualDurationSeconds ?? null) }}</p>
+              <p class="completed-agenda-timing">预计 {{ item.estimatedMinutes ?? '—' }} 分钟 · 实际 {{ formatDuration(item.actualDurationSeconds ?? null) }}</p>
               <section class="completed-agenda-notes"><h3>议题记录</h3><MarkdownView :source="item.notesMarkdown" empty-text="本议题未填写记录" /></section>
             </template>
             <section v-if="item.decisions.length" class="completed-outcome-group">

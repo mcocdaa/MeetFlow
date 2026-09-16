@@ -11,15 +11,11 @@ import { loadUserNames, nameOf, userNames } from '../composables/useUserNameMap'
 import type { Decision } from '../domain/outcomes'
 import type { Project } from '../domain/projects'
 import { errorMessage } from '../utils/errors'
+import { REVIEW_STATUS_LABELS } from '../utils/labels'
 import { formatDateTime } from '../utils/time'
 
 const PAGE_SIZE = 50
 
-const REVIEW_STATUS_LABELS: Record<string, string> = {
-  pending: '待评审',
-  approved: '已同意',
-  changes_requested: '需修改',
-}
 const REVIEW_STATUS_TYPES: Record<string, 'default' | 'warning' | 'success' | 'error'> = {
   pending: 'warning',
   approved: 'success',
@@ -131,7 +127,7 @@ function reviewerBadges(row: Decision) {
     type: REVIEW_STATUS_TYPES[reviewer.status] ?? 'default',
     class: 'reviewer-badge',
   }, {
-    default: () => `${nameOf(reviewer.user_id)}·${REVIEW_STATUS_LABELS[reviewer.status] ?? reviewer.status}`,
+    default: () => `${nameOf(reviewer.user_id)}·${REVIEW_STATUS_LABELS[reviewer.status]}`,
   })))
 }
 
