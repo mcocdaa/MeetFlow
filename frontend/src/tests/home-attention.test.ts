@@ -35,6 +35,8 @@ describe('personal workspace home', () => {
     expect(await screen.findByText('测试 reward')).toBeInTheDocument()
     expect(screen.getByText('已逾期 · 有新回复')).toBeInTheDocument()
     expect(screen.queryByText('会议不是终点')).not.toBeInTheDocument()
+    expect(screen.queryByText('→')).not.toBeInTheDocument()
+    expect(document.querySelector('.attention-card svg')).not.toBeNull()
 
     const priorityQueue = screen.getByRole('region', { name: '需要关注' })
     const upcomingMeetings = screen.getByRole('complementary', { name: '近期会议' })
