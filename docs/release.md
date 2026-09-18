@@ -18,7 +18,7 @@
 
 ## 发布镜像
 
-`.github/workflows/release.yml` 只在 `v*` tag 推送时启动。工作流首先校验 tag 是带 `v` 前缀的 SemVer（可带预发布后缀），然后通过可复用测试工作流运行后端测试、前端测试和前端生产构建。
+`.github/workflows/release.yml` 只在 `v*` tag 推送时启动。工作流首先校验 tag 是带 `v` 前缀的 SemVer（可带预发布后缀），并且与 `pyproject.toml` 的 `version` 严格对应（`v0.3.0` 对应 `0.3.0`，预发布可用 `v0.3.0-rc.1`），然后通过可复用测试工作流运行后端测试、前端测试和前端生产构建。
 
 发布 tag 必须指向 `main` 历史中的提交。GitHub 的 `main` 保护规则负责要求 PR 与 CI；发布工作流还会拉取 `main` 并拒绝任何不在该历史中的 tag，因此不能从未合并的功能分支发布镜像。
 

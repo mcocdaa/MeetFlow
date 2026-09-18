@@ -12,6 +12,8 @@ def test_release_workflow_publishes_the_public_multiarch_tag_contract():
         "uses: ./.github/workflows/test-backend.yml",
         "uses: ./.github/workflows/test-frontend.yml",
         "Tag must be valid SemVer prefixed with v",
+        "Verify tag matches package version",
+        "must match v$package_version from pyproject.toml",
         "git merge-base --is-ancestor",
         "IMAGE_NAME: ghcr.io/mcocdaa/meetflow",
         "packages: write",
