@@ -50,7 +50,7 @@ npm --prefix frontend run build
 
 改动发布或容器相关文件时，还应阅读[发布指南](release.md)中的 CI 与镜像验证说明。
 
-依赖更新由 `.github/dependabot.yml` 每周检查：GitHub Actions、`frontend/` 的 npm 依赖和根目录的 pip 依赖；minor/patch 更新各归组为一个 PR。
+依赖更新由 `.github/dependabot.yml` 每周检查：GitHub Actions、`frontend/` 的 npm 依赖和根目录的 pip 依赖；minor/patch 更新各归组为一个 PR。`typescript` 与 `vue-router` 的 major 升级暂被忽略（工具链/生态未就绪，需手动评估迁移）。
 
 ## 从源码使用 Docker Compose
 
