@@ -38,6 +38,14 @@ jobs:
             echo "Tag must be valid SemVer prefixed with v" >&2
             exit 1
           fi
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          package_version="$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")"
+          if [[ "$GITHUB_REF_NAME" != "v${package_version}" && "$GITHUB_REF_NAME" != "v${package_version}-"* ]]; then
+            echo "Tag $GITHUB_REF_NAME must match v$package_version from pyproject.toml" >&2
+            exit 1
+          fi
       - name: Verify release tag is reachable from main
         shell: bash
         run: |

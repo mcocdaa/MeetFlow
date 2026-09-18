@@ -1,10 +1,11 @@
 from app.plugins.contracts import PluginLoadError
+from app.runtime_info import package_version
 
 
 def test_runtime_info_reports_package_version_and_readiness(client):
     meta = client.get("/api/meta")
     assert meta.status_code == 200
-    assert meta.json()["version"] == "0.1.1"
+    assert meta.json()["version"] == package_version()
 
     response = client.get("/api/health/ready")
 

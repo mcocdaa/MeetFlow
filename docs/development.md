@@ -50,6 +50,8 @@ npm --prefix frontend run build
 
 改动发布或容器相关文件时，还应阅读[发布指南](release.md)中的 CI 与镜像验证说明。
 
+依赖更新由 `.github/dependabot.yml` 每周检查：GitHub Actions、`frontend/` 的 npm 依赖和根目录的 pip 依赖；minor/patch 更新各归组为一个 PR。
+
 ## 从源码使用 Docker Compose
 
 Compose 是从源码构建、调试或修改 `MEETFLOW_PORT`、`MEETFLOW_BIND` 时使用的高级路径，不是普通服务器使用公开镜像的默认方式。无需 `.env` 即可启动，容器使用镜像内置的开发默认值：

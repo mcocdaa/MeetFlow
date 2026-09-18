@@ -1,5 +1,9 @@
 # MeetFlow
 
+[![CI](https://github.com/mcocdaa/MeetFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/mcocdaa/MeetFlow/actions/workflows/ci.yml)
+[![Container image](https://img.shields.io/badge/image-ghcr.io%2Fmcocdaa%2Fmeetflow-0b6a58)](https://github.com/mcocdaa/MeetFlow/pkgs/container/meetflow)
+[![License](https://img.shields.io/github/license/mcocdaa/MeetFlow)](LICENSE)
+
 MeetFlow 是一个轻量级多人共享会议档案工具。一次会议可以保存 Markdown 原始记录、关键结论、结构化行动项、后续补充、图片与小文件。所有成员使用同一个共享工作区；管理员负责账号审批和插件配置。
 
 ## 快速启动
