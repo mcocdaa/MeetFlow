@@ -1,4 +1,6 @@
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+import tomllib
 from typing import Any
 
 from sqlalchemy import text
@@ -8,7 +10,13 @@ def package_version() -> str:
     try:
         return version("meetflow")
     except PackageNotFoundError:
-        return "0.1.1"
+        # Source checkout without installed metadata: keep `pyproject.toml` the single
+        # source of truth instead of a hardcoded fallback that drifts on every release.
+        pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        if pyproject.is_file():
+            with pyproject.open("rb") as fh:
+                return tomllib.load(fh)["project"]["version"]
+        return "0.0.0+unknown"
 
 
 def readiness_payload(
