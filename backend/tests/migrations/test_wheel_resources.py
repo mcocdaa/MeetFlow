@@ -57,35 +57,80 @@ def test_wheel_contains_and_runs_migrations_outside_source_tree(tmp_path):
         assert any(name.endswith(resource) for name in names), resource
 
     virtualenv = tmp_path / "venv"
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "venv",
-            "--system-site-packages",
-            str(virtualenv),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "venv",
+                "--system-site-packages",
+                str(virtualenv),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        has_pip = True
+    except subprocess.CalledProcessError:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "venv",
+                "--system-site-packages",
+                "--without-pip",
+                str(virtualenv),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        has_pip = False
+
     virtualenv_python = virtualenv / "bin" / "python"
-    subprocess.run(
-        [
-            str(virtualenv_python),
-            "-m",
-            "pip",
-            "install",
-            "--no-deps",
-            str(wheel),
-        ],
-        env=environment,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    if has_pip:
+        subprocess.run(
+            [
+                str(virtualenv_python),
+                "-m",
+                "pip",
+                "install",
+                "--no-deps",
+                str(wheel),
+            ],
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    else:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "--python",
+                str(virtualenv_python),
+                "install",
+                "--no-deps",
+                str(wheel),
+            ],
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        import sysconfig
+
+        parent_site = sysconfig.get_path("purelib")
+        virtual_site = next(virtualenv.glob("lib/python*/site-packages"))
+        (virtual_site / "_parent_venv.pth").write_text(
+            f"{parent_site}\n", encoding="utf-8"
+        )
     database = tmp_path / "installed.db"
     script = """
 from alembic.config import Config
