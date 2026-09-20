@@ -7,8 +7,10 @@ import { errorMessage } from '../utils/errors'
 import { api, ApiError } from '../api/client'
 import type { Page, UserRef } from '../api/contracts'
 import type { AgendaDraft, AgendaItem, Attachment, Meeting } from '../domain/meetings'
+import type { ActionItem, ActionStatus } from '../domain/outcomes'
 import type { Project } from '../domain/projects'
 import { assistantsForSlot } from '../plugins/registry'
+import { Check } from '@lucide/vue'
 import AttachmentPanel from './AttachmentPanel.vue'
 import MarkdownEditor from './MarkdownEditor.vue'
 import type { MarkdownEditorHandle } from './MarkdownEditor.vue'
@@ -333,6 +335,58 @@ async function submitCopy() {
     copySaving.value = false
   }
 }
+
+const hoveredOutcomeId = ref<string | null>(null)
+
+async function toggleActionStatus(action: ActionItem, newStatus?: ActionStatus) {
+  if (!props.canContribute) return
+  const nextStatus: ActionStatus = newStatus ?? (action.status === 'done' ? 'open' : 'done')
+  try {
+    const updated = await api<ActionItem>(`/api/actions/${action.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        status: nextStatus,
+        expected_version: action.version,
+      }),
+    })
+    action.status = updated.status
+    action.version = updated.version
+    emit('changed')
+  } catch (caught) {
+    error.value = errorMessage(caught, '更新行动项失败')
+  }
+}
+
+function cycleActionStatus(action: ActionItem) {
+  if (!props.canContribute) return
+  const cycleMap: Record<ActionStatus, ActionStatus> = {
+    open: 'in_progress',
+    in_progress: 'done',
+    done: 'open',
+    canceled: 'open',
+  }
+  void toggleActionStatus(action, cycleMap[action.status] || 'open')
+}
+
+function actionStatusLabel(status: ActionStatus): string {
+  const map: Record<ActionStatus, string> = {
+    open: '待办',
+    in_progress: '进行中',
+    done: '已完成',
+    canceled: '已取消',
+  }
+  return map[status] || status
+}
+
+const noteActionTags = computed(() => {
+  const regex = /@行动:(\[[^\]]*\])*\s*([^\n\r]+)/g
+  const matches: string[] = []
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(draft.notes_markdown)) !== null) {
+    matches.push(match[2].trim())
+  }
+  return matches
+})
 </script>
 
 <template>
@@ -380,7 +434,72 @@ async function submitCopy() {
 
     <section class="agenda-outcomes"><header class="section-heading"><div><p class="eyebrow">Outcomes</p><h2>本议题产出</h2></div><div v-if="canContribute" class="outcome-action-group" data-testid="outcome-actions"><button class="button button-small button-quiet" @click="composer = 'decision'">+ 决策</button><button class="button button-small button-quiet" @click="composer = 'action'">+ 行动</button><button class="button button-small button-quiet" @click="composer = 'question'">+ 开放问题</button></div></header>
       <OutcomeComposer v-if="canContribute && composer" :mode="composer" :meeting="meeting" :item="item" @close="composer = null" @saved="emit('changed')" />
-      <div class="outcome-list"><article v-for="decision in item.decisions" :key="decision.id"><span>{{ decision.is_derived ? '来自议题记录' : '决策' }}</span><strong>{{ decision.title }}</strong></article><article v-for="action in item.actions" :key="action.id"><span>{{ action.is_derived ? '来自议题记录' : '行动' }}</span><strong>{{ action.content }}</strong></article><article v-for="question in item.open_questions" :key="question.id"><span>{{ question.is_derived ? '来自议题记录' : '问题' }}</span><strong>{{ question.question_markdown }}</strong></article><p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">讨论结果会在这里形成可追踪的链条。</p></div>
+      <div class="outcome-list">
+        <article
+          v-for="decision in item.decisions"
+          :key="decision.id"
+          :class="{ 'linked-glow': hoveredOutcomeId === decision.id }"
+          @mouseenter="hoveredOutcomeId = decision.id"
+          @mouseleave="hoveredOutcomeId = null"
+        >
+          <span>{{ decision.is_derived ? '来自议题记录' : '决策' }}</span>
+          <strong>{{ decision.title }}</strong>
+        </article>
+
+        <article
+          v-for="action in item.actions"
+          :key="action.id"
+          class="outcome-action-item"
+          :class="{
+            'action-item--done': action.status === 'done',
+            'linked-glow': hoveredOutcomeId === action.id || noteActionTags.includes(action.content)
+          }"
+          @mouseenter="hoveredOutcomeId = action.id"
+          @mouseleave="hoveredOutcomeId = null"
+        >
+          <span>{{ action.is_derived ? '来自议题记录' : '行动' }}</span>
+          <div class="outcome-action-content">
+            <button
+              type="button"
+              class="action-checkbox-btn"
+              :class="[`status-${action.status}`]"
+              :disabled="!canContribute"
+              title="切换完成状态"
+              @click="toggleActionStatus(action)"
+            >
+              <span v-if="action.status === 'done'" class="action-check-icon"><Check :size="12" :stroke-width="3" /></span>
+              <span v-else-if="action.status === 'in_progress'" class="action-dot-icon"></span>
+            </button>
+            <strong :class="{ 'text-strikethrough': action.status === 'done' }">{{ action.content }}</strong>
+            <div class="action-tags-inline">
+              <span v-if="action.owner" class="action-user-pill">@{{ action.owner.display_name }}</span>
+              <span v-if="action.due_date" class="action-date-pill">截止 {{ action.due_date }}</span>
+              <button
+                type="button"
+                class="action-status-pill-btn"
+                :class="[`pill-${action.status}`]"
+                :disabled="!canContribute"
+                title="点击切换状态"
+                @click="cycleActionStatus(action)"
+              >
+                {{ actionStatusLabel(action.status) }}
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article
+          v-for="question in item.open_questions"
+          :key="question.id"
+          :class="{ 'linked-glow': hoveredOutcomeId === question.id }"
+          @mouseenter="hoveredOutcomeId = question.id"
+          @mouseleave="hoveredOutcomeId = null"
+        >
+          <span>{{ question.is_derived ? '来自议题记录' : '问题' }}</span>
+          <strong>{{ question.question_markdown }}</strong>
+        </article>
+        <p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">讨论结果会在这里形成可追踪的链条。</p>
+      </div>
     </section>
 
     <section class="agenda-attachments" data-testid="agenda-attachments">
