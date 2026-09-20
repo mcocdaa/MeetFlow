@@ -101,9 +101,26 @@ def attachment_delete_allowed(
     )
 
 
-def serialize(item: Attachment, *, can_delete: bool = False) -> dict[str, Any]:
+from pydantic import BaseModel, Field
+
+
+class ChunkInitRequest(BaseModel):
+    filename: str
+    total_size: int = Field(gt=0)
+    total_chunks: int = Field(gt=0)
+    sha256: str | None = None
+
+
+def serialize(
+    item: Attachment,
+    *,
+    can_delete: bool = False,
+    sha256: str | None = None,
+) -> dict[str, Any]:
     result = serialize_attachment_ref(item)
     result["can_delete"] = can_delete
+    if sha256:
+        result["sha256"] = sha256
     return result
 
 
@@ -143,7 +160,10 @@ async def upload_attachment(
     target = require_target(session, target_type, target_id)
     require_target_access(session, target, user, contribute=True)
     storage = request.app.state.attachment_storage
-    stored_name, final_path, size = await storage.save(target_type, target_id, file)
+    expected_sha256 = request.headers.get("X-Content-SHA256") or request.query_params.get("sha256")
+    stored_name, final_path, size, computed_sha256 = await storage.save(
+        target_type, target_id, file, expected_sha256=expected_sha256
+    )
     detected_image = sniff_inline_image(final_path)
     attachment = Attachment(
         target_type=target_type,
@@ -171,6 +191,7 @@ async def upload_attachment(
                 "size": attachment.size,
                 "target_type": attachment.target_type,
                 "target_id": attachment.target_id,
+                "sha256": computed_sha256,
             },
         )
         session.commit()
@@ -180,7 +201,149 @@ async def upload_attachment(
         raise
     session.refresh(attachment)
     _ = attachment.creator
-    return utc_response(serialize(attachment, can_delete=True), status_code=201)
+    return utc_response(
+        serialize(attachment, can_delete=True, sha256=computed_sha256), status_code=201
+    )
+
+
+@router.post("/{target_type}/{target_id}/chunks/init", status_code=201)
+def init_chunk_upload(
+    target_type: str,
+    target_id: str,
+    payload: ChunkInitRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    target = require_target(session, target_type, target_id)
+    require_target_access(session, target, user, contribute=True)
+    storage = request.app.state.attachment_storage
+    session_id = storage.init_chunk_session(
+        target_type=target_type,
+        target_id=target_id,
+        filename=payload.filename,
+        total_size=payload.total_size,
+        total_chunks=payload.total_chunks,
+        expected_sha256=payload.sha256,
+    )
+    return utc_response({"session_id": session_id, "uploaded_chunks": []}, status_code=201)
+
+
+@router.post("/{target_type}/{target_id}/chunks/{session_id}")
+async def upload_chunk(
+    target_type: str,
+    target_id: str,
+    session_id: str,
+    request: Request,
+    chunk_index: int = File(...),
+    chunk: UploadFile = File(...),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    target = require_target(session, target_type, target_id)
+    require_target_access(session, target, user, contribute=True)
+    storage = request.app.state.attachment_storage
+    size = await storage.save_chunk(
+        target_type=target_type,
+        target_id=target_id,
+        session_id=session_id,
+        chunk_index=chunk_index,
+        upload=chunk,
+    )
+    return utc_response({
+        "session_id": session_id,
+        "chunk_index": chunk_index,
+        "bytes_received": size,
+        "status": "uploaded",
+    })
+
+
+@router.get("/{target_type}/{target_id}/chunks/{session_id}")
+def get_chunk_upload_status(
+    target_type: str,
+    target_id: str,
+    session_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    target = require_target(session, target_type, target_id)
+    require_target_access(session, target, user, contribute=False)
+    storage = request.app.state.attachment_storage
+    status = storage.get_chunk_session(target_type, target_id, session_id)
+    return utc_response(status)
+
+
+@router.post("/{target_type}/{target_id}/chunks/{session_id}/complete", status_code=201)
+def complete_chunk_upload(
+    target_type: str,
+    target_id: str,
+    session_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    target = require_target(session, target_type, target_id)
+    require_target_access(session, target, user, contribute=True)
+    storage = request.app.state.attachment_storage
+    stored_name, final_path, size, computed_sha256, filename = (
+        storage.complete_chunk_session(target_type, target_id, session_id)
+    )
+    detected_image = sniff_inline_image(final_path)
+    attachment = Attachment(
+        target_type=target_type,
+        target_id=target_id,
+        original_name=Path(filename).name[:255],
+        stored_name=stored_name,
+        mime_type=detected_image or "application/octet-stream",
+        size=size,
+        attachment_type="image" if detected_image else "file",
+        created_by=user.id,
+    )
+    session.add(attachment)
+    try:
+        session.flush()
+        project_id, meeting_id = activity_context(target)
+        ActivityRecorder(session).record(
+            project_id=project_id,
+            meeting_id=meeting_id,
+            actor_user_id=user.id,
+            event_type="attachment.uploaded",
+            subject_type="attachment",
+            subject_id=attachment.id,
+            payload={
+                "filename": attachment.original_name,
+                "size": attachment.size,
+                "target_type": attachment.target_type,
+                "target_id": attachment.target_id,
+                "sha256": computed_sha256,
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        final_path.unlink(missing_ok=True)
+        raise
+    session.refresh(attachment)
+    _ = attachment.creator
+    return utc_response(
+        serialize(attachment, can_delete=True, sha256=computed_sha256), status_code=201
+    )
+
+
+@router.delete("/{target_type}/{target_id}/chunks/{session_id}", status_code=204)
+def abort_chunk_upload(
+    target_type: str,
+    target_id: str,
+    session_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> None:
+    target = require_target(session, target_type, target_id)
+    require_target_access(session, target, user, contribute=True)
+    storage = request.app.state.attachment_storage
+    storage.abort_chunk_session(target_type, target_id, session_id)
 
 
 def attachment_file(request: Request, item: Attachment) -> Path:

@@ -370,13 +370,15 @@ def test_saving_agenda_reconciles_tagged_outcomes_and_preserves_manual_rows(
         assert manual.id not in {row.id for row in actions}
         assert manual.id in {row.id for row in saved.actions}
 
-        with pytest.raises(AppError) as readonly:
-            OutcomeService(session).update_action(
-                actions[0].id,
-                ActionEdit(expected_version=actions[0].version, content="Rewrite"),
-                admin,
-            )
-        assert readonly.value.code == "derived_outcome_read_only"
+        updated_action = OutcomeService(session).update_action(
+            actions[0].id,
+            ActionEdit(expected_version=actions[0].version, content="Rewrite"),
+            admin,
+        )
+        assert updated_action.content == "Rewrite"
+        refreshed_agenda = session.get(AgendaItem, saved.id)
+        assert "@行动:[todo] Rewrite" in refreshed_agenda.notes_markdown
+
         with pytest.raises(AppError, match="derived_outcome_read_only"):
             OutcomeService(session).update_decision(
                 decisions[0].id,

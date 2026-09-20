@@ -21,7 +21,7 @@ from app.agendas.schemas import (
 )
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
-from app.domain.enums import AgendaStatus, MeetingStatus, OpenQuestionStatus
+from app.domain.enums import ActionStatus, AgendaStatus, MeetingStatus, OpenQuestionStatus
 from app.domain.versioning import StaleCheck, require_version, resolve_stale
 from app.errors import AppError
 from app.meetings.models import Meeting
@@ -73,6 +73,18 @@ class AgendaService:
             raise AppError(404, "agenda_item_not_found", "议题不存在")
         return item
 
+    def _resolve_owner_identifier(self, identifier: str | None) -> str | None:
+        if not identifier:
+            return None
+        user = self.session.scalar(
+            select(User).where(
+                (User.username == identifier)
+                | (User.display_name == identifier)
+                | (User.id == identifier)
+            )
+        )
+        return user.id if user else None
+
     def _reconcile_derived_outcomes(
         self, item: AgendaItem, tags: list[TaggedOutcome], actor: User
     ) -> None:
@@ -122,6 +134,7 @@ class AgendaService:
                         )
                     )
                 elif tag.kind == "action":
+                    owner_id = self._resolve_owner_identifier(tag.owner_name)
                     self.session.add(
                         ActionItem(
                             project_id=meeting.project_id,
@@ -130,6 +143,10 @@ class AgendaService:
                             source_agenda_item_id=item.id,
                             source_tag_key=tag.source_tag_key,
                             content=tag.content,
+                            status=tag.status,
+                            owner_user_id=owner_id,
+                            due_date=tag.due_date,
+                            completed_at=utcnow() if tag.status == ActionStatus.done else None,
                             created_by=actor.id,
                         )
                     )
@@ -165,6 +182,24 @@ class AgendaService:
                 if getattr(row, field) != value:
                     setattr(row, field, value)
                     changed = True
+
+            if tag.kind == "action":
+                if tag.owner_name:
+                    resolved_owner = self._resolve_owner_identifier(tag.owner_name)
+                    if row.owner_user_id != resolved_owner:
+                        row.owner_user_id = resolved_owner
+                        changed = True
+                if tag.due_date is not None and row.due_date != tag.due_date:
+                    row.due_date = tag.due_date
+                    changed = True
+                if tag.status != row.status:
+                    row.status = tag.status
+                    if tag.status == ActionStatus.done and not row.completed_at:
+                        row.completed_at = utcnow()
+                    elif tag.status != ActionStatus.done and row.completed_at:
+                        row.completed_at = None
+                    changed = True
+
             if changed:
                 row.version += 1
 
