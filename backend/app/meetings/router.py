@@ -249,3 +249,89 @@ def add_amendment(
         serialize_amendment(service.add_amendment(meeting_id, payload, user)),
         status_code=201,
     )
+
+
+from typing import Literal
+from pydantic import BaseModel
+from app.collaboration.activity import ActivityRecorder
+from app.time_utils import utcnow
+from app.webhooks.adapter import (
+    dispatch_webhook,
+    format_dingtalk_card,
+    format_feishu_card,
+    format_generic_card,
+)
+
+
+class MeetingWebhookNotifyRequest(BaseModel):
+    webhook_url: str
+    webhook_type: Literal["feishu", "dingtalk", "generic"] = "feishu"
+    secret: str | None = None
+
+
+@router.post("/api/meetings/{meeting_id}/webhook-notify")
+async def notify_meeting_webhook(
+    meeting_id: str,
+    payload: MeetingWebhookNotifyRequest,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    meeting = WorkspaceAccess(session).require_meeting_view(meeting_id, user)
+    service = MeetingService(session)
+    detail = service.meeting_detail(meeting_id, user)
+    project_name = meeting.project.name if meeting.project else "未指定项目"
+    completed_time_str = (
+        meeting.completed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+        if meeting.completed_at
+        else utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    )
+    summary_text = detail.get("summary_markdown") or detail.get("purpose_markdown") or ""
+    decisions = [d["title"] for d in detail.get("decisions", [])]
+    actions = [a["content"] for a in detail.get("actions", [])]
+
+    if payload.webhook_type == "feishu":
+        card = format_feishu_card(
+            meeting_title=meeting.title,
+            project_name=project_name,
+            completed_at_str=completed_time_str,
+            summary=summary_text,
+            decisions=decisions,
+            actions=actions,
+        )
+    elif payload.webhook_type == "dingtalk":
+        card = format_dingtalk_card(
+            meeting_title=meeting.title,
+            project_name=project_name,
+            completed_at_str=completed_time_str,
+            summary=summary_text,
+            decisions=decisions,
+            actions=actions,
+        )
+    else:
+        card = format_generic_card(
+            meeting_title=meeting.title,
+            project_name=project_name,
+            completed_at_str=completed_time_str,
+            summary=summary_text,
+            decisions=decisions,
+            actions=actions,
+        )
+
+    res = await dispatch_webhook(
+        webhook_url=payload.webhook_url,
+        webhook_type=payload.webhook_type,
+        payload=card,
+        secret=payload.secret,
+    )
+    ActivityRecorder(session).record(
+        project_id=meeting.project_id,
+        meeting_id=meeting.id,
+        actor_user_id=user.id,
+        event_type="meeting.webhook_sent",
+        subject_type="meeting",
+        subject_id=meeting.id,
+        payload={"webhook_type": payload.webhook_type, "webhook_url": payload.webhook_url},
+    )
+    session.commit()
+    return utc_response({"status": "ok", "response": res, "webhook_type": payload.webhook_type})
+

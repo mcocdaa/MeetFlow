@@ -10,6 +10,7 @@ from app.agendas.router import router as agendas_router
 from app.attachments.router import router as attachments_router
 from app.attachments.storage import AttachmentStorage
 from app.auth.router import admin_router, router as auth_router
+from app.calendar.router import router as calendar_router
 from app.auth.service import AuthService
 from app.config import Settings
 from app.collaboration.router import comments_router, router as collaboration_router
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(collaboration_router)
     app.include_router(comments_router)
     app.include_router(inbox_router)
+    app.include_router(calendar_router)
 
     @app.middleware("http")
     async def reject_cross_origin_writes(request: Request, call_next):
