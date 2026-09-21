@@ -11,6 +11,7 @@
 | 修改 CI、容器发布或创建版本 tag | [release.md](release.md) |
 | 修改插件运行时契约 | [后端插件契约](../backend/app/plugins/README.md) |
 | 修改 AI 工作助手插件 | [AI 工作助手说明](../plugins/ai-work-assistant/README.md) |
+| 查阅产品深度调研与演进白皮书 | [产品调研与演进白皮书](product_research_and_plan.md) |
 
 ## 文档归属
 

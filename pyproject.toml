@@ -39,5 +39,5 @@ include = ["app*"]
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["backend"]
+pythonpath = ["backend", "."]
 testpaths = ["backend/tests"]

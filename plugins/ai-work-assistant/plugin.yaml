@@ -19,4 +19,4 @@ config_schema:
   secrets:
     - key: api_key
       type: string
-      required: true
+      required: false

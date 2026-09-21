@@ -14,7 +14,17 @@ from app.plugins.contracts import MeetingAction
 
 
 def _endpoint(base_url: str) -> str:
-    return f"{base_url.rstrip('/')}/chat/completions"
+    url = base_url.rstrip("/")
+    if url.endswith("/chat/completions"):
+        return url
+    return f"{url}/chat/completions"
+
+
+def _headers(config: dict[str, Any]) -> dict[str, str]:
+    api_key = config.get("api_key")
+    if api_key and str(api_key).strip():
+        return {"Authorization": f"Bearer {api_key}"}
+    return {}
 
 
 def _editor_context(current_markdown: str) -> str:
@@ -42,7 +52,7 @@ async def _draft(
         timeout=float(config["timeout_seconds"])
     ).post(
         _endpoint(config["base_url"]),
-        headers={"Authorization": f"Bearer {config['api_key']}"},
+        headers=_headers(config),
         json={
             "model": config["model"],
             "messages": [
@@ -122,7 +132,7 @@ async def user_work_brief_stream(
         async with client.stream(
             "POST",
             _endpoint(config["base_url"]),
-            headers={"Authorization": f"Bearer {config['api_key']}"},
+            headers=_headers(config),
             json=request_payload,
         ) as response:
             response.raise_for_status()

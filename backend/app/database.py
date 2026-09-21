@@ -9,6 +9,63 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session
 
 
+import functools
+import inspect
+import time
+import sqlite3
+from sqlalchemy.exc import OperationalError
+
+
+def retry_on_db_lock(
+    max_retries: int = 5,
+    initial_backoff: float = 0.05,
+    backoff_factor: float = 2.0,
+):
+    """Decorator to retry operations encountering SQLite locks with exponential backoff."""
+    def decorator(fn):
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def async_wrapper(*args, **kwargs):
+                retries = 0
+                backoff = initial_backoff
+                while True:
+                    try:
+                        return await fn(*args, **kwargs)
+                    except (OperationalError, sqlite3.OperationalError) as exc:
+                        is_lock = any(
+                            msg in str(exc).lower()
+                            for msg in ("database is locked", "busy", "lock")
+                        )
+                        if is_lock and retries < max_retries:
+                            retries += 1
+                            time.sleep(backoff)
+                            backoff *= backoff_factor
+                            continue
+                        raise
+            return async_wrapper
+        else:
+            @functools.wraps(fn)
+            def sync_wrapper(*args, **kwargs):
+                retries = 0
+                backoff = initial_backoff
+                while True:
+                    try:
+                        return fn(*args, **kwargs)
+                    except (OperationalError, sqlite3.OperationalError) as exc:
+                        is_lock = any(
+                            msg in str(exc).lower()
+                            for msg in ("database is locked", "busy", "lock")
+                        )
+                        if is_lock and retries < max_retries:
+                            retries += 1
+                            time.sleep(backoff)
+                            backoff *= backoff_factor
+                            continue
+                        raise
+            return sync_wrapper
+    return decorator
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -66,6 +123,9 @@ class Database:
         cursor = connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA cache_size=-64000")
+        cursor.execute("PRAGMA mmap_size=268435456")
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 

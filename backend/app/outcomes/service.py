@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.agendas.models import AgendaItem
+from app.agendas.outcome_tags import format_action_tag, rewrite_action_in_notes
 from app.time_utils import as_utc, utcnow
 from app.validation import fetch_users, require_active
 from app.auth.models import User, UserStatus
@@ -510,8 +511,6 @@ class OutcomeService:
         require_active(actor)
         action = self._action(action_id)
         self._require_project_contribution(action.project_id, actor)
-        if action.source_agenda_item_id is not None:
-            raise AppError(409, "derived_outcome_read_only", "议题备注生成的成果不可直接编辑")
         require_version(payload.expected_version, action.version)
         previous_owner_user_id = action.owner_user_id
         requested = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
@@ -531,6 +530,28 @@ class OutcomeService:
             elif previous_status == ActionStatus.done:
                 action.completed_at = None
         if changes:
+            if action.source_agenda_item_id and action.source_tag_key:
+                agenda_item = self.session.get(AgendaItem, action.source_agenda_item_id)
+                if agenda_item and agenda_item.notes_markdown:
+                    owner_name = None
+                    if action.owner_user_id:
+                        owner_user = self.session.get(User, action.owner_user_id)
+                        if owner_user:
+                            owner_name = owner_user.username or owner_user.display_name
+                    new_tag = format_action_tag(
+                        content=action.content,
+                        status=action.status,
+                        owner=owner_name,
+                        due_date=action.due_date,
+                    )
+                    updated_notes = rewrite_action_in_notes(
+                        agenda_item.notes_markdown,
+                        action.source_tag_key,
+                        new_tag,
+                    )
+                    if updated_notes != agenda_item.notes_markdown:
+                        agenda_item.notes_markdown = updated_notes
+                        agenda_item.version += 1
             meeting_versions = self._touch_meetings(actor, action.meeting_id)
             action.version += 1
             event_type = "action.updated"

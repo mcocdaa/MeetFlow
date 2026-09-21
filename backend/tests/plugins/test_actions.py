@@ -67,6 +67,48 @@ def test_ai_work_assistant_sends_current_editor_text_with_server_snapshot(
     assert result == {"markdown": "# AI 草稿", "model": "test-model"}
 
 
+def test_ai_work_assistant_supports_ollama_without_api_key(
+    ai_work_assistant_backend, monkeypatch
+):
+    captured: dict = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "- [ ] 本地提炼行动项"}}]}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return Response()
+
+    monkeypatch.setattr(ai_work_assistant_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(
+        ai_work_assistant_backend.action_suggestions(
+            {"title": "内网离线评审"},
+            {"current_markdown": ""},
+            {
+                "base_url": "http://127.0.0.1:11434/v1",
+                "api_key": "",
+                "model": "qwen2.5:7b",
+                "timeout_seconds": 30,
+            },
+        )
+    )
+
+    assert captured["url"] == "http://127.0.0.1:11434/v1/chat/completions"
+    assert "Authorization" not in captured["headers"]
+    assert result == {"markdown": "- [ ] 本地提炼行动项", "model": "qwen2.5:7b"}
+
+
+
 def test_action_suggestions_return_editable_markdown(
     ai_work_assistant_backend, monkeypatch
 ):
