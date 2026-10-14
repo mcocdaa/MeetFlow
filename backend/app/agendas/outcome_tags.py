@@ -29,6 +29,7 @@ _TAGS: tuple[tuple[OutcomeKind, str], ...] = (
     ("decision", "@决策:"),
     ("action", "@行动:"),
     ("question", "@开放问题:"),
+    ("question", "@问题:"),
 )
 
 
@@ -47,7 +48,7 @@ def parse_action_metadata(
         if not match:
             break
         token = match.group(1).strip()
-        text = text[match.end() :]
+        token_lower = token.lower()
 
         if token.startswith("@"):
             owner = token[1:].strip()
@@ -55,15 +56,19 @@ def parse_action_metadata(
             try:
                 due_date_val = date.fromisoformat(token)
             except ValueError:
-                pass
-        elif token.lower() in ("todo", "open"):
+                break
+        elif token_lower in ("todo", "open"):
             status = ActionStatus.open
-        elif token.lower() in ("in_progress", "doing", "progress"):
+        elif token_lower in ("in_progress", "doing", "progress"):
             status = ActionStatus.in_progress
-        elif token.lower() in ("done", "completed", "finish", "finished"):
+        elif token_lower in ("done", "completed", "finish", "finished"):
             status = ActionStatus.done
-        elif token.lower() in ("canceled", "cancelled"):
+        elif token_lower in ("canceled", "cancelled"):
             status = ActionStatus.canceled
+        else:
+            break
+
+        text = text[match.end() :]
 
     return text.strip(), status, owner, due_date_val
 
@@ -111,8 +116,14 @@ def rewrite_action_in_notes(
 
     lines = notes_markdown.splitlines(keepends=True)
     action_count = 0
+    in_fence = False
     for idx, raw_line in enumerate(lines):
         line = raw_line.strip()
+        if line.startswith("```") or line.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
         if line.startswith("@行动:"):
             if action_count == target_index:
                 leading_ws_len = len(raw_line) - len(raw_line.lstrip())
@@ -132,8 +143,14 @@ def parse_outcome_tags(markdown: str) -> list[TaggedOutcome]:
         "question": 0,
     }
     result: list[TaggedOutcome] = []
+    in_fence = False
     for line_number, raw_line in enumerate(markdown.splitlines(), start=1):
         line = raw_line.strip()
+        if line.startswith("```") or line.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
         matched = next(
             ((kind, prefix) for kind, prefix in _TAGS if line.startswith(prefix)),
             None,

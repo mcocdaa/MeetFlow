@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session
 
 
+import asyncio
 import functools
 import inspect
 import time
@@ -38,7 +39,7 @@ def retry_on_db_lock(
                         )
                         if is_lock and retries < max_retries:
                             retries += 1
-                            time.sleep(backoff)
+                            await asyncio.sleep(backoff)
                             backoff *= backoff_factor
                             continue
                         raise

@@ -200,6 +200,9 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
     expect(screen.getByText('实时决议与待办')).toBeInTheDocument()
     expect(screen.getByText('采用轻量单容器方案')).toBeInTheDocument()
 
+    // Verify syntax guide shows @开放问题: 待确认
+    expect(screen.getByText('@开放问题: 待确认')).toBeInTheDocument()
+
     // Test advance button
     const advanceBtn = screen.getByRole('button', { name: /完成并下一项/ })
     await fireEvent.click(advanceBtn)
@@ -269,5 +272,33 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
       )
     })
     expect(onUpdateShow).toHaveBeenCalledWith(false)
+  })
+
+  it('preserves unsaved dirty notes when the same agenda item prop refreshes', async () => {
+    const meeting = meetingFixture()
+    const view = renderWithProviders(AgendaDetail, {
+      props: {
+        meeting,
+        item: meeting.agenda_items[0] as any,
+        canContribute: true,
+      },
+    })
+
+    const notesTextarea = screen.getByLabelText('议题记录')
+    await fireEvent.update(notesTextarea, '正在输入的未保存笔记内容')
+    expect(notesTextarea).toHaveValue('正在输入的未保存笔记内容')
+
+    // Simulate background poll refreshing the same item (id: 'a1') with older server notes
+    await view.rerender({
+      meeting,
+      item: {
+        ...meeting.agenda_items[0],
+        notes_markdown: '服务端旧内容',
+        version: 2,
+      } as any,
+      canContribute: true,
+    })
+
+    expect(screen.getByLabelText('议题记录')).toHaveValue('正在输入的未保存笔记内容')
   })
 })

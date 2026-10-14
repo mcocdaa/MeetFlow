@@ -348,13 +348,13 @@ const noteActionTags = computed(() => {
             </span>
           </div>
           <p class="syntax-guide-pill">
-            💡 支持在手记中直接输入 <code>@决策: 结论</code>、<code>@行动:[待办][@成员][日期] 事项</code>、<code>@问题: 待确认</code> 自动双向流转产出。
+            💡 支持在手记中直接输入 <code>@决策: 结论</code>、<code>@行动:[待办][@成员][日期] 事项</code>、<code>@开放问题: 待确认</code> 自动双向流转产出。
           </p>
           <div class="quick-tag-toolbar" v-if="canContribute">
             <span class="quick-tag-label">快捷标签:</span>
             <button type="button" class="tag-insert-btn tag-btn-decision" @click="insertTag('@决策: ')">+ 决策</button>
             <button type="button" class="tag-insert-btn tag-btn-action" @click="insertTag('@行动:[open] ')">+ 待办行动</button>
-            <button type="button" class="tag-insert-btn tag-btn-question" @click="insertTag('@问题: ')">+ 开放问题</button>
+            <button type="button" class="tag-insert-btn tag-btn-question" @click="insertTag('@开放问题: ')">+ 开放问题</button>
           </div>
         </div>
 

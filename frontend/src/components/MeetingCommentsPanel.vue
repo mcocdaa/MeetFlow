@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NButton, NList, NListItem, NPopconfirm } from 'naive-ui'
+import { NButton, NInput, NList, NListItem, NPopconfirm } from 'naive-ui'
 import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'

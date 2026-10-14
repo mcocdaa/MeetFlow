@@ -39,6 +39,12 @@ def test_ai_work_assistant_sends_current_editor_text_with_server_snapshot(
         def __init__(self, **_kwargs):
             pass
 
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
         async def post(self, _url, **kwargs):
             captured.update(kwargs)
             return Response()
@@ -82,6 +88,12 @@ def test_ai_work_assistant_supports_ollama_without_api_key(
     class Client:
         def __init__(self, **_kwargs):
             pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
 
         async def post(self, url, **kwargs):
             captured["url"] = url
@@ -131,6 +143,12 @@ def test_action_suggestions_return_editable_markdown(
         def __init__(self, **_kwargs):
             pass
 
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
         async def post(self, _url, **_kwargs):
             return Response()
 
@@ -170,6 +188,12 @@ def test_agenda_notes_return_editable_markdown_from_current_agenda(
     class Client:
         def __init__(self, **_kwargs):
             pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
 
         async def post(self, _url, **kwargs):
             captured.update(kwargs)
@@ -223,6 +247,12 @@ def test_outcome_suggestions_return_editable_markdown(
         def __init__(self, **_kwargs):
             pass
 
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
         async def post(self, _url, **_kwargs):
             return Response()
 
@@ -242,6 +272,51 @@ def test_outcome_suggestions_return_editable_markdown(
     )
 
     assert result == {"markdown": expected_markdown, "model": "test-model"}
+
+
+def test_ai_work_assistant_handles_null_message_content(
+    ai_work_assistant_backend, monkeypatch
+):
+    closed = False
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": None}}]}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            nonlocal closed
+            closed = True
+            return None
+
+        async def post(self, _url, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(ai_work_assistant_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(
+        ai_work_assistant_backend.meeting_summary(
+            {"title": "空响应测试"},
+            {"current_markdown": ""},
+            {
+                "base_url": "https://example.test/v1",
+                "api_key": "test-key",
+                "model": "test-model",
+                "timeout_seconds": 10,
+            },
+        )
+    )
+    assert closed is True
+    assert result == {"markdown": "", "model": "test-model"}
 
 
 def test_ai_work_assistant_declares_bounded_editor_input(ai_work_assistant_backend):

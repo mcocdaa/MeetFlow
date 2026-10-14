@@ -112,20 +112,29 @@ const completedWindow = computed(() => {
   return parts.join(' · ')
 })
 const liveElapsed = computed(() => {
-  if (props.item.status !== 'in_progress' || !props.meeting.started_at) return ''
-  const elapsedSeconds = Math.max(0, Math.floor((now.value - parseUtcTimestamp(props.meeting.started_at).getTime()) / 1000))
+  const startedAt = props.item.started_at ?? props.meeting.started_at
+  if (props.item.status !== 'in_progress' || !startedAt) return ''
+  const elapsedSeconds = Math.max(0, Math.floor((now.value - parseUtcTimestamp(startedAt).getTime()) / 1000))
   const hours = Math.floor(elapsedSeconds / 3600)
   const minutes = Math.floor((elapsedSeconds % 3600) / 60)
   const seconds = elapsedSeconds % 60
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':')
 })
 
+const currentItemId = ref(props.item.id)
 watch(() => props.item, (item) => {
+  const switchedItem = item.id !== currentItemId.value
+  currentItemId.value = item.id
   const next = draftFor(item)
-  Object.assign(draft, next)
-  accepted.value = next
-  currentVersion.value = item.version
-  attachmentItems.value = null
+  if (switchedItem || !dirty.value) {
+    Object.assign(draft, next)
+    accepted.value = next
+    currentVersion.value = item.version
+  }
+  if (switchedItem) {
+    attachmentItems.value = null
+    conflict.value = null
+  }
 }, { deep: true })
 
 let clockHandle: number | undefined
@@ -191,12 +200,36 @@ async function persistIfDirty(expectedVersion = currentVersion.value): Promise<b
     return true
   } catch (caught) {
     if (caught instanceof ApiError && caught.code === 'version_conflict') {
-      conflict.value = { version: Number(caught.details?.actual_version ?? currentVersion.value), server: props.item.notes_markdown }
+      let serverNotes = props.item.notes_markdown
+      let actualVersion = Number(caught.details?.actual_version ?? currentVersion.value)
+      try {
+        const latestMeeting = await api<Meeting>(`/api/meetings/${props.meeting.id}`)
+        const latestItem = latestMeeting.agenda_items?.find((row) => row.id === props.item.id)
+        if (latestItem) {
+          serverNotes = latestItem.notes_markdown
+          actualVersion = latestItem.version
+        }
+      } catch {
+        // Fallback to conflict details and current props if fetching latest meeting fails.
+      }
+      conflict.value = { version: actualVersion, server: serverNotes }
     } else error.value = errorMessage(caught, '议题保存失败')
     throw caught
   } finally {
     saving.value = false
   }
+}
+
+function reloadFromServer() {
+  const next = draftFor(props.item)
+  if (conflict.value) {
+    next.notes_markdown = conflict.value.server
+    currentVersion.value = conflict.value.version
+  }
+  Object.assign(draft, next)
+  accepted.value = next
+  conflict.value = null
+  emit('changed')
 }
 
 async function flushIfDirty(): Promise<boolean> {
@@ -508,7 +541,7 @@ const noteActionTags = computed(() => {
     </section>
 
     <footer v-if="canContribute && item.status === 'in_progress'" class="agenda-flow-actions" data-testid="flow-actions"><button class="button button-primary" :disabled="saving" @click="complete">完成议题并进入下一项</button></footer>
-    <VersionConflictDialog v-if="conflict" :local-markdown="draft.notes_markdown" :server-markdown="conflict.server" :actual-version="conflict.version" @close="conflict = null" @reload="emit('changed'); conflict = null" @overwrite="save" />
+    <VersionConflictDialog v-if="conflict" :local-markdown="draft.notes_markdown" :server-markdown="conflict.server" :actual-version="conflict.version" @close="conflict = null" @reload="reloadFromServer" @overwrite="save" />
 
     <n-drawer :show="migrateOpen" placement="right" :width="'min(560px, 100vw)'" :mask-closable="!migrateSaving" @update:show="(value: boolean) => { if (!value && !migrateSaving) migrateOpen = false }">
       <n-drawer-content title="迁移产出" closable>
