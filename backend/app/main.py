@@ -9,7 +9,7 @@ from app import models  # noqa: F401 - registers SQLAlchemy metadata
 from app.agendas.router import router as agendas_router
 from app.attachments.router import router as attachments_router
 from app.attachments.storage import AttachmentStorage
-from app.auth.router import admin_router, router as auth_router
+from app.auth.router import admin_router, router as auth_router, v1_router as auth_v1_router
 from app.calendar.router import router as calendar_router
 from app.auth.service import AuthService
 from app.config import Settings
@@ -97,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.series_scheduler = series_scheduler
     install_error_handlers(app)
     app.include_router(auth_router)
+    app.include_router(auth_v1_router)
     app.include_router(admin_router)
     app.include_router(meetings_router)
     app.include_router(agendas_router)
@@ -116,6 +117,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def reject_cross_origin_writes(request: Request, call_next):
+        path = request.scope.get("path", "")
+        if (
+            path.startswith("/api/v1/")
+            and not path.startswith("/api/v1/auth/api-key")
+            and not path.endswith("/ingest")
+        ):
+            request.scope["path"] = "/api/" + path[len("/api/v1/") :]
         origin = request.headers.get("origin", "").rstrip("/")
         if (
             request.method in {"POST", "PUT", "PATCH", "DELETE"}

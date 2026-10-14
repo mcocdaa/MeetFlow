@@ -31,6 +31,7 @@ vi.mock('../components/MarkdownEditor.vue', () => ({
 }))
 
 import AgendaDetail from '../components/AgendaDetail.vue'
+import AiIngestModal from '../components/AiIngestModal.vue'
 import CalendarSubscriptionModal from '../components/CalendarSubscriptionModal.vue'
 import type { Meeting } from '../domain/meetings'
 import FocusMode from '../components/FocusMode.vue'
@@ -300,5 +301,100 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
     })
 
     expect(screen.getByLabelText('议题记录')).toHaveValue('正在输入的未保存笔记内容')
+  })
+
+  it('ingests AI markdown notes and displays/rotates personal API key with curl example', async () => {
+    const meeting = meetingFixture()
+    apiMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/v1/auth/api-key') {
+        return Promise.resolve({
+          api_key: 'mf_u1_abcdef123456',
+          token_prefix: 'mf_u1_abcdef...',
+          user_id: 'u1',
+          username: 'lin',
+        })
+      }
+      if (url === '/api/v1/auth/api-key/rotate' && init?.method === 'POST') {
+        return Promise.resolve({
+          api_key: 'mf_u1_rotated999999',
+          token_prefix: 'mf_u1_rotate...',
+          user_id: 'u1',
+          username: 'lin',
+        })
+      }
+      if (url === '/api/v1/meetings/m1/ingest' && init?.method === 'POST') {
+        return Promise.resolve({
+          ...meeting,
+          meeting,
+          ingested_agenda_item_id: 'a-new',
+          decisions: 1,
+          actions: 1,
+          questions: 1,
+          extracted: { decisions: 1, actions: 1, questions: 1 },
+        })
+      }
+      return Promise.resolve(meeting)
+    })
+
+    const onReload = vi.fn()
+    const onIngested = vi.fn()
+    const onUpdateShow = vi.fn()
+    renderWithProviders(AiIngestModal, {
+      props: {
+        show: true,
+        meeting: meeting as any,
+        canContribute: true,
+        onReload,
+        onIngested,
+        'onUpdate:show': onUpdateShow,
+      },
+    })
+
+    // Switch to Tab 2 to verify API key & curl example
+    const apiTab = screen.getByRole('tab', { name: 'AI API 密钥与调用示例' })
+    await fireEvent.click(apiTab)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('AI API 密钥')).toHaveValue('mf_u1_abcdef123456')
+    })
+    expect(screen.getByTestId('ai-curl-example').textContent).toContain('/api/v1/meetings/m1/ingest')
+    expect(screen.getByTestId('ai-curl-example').textContent).toContain('X-API-Key: mf_u1_abcdef123456')
+
+    // Rotate API key
+    const rotateBtn = screen.getByRole('button', { name: '轮换密钥' })
+    await fireEvent.click(rotateBtn)
+    await waitFor(() => {
+      expect(screen.getByLabelText('AI API 密钥')).toHaveValue('mf_u1_rotated999999')
+    })
+
+    // Switch back to Tab 1 and submit markdown ingestion
+    const ingestTab = screen.getByRole('tab', { name: '一键导入纪要' })
+    await fireEvent.click(ingestTab)
+
+    const mdInput = screen.getByLabelText('AI 纪要 Markdown')
+    await fireEvent.update(
+      mdInput,
+      '@决策: 采用 Canonical API\n@行动:[todo] 联调验证\n@开放问题: 存量数据迁移？',
+    )
+
+    const submitBtn = screen.getByRole('button', { name: '立即导入并提取' })
+    await fireEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(apiMock).toHaveBeenCalledWith(
+        '/api/v1/meetings/m1/ingest',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            agenda_title: 'AI 纪要导入',
+            notes_markdown: '@决策: 采用 Canonical API\n@行动:[todo] 联调验证\n@开放问题: 存量数据迁移？',
+            auto_complete_agenda: false,
+          }),
+        }),
+      )
+    })
+    expect(onIngested).toHaveBeenCalled()
+    expect(onReload).toHaveBeenCalled()
+    expect(onUpdateShow).toHaveBeenCalledWith(false)
   })
 })

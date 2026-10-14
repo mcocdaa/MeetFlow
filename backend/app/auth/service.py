@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import time
 
 from itsdangerous import (
@@ -69,6 +71,32 @@ class AuthService:
         if not isinstance(payload, dict) or "uid" not in payload or "sv" not in payload:
             return None
         return str(payload["uid"]), int(payload["sv"])
+
+    def issue_api_key(self, user: User) -> str:
+        msg = f"meetflow-api-key-v1:{user.id}:{user.session_version}".encode("utf-8")
+        sig = hmac.new(
+            self.settings.app_secret_key.encode("utf-8"),
+            msg,
+            hashlib.sha256,
+        ).hexdigest()[:32]
+        return f"mf_{user.id}_{sig}"
+
+    @staticmethod
+    def parse_api_key(raw_key: str) -> tuple[str, str] | None:
+        key = raw_key.strip()
+        if not key.startswith("mf_"):
+            return None
+        body = key[3:]
+        if "_" not in body:
+            return None
+        user_id, sig = body.rsplit("_", 1)
+        if not user_id or not sig:
+            return None
+        return user_id, key
+
+    def verify_api_key(self, api_key: str, user: User) -> bool:
+        expected = self.issue_api_key(user)
+        return hmac.compare_digest(api_key.strip(), expected)
 
     def transition_user(
         self,

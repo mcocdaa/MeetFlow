@@ -9,6 +9,7 @@ from app.auth.dependencies import admin_user, current_user, optional_current_use
 from app.auth.models import User, UserRole, UserStatus
 from app.auth.schemas import (
     AdminCreateUserRequest,
+    ApiKeyResponse,
     LoginRequest,
     PasswordRequest,
     RegisterRequest,
@@ -117,6 +118,59 @@ def session_status(
     user: User | None = Depends(optional_current_user),
 ) -> dict[str, UserResponse | None]:
     return {"user": public_user(user) if user else None}
+
+
+@router.get("/api-key", response_model=ApiKeyResponse)
+def get_api_key(
+    request: Request,
+    user: User = Depends(current_user),
+) -> ApiKeyResponse:
+    service = request.app.state.auth_service
+    key = service.issue_api_key(user)
+    return ApiKeyResponse(
+        api_key=key,
+        token_prefix=f"{key[:12]}...",
+        user_id=user.id,
+        username=user.username,
+    )
+
+
+@router.post("/api-key/rotate", response_model=ApiKeyResponse)
+def rotate_api_key(
+    request: Request,
+    response: Response,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> ApiKeyResponse:
+    service = request.app.state.auth_service
+    user.session_version += 1
+    session.commit()
+    session.refresh(user)
+    if request.cookies.get(service.cookie_name):
+        response.set_cookie(
+            service.cookie_name,
+            service.issue_cookie(user),
+            max_age=service.cookie_max_age,
+            httponly=True,
+            secure=request.app.state.settings.secure_cookies,
+            samesite="strict",
+        )
+    key = service.issue_api_key(user)
+    return ApiKeyResponse(
+        api_key=key,
+        token_prefix=f"{key[:12]}...",
+        user_id=user.id,
+        username=user.username,
+    )
+
+
+v1_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+v1_router.add_api_route(
+    "/api-key", get_api_key, methods=["GET"], response_model=ApiKeyResponse
+)
+v1_router.add_api_route(
+    "/api-key/rotate", rotate_api_key, methods=["POST"], response_model=ApiKeyResponse
+)
 
 
 @router.post("/change-password", status_code=204)

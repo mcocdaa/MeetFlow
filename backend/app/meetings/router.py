@@ -2,14 +2,21 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
+from app.agendas.lifecycle import actual_duration_seconds
+from app.agendas.models import AgendaItem
+from app.agendas.outcome_tags import parse_outcome_tags
+from app.agendas.service import AgendaService
 from app.auth.dependencies import current_user
 from app.auth.models import User
 from app.collaboration.activity import ActivityRecorder
 from app.database import get_session
+from app.domain.enums import AgendaStatus, AgendaType
+from app.errors import AppError
 from app.http import utc_response
+from app.meetings.policies import LifecyclePolicy
 from app.meetings.schemas import (
     AmendmentWrite,
     LifecycleCommand,
@@ -346,4 +353,135 @@ async def notify_meeting_webhook(
     )
     session.commit()
     return utc_response({"status": "ok", "response": res, "webhook_type": payload.webhook_type})
+
+
+class MeetingIngestRequest(BaseModel):
+    agenda_title: str | None = Field(default=None, max_length=300)
+    agenda_item_id: str | int | None = None
+    notes_markdown: str = Field(min_length=1, max_length=200_000)
+    auto_complete_agenda: bool = False
+
+    @field_validator("notes_markdown")
+    @classmethod
+    def require_notes(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("notes_markdown must not be blank")
+        return value
+
+
+@router.post("/api/meetings/{meeting_id}/ingest")
+@router.post("/api/v1/meetings/{meeting_id}/ingest")
+def ingest_meeting_notes(
+    meeting_id: str,
+    payload: MeetingIngestRequest,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    meeting = WorkspaceAccess(session).require_meeting_contribute(meeting_id, user)
+    LifecyclePolicy.require_mutable_status(meeting.status)
+    agenda_service = AgendaService(session)
+    tags = parse_outcome_tags(payload.notes_markdown)
+
+    target_id = (
+        str(payload.agenda_item_id).strip()
+        if payload.agenda_item_id is not None
+        else ""
+    )
+    if target_id:
+        item = agenda_service.get(target_id)
+        if item.meeting_id != meeting.id:
+            raise AppError(404, "agenda_item_not_found", "议题不存在")
+        if payload.agenda_title and payload.agenda_title.strip():
+            item.title = payload.agenda_title.strip()
+        item.notes_markdown = payload.notes_markdown
+        item.updated_by = user.id
+        item.version += 1
+        meeting.updated_by = user.id
+        meeting.version += 1
+        agenda_service._reconcile_derived_outcomes(item, tags, user)
+    else:
+        raw_title = (payload.agenda_title or "").strip()
+        title = raw_title or "AI 纪要导入"
+        items = agenda_service.list(meeting.id)
+        existing = next(
+            (row for row in items if raw_title and row.title.strip() == raw_title),
+            None,
+        )
+        if existing is not None:
+            item = existing
+            item.notes_markdown = payload.notes_markdown
+            item.updated_by = user.id
+            item.version += 1
+            meeting.updated_by = user.id
+            meeting.version += 1
+            agenda_service._reconcile_derived_outcomes(item, tags, user)
+        else:
+            item = AgendaItem(
+                meeting_id=meeting.id,
+                title=title,
+                agenda_type=AgendaType.discussion,
+                estimated_minutes=15,
+                notes_markdown=payload.notes_markdown,
+                status=AgendaStatus.planned,
+                position=len(items),
+                version=1,
+                created_by=user.id,
+                updated_by=user.id,
+            )
+            session.add(item)
+            meeting.version += 1
+            meeting.updated_by = user.id
+            session.flush()
+            agenda_service._reconcile_derived_outcomes(item, tags, user)
+
+    if payload.auto_complete_agenda and item.status in {
+        AgendaStatus.planned,
+        AgendaStatus.in_progress,
+    }:
+        now = utcnow()
+        if item.started_at is None:
+            item.started_at = now
+        item.status = AgendaStatus.completed
+        item.completed_at = now
+        item.actual_duration_seconds = actual_duration_seconds(item, now)
+
+    decisions_count = sum(1 for t in tags if t.kind == "decision")
+    actions_count = sum(1 for t in tags if t.kind == "action")
+    questions_count = sum(1 for t in tags if t.kind == "question")
+
+    ActivityRecorder(session).record(
+        project_id=meeting.project_id,
+        meeting_id=meeting.id,
+        actor_user_id=user.id,
+        event_type="meeting.notes_ingested",
+        subject_type="agenda_item",
+        subject_id=item.id,
+        payload={
+            "title": item.title,
+            "decisions": decisions_count,
+            "actions": actions_count,
+            "questions": questions_count,
+        },
+    )
+    session.commit()
+
+    service = MeetingService(session)
+    detail = service.meeting_detail(meeting_id, user)
+    capabilities = WorkspaceAccess(session).meeting_capabilities(meeting, user)
+    detail["capabilities"] = _capability_payload(capabilities)
+    return utc_response(
+        {
+            **detail,
+            "meeting": detail,
+            "ingested_agenda_item_id": item.id,
+            "decisions": decisions_count,
+            "actions": actions_count,
+            "questions": questions_count,
+            "extracted": {
+                "decisions": decisions_count,
+                "actions": actions_count,
+                "questions": questions_count,
+            },
+        }
+    )
 

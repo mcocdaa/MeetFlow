@@ -40,3 +40,10 @@ class UserResponse(BaseModel):
     avatar_color: str
     role: str
     status: str
+
+
+class ApiKeyResponse(BaseModel):
+    api_key: str
+    token_prefix: str
+    user_id: str
+    username: str
