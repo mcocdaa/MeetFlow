@@ -604,3 +604,125 @@ def test_concurrent_migration_rolls_back_and_leaves_session_reusable(
             == target_id
         )
         assert second.scalar(select(func.count(OutcomeMigrationRecord.id))) == 1
+
+
+def test_completed_meeting_allows_action_status_update_without_rewriting_locked_notes(
+    client, outcome_context
+):
+    admin_id, _, _, project_id, meeting_id, _, source_id, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        agendas = AgendaService(session)
+        outcomes = OutcomeService(session)
+        source = session.get(AgendaItem, source_id)
+        original_notes = "@行动:[todo] 会后跟进线上监控"
+        source = agendas.update(
+            source.id,
+            AgendaEdit(expected_version=source.version, notes_markdown=original_notes),
+            actor,
+        )
+        derived_action = session.scalar(
+            select(ActionItem).where(ActionItem.source_agenda_item_id == source.id)
+        )
+        assert derived_action is not None
+
+        # Lock the meeting as completed
+        meeting = session.get(Meeting, meeting_id)
+        meeting.status = "completed"
+        meeting.version += 1
+        session.commit()
+        locked_meeting_version = meeting.version
+        locked_agenda_version = source.version
+
+        # Toggling action status after meeting completion must succeed without mutating locked meeting/notes
+        updated = outcomes.update_action(
+            derived_action.id,
+            ActionEdit(expected_version=derived_action.version, status="done"),
+            actor,
+        )
+        assert updated.status.value == "done"
+        assert updated.completed_at is not None
+
+        session.refresh(meeting)
+        session.refresh(source)
+        assert meeting.version == locked_meeting_version
+        assert source.version == locked_agenda_version
+        assert source.notes_markdown == original_notes
+
+
+def test_copy_agenda_to_meeting_extracts_outcome_tags(client, outcome_context):
+    from app.outcomes.schemas import AgendaCopyWrite
+
+    admin_id, _, _, _, meeting_id, future_id, source_id, _ = outcome_context
+    with client.app.state.database.session() as session:
+        actor = session.get(User, admin_id)
+        agendas = AgendaService(session)
+        outcomes = OutcomeService(session)
+        source = session.get(AgendaItem, source_id)
+        source = agendas.update(
+            source.id,
+            AgendaEdit(
+                expected_version=source.version,
+                notes_markdown=(
+                    "@决策: 沿用缓存架构\n"
+                    "@行动:[todo] 补充压测报告\n"
+                    "@问题: 峰值流量如何限流？\n"
+                ),
+            ),
+            actor,
+        )
+        source = agendas.skip(
+            source.id, AgendaCommand(expected_version=source.version), actor
+        )
+        source_meeting = session.get(Meeting, meeting_id)
+        future_meeting = session.get(Meeting, future_id)
+
+        copied = outcomes.copy_agenda_to_meeting(
+            source.id,
+            AgendaCopyWrite(
+                target_meeting_id=future_meeting.id,
+                expected_source_version=source.version,
+                expected_source_meeting_version=source_meeting.version,
+                expected_target_meeting_version=future_meeting.version,
+            ),
+            actor,
+        )
+        copied_decisions = session.scalars(
+            select(Decision).where(Decision.source_agenda_item_id == copied.id)
+        ).all()
+        copied_actions = session.scalars(
+            select(ActionItem).where(ActionItem.source_agenda_item_id == copied.id)
+        ).all()
+        copied_questions = session.scalars(
+            select(OpenQuestion).where(OpenQuestion.source_agenda_item_id == copied.id)
+        ).all()
+
+        assert len(copied_decisions) == 1
+        assert copied_decisions[0].title == "沿用缓存架构"
+        assert len(copied_actions) == 1
+        assert copied_actions[0].content == "补充压测报告"
+        assert len(copied_questions) == 1
+        assert copied_questions[0].question_markdown == "峰值流量如何限流？"
+
+
+@pytest.mark.anyio
+async def test_retry_on_db_lock_async_uses_asyncio_sleep():
+    from unittest.mock import AsyncMock, patch
+    from sqlalchemy.exc import OperationalError
+    from app.database import retry_on_db_lock
+
+    attempts = 0
+
+    @retry_on_db_lock(max_retries=2, initial_backoff=0.01)
+    async def flaky_op():
+        nonlocal attempts
+        attempts += 1
+        if attempts < 2:
+            raise OperationalError("stmt", {}, Exception("database is locked"))
+        return "recovered"
+
+    with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        result = await flaky_op()
+        assert result == "recovered"
+        assert attempts == 2
+        mock_sleep.assert_awaited_once()

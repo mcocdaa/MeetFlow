@@ -166,3 +166,157 @@ def test_bidirectional_action_sync_end_to_end(client, agenda_context):
         # 3. Verify that the agenda item notes_markdown AST has been rewritten!
         refreshed_agenda = session.get(AgendaItem, saved_agenda.id)
         assert f"@行动:[done][@{admin.username}][2026-10-15] 实施双向状态机" in refreshed_agenda.notes_markdown
+
+
+def test_parse_outcome_tags_fenced_code_blocks_brackets_and_question_aliases():
+    md = """
+# 议题记录
+```markdown
+@决策: 代码块内的示例决策不应提取
+@行动:[done] 代码块内的示例行动不应提取
+@问题: 代码块内的示例问题不应提取
+```
+~~~
+@开放问题: 波浪号代码块内也不应提取
+~~~
+@行动:[todo][@alice][P0] 修复核心缺陷
+@问题: 简写问题标签是否生效？
+@开放问题: 完整开放问题标签是否生效？
+"""
+    tags = parse_outcome_tags(md)
+    assert len(tags) == 3
+    assert tags[0].kind == "action"
+    assert tags[0].owner_name == "alice"
+    assert tags[0].content == "[P0] 修复核心缺陷"
+    assert tags[1].kind == "question"
+    assert tags[1].content == "简写问题标签是否生效？"
+    assert tags[2].kind == "question"
+    assert tags[2].content == "完整开放问题标签是否生效？"
+
+    # Verify rewrite_action_in_notes also skips fenced code blocks
+    rewritten = rewrite_action_in_notes(
+        md,
+        "action:0",
+        format_action_tag(content="[P0] 修复核心缺陷", status=ActionStatus.done, owner="alice"),
+    )
+    assert "@行动:[done] 代码块内的示例行动不应提取" in rewritten
+    assert "@行动:[done][@alice] [P0] 修复核心缺陷" in rewritten
+
+
+def test_reconcile_outcomes_preserves_final_decision_clears_metadata_and_handles_duplicate_names(
+    client, agenda_context
+):
+    _, _, meeting_id = agenda_context
+    with client.app.state.database.session() as session:
+        admin = session.scalar(select(User).where(User.username == "admin"))
+        member = session.scalar(select(User).where(User.username == "test-member"))
+        member_id = member.id
+        # Add another active user with duplicate display_name and an inactive user
+        dup_member = User(
+            username="dup-member",
+            display_name="Test Member",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.ACTIVE,
+        )
+        inactive_user = User(
+            username="inactive-owner",
+            display_name="Inactive Owner",
+            password_hash="unused",
+            role=UserRole.MEMBER,
+            status=UserStatus.DISABLED,
+        )
+        session.add_all([dup_member, inactive_user])
+        session.commit()
+        dup_member_id = dup_member.id
+        admin = session.scalar(select(User).where(User.username == "admin"))
+
+        agenda_service = AgendaService(session)
+        outcome_service = OutcomeService(session)
+        meeting = session.get(Meeting, meeting_id)
+
+        agenda = agenda_service.create(
+            meeting.id,
+            AgendaWrite(title="Reconciliation Edge Cases", agenda_type="decision"),
+            admin,
+            expected_meeting_version=meeting.version,
+        )
+
+        # 1. Create initial decision and action with owner + due_date
+        agenda = agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=agenda.version,
+                notes_markdown=(
+                    "@决策: 核心架构定稿\n"
+                    "@行动:[todo][@Test Member][2026-10-20] 编写接口文档\n"
+                    "@行动:[todo][@inactive-owner] 已禁用用户任务\n"
+                ),
+            ),
+            admin,
+        )
+
+        from app.outcomes.models import Decision
+        from app.outcomes.schemas import DecisionFinalizeWrite
+
+        decisions = [
+            d
+            for d in outcome_service.list_decisions(meeting.project_id)
+            if d.agenda_item_id == agenda.id
+        ]
+        assert len(decisions) == 1
+        final_dec = outcome_service.finalize_decision(
+            decisions[0].id,
+            DecisionFinalizeWrite(expected_version=decisions[0].version),
+            admin,
+        )
+        assert final_dec.status.value == "final"
+
+        actions = [
+            a
+            for a in outcome_service.list_actions(meeting.project_id)
+            if a.agenda_item_id == agenda.id
+        ]
+        doc_action = next(a for a in actions if a.content == "编写接口文档")
+        assert doc_action.owner_user_id in {member_id, dup_member_id}
+        assert doc_action.due_date == date(2026, 10, 20)
+
+        inactive_action = next(a for a in actions if a.content == "已禁用用户任务")
+        assert inactive_action.owner_user_id is None
+
+        # 2. Insert a new decision BEFORE the finalized decision and remove owner/due_date from action
+        agenda = session.get(AgendaItem, agenda.id)
+        agenda = agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=agenda.version,
+                notes_markdown=(
+                    "@决策: 前置新增决议\n"
+                    "@决策: 核心架构定稿\n"
+                    "@行动:[in_progress] 编写接口文档\n"
+                ),
+            ),
+            admin,
+        )
+
+        session.refresh(final_dec)
+        assert final_dec.status.value == "final"
+        assert final_dec.title == "核心架构定稿"
+        assert final_dec.source_tag_key == "decision:1"
+
+        session.refresh(doc_action)
+        assert doc_action.status == ActionStatus.in_progress
+        assert doc_action.owner_user_id is None
+        assert doc_action.due_date is None
+
+        # 3. Even if all @决策 tags are removed from notes, finalized decision must not be deleted
+        agenda = agenda_service.update(
+            agenda.id,
+            AgendaEdit(
+                expected_version=agenda.version,
+                notes_markdown="@行动:[done] 编写接口文档\n",
+            ),
+            admin,
+        )
+        assert session.get(Decision, final_dec.id) is not None
+        assert session.get(Decision, final_dec.id).status.value == "final"

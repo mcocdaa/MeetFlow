@@ -1,11 +1,13 @@
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import current_user
 from app.auth.models import User
+from app.collaboration.activity import ActivityRecorder
 from app.database import get_session
 from app.http import utc_response
 from app.meetings.schemas import (
@@ -20,6 +22,14 @@ from app.meetings.schemas import (
 from app.meetings.projectors import serialize_amendment, serialize_snapshot
 from app.meetings.service import MeetingService
 from app.projects.access import WorkspaceAccess
+from app.time_utils import utcnow
+from app.webhooks.adapter import (
+    dispatch_webhook,
+    format_dingtalk_card,
+    format_feishu_card,
+    format_generic_card,
+    redact_webhook_url,
+)
 
 router = APIRouter(tags=["meetings"])
 
@@ -251,21 +261,14 @@ def add_amendment(
     )
 
 
-from typing import Literal
-from pydantic import BaseModel
-from app.collaboration.activity import ActivityRecorder
-from app.time_utils import utcnow
-from app.webhooks.adapter import (
-    dispatch_webhook,
-    format_dingtalk_card,
-    format_feishu_card,
-    format_generic_card,
-)
-
-
 class MeetingWebhookNotifyRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     webhook_url: str
-    webhook_type: Literal["feishu", "dingtalk", "generic"] = "feishu"
+    webhook_type: Literal["feishu", "dingtalk", "generic"] = Field(
+        default="feishu",
+        validation_alias=AliasChoices("webhook_type", "platform"),
+    )
     secret: str | None = None
 
 
@@ -276,7 +279,7 @@ async def notify_meeting_webhook(
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    meeting = WorkspaceAccess(session).require_meeting_view(meeting_id, user)
+    meeting = WorkspaceAccess(session).require_meeting_contribute(meeting_id, user)
     service = MeetingService(session)
     detail = service.meeting_detail(meeting_id, user)
     project_name = meeting.project.name if meeting.project else "未指定项目"
@@ -286,8 +289,14 @@ async def notify_meeting_webhook(
         else utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     )
     summary_text = detail.get("summary_markdown") or detail.get("purpose_markdown") or ""
-    decisions = [d["title"] for d in detail.get("decisions", [])]
-    actions = [a["content"] for a in detail.get("actions", [])]
+    all_decisions = detail.get("meeting_decisions", []) + [
+        d for item in detail.get("agenda_items", []) for d in item.get("decisions", [])
+    ]
+    all_actions = detail.get("meeting_actions", []) + [
+        a for item in detail.get("agenda_items", []) for a in item.get("actions", [])
+    ]
+    decisions = [d["title"] for d in all_decisions]
+    actions = [a["content"] for a in all_actions]
 
     if payload.webhook_type == "feishu":
         card = format_feishu_card(
@@ -330,7 +339,10 @@ async def notify_meeting_webhook(
         event_type="meeting.webhook_sent",
         subject_type="meeting",
         subject_id=meeting.id,
-        payload={"webhook_type": payload.webhook_type, "webhook_url": payload.webhook_url},
+        payload={
+            "webhook_type": payload.webhook_type,
+            "webhook_url": redact_webhook_url(payload.webhook_url),
+        },
     )
     session.commit()
     return utc_response({"status": "ok", "response": res, "webhook_type": payload.webhook_type})

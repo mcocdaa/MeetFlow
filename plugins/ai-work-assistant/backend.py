@@ -48,35 +48,36 @@ async def _draft(
     current_markdown = payload.get("current_markdown", "")
     if not isinstance(current_markdown, str):
         current_markdown = ""
-    response = await httpx.AsyncClient(
+    async with httpx.AsyncClient(
         timeout=float(config["timeout_seconds"])
-    ).post(
-        _endpoint(config["base_url"]),
-        headers=_headers(config),
-        json={
-            "model": config["model"],
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是 MeetFlow 的工作助手。只根据给定资料生成中文内容，"
-                        "不要声称执行了未给出的事实。输出 Markdown，不调用工具。"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"{instruction}\n\n{_editor_context(current_markdown)}"
-                        f"\n\n资料：{context}"
-                    ),
-                },
-            ],
-            "temperature": 0.2,
-        },
-    )
+    ) as client:
+        response = await client.post(
+            _endpoint(config["base_url"]),
+            headers=_headers(config),
+            json={
+                "model": config["model"],
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是 MeetFlow 的工作助手。只根据给定资料生成中文内容，"
+                            "不要声称执行了未给出的事实。输出 Markdown，不调用工具。"
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"{instruction}\n\n{_editor_context(current_markdown)}"
+                            f"\n\n资料：{context}"
+                        ),
+                    },
+                ],
+                "temperature": 0.2,
+            },
+        )
     response.raise_for_status()
-    payload = response.json()
-    markdown = payload["choices"][0]["message"]["content"].strip()
+    data = response.json()
+    markdown = (data["choices"][0]["message"].get("content") or "").strip()
     return {"markdown": markdown, "model": config["model"]}
 
 

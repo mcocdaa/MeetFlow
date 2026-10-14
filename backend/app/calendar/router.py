@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -13,6 +13,7 @@ from app.domain.enums import ActionStatus, MeetingStatus
 from app.errors import AppError
 from app.meetings.models import Meeting, MeetingParticipant
 from app.outcomes.models import ActionItem
+from app.time_utils import as_utc
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 CALENDAR_SALT = "meetflow-calendar-feed-v1"
@@ -23,6 +24,22 @@ def get_serializer(request: Request) -> URLSafeSerializer:
     return URLSafeSerializer(secret, salt=CALENDAR_SALT)
 
 
+def _escape_ics_text(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\r\n", "\\n")
+        .replace("\r", "\\n")
+        .replace("\n", "\\n")
+    )
+
+
+def _utc_stamp(value: datetime | None) -> str:
+    target = as_utc(value) if value is not None else datetime.now(timezone.utc)
+    return target.strftime("%Y%m%dT%H%M%SZ")
+
+
 def generate_ics_feed(user: User, actions: list[ActionItem], meetings: list[Meeting]) -> str:
     now_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     lines = [
@@ -31,24 +48,30 @@ def generate_ics_feed(user: User, actions: list[ActionItem], meetings: list[Meet
         "PRODID:-//MeetFlow//Calendar//CN",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
-        f"X-WR-CALNAME:MeetFlow - {user.display_name}的待办日程",
+        f"X-WR-CALNAME:MeetFlow - {_escape_ics_text(user.display_name)}的待办日程",
         "X-WR-TIMEZONE:UTC",
     ]
 
     for action in actions:
         if not action.due_date:
             continue
-        due_str = action.due_date.strftime("%Y%m%d")
-        created_stamp = (action.created_at or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+        due_start_str = action.due_date.strftime("%Y%m%d")
+        due_end_str = (action.due_date + timedelta(days=1)).strftime("%Y%m%d")
+        created_stamp = _utc_stamp(action.created_at)
+        summary = _escape_ics_text(f"[待办] {action.content}")
+        description = (
+            f"状态: {_escape_ics_text(action.status.value)}\\n"
+            f"优先级: {_escape_ics_text(action.priority.value)}"
+        )
         lines.extend([
             "BEGIN:VEVENT",
             f"UID:action-{action.id}@meetflow",
             f"DTSTAMP:{now_stamp}",
             f"CREATED:{created_stamp}",
-            f"DTSTART;VALUE=DATE:{due_str}",
-            f"DTEND;VALUE=DATE:{due_str}",
-            f"SUMMARY:[待办] {action.content}",
-            f"DESCRIPTION:状态: {action.status.value}\\n优先级: {action.priority.value}",
+            f"DTSTART;VALUE=DATE:{due_start_str}",
+            f"DTEND;VALUE=DATE:{due_end_str}",
+            f"SUMMARY:{summary}",
+            f"DESCRIPTION:{description}",
             "STATUS:CONFIRMED",
             "END:VEVENT",
         ])
@@ -56,14 +79,15 @@ def generate_ics_feed(user: User, actions: list[ActionItem], meetings: list[Meet
     for meeting in meetings:
         if not meeting.scheduled_start:
             continue
-        start_stamp = meeting.scheduled_start.strftime("%Y%m%dT%H%M%SZ")
+        start_stamp = _utc_stamp(meeting.scheduled_start)
         end_stamp = (
-            meeting.scheduled_end.strftime("%Y%m%dT%H%M%SZ")
+            _utc_stamp(meeting.scheduled_end)
             if meeting.scheduled_end
             else start_stamp
         )
-        created_stamp = (meeting.created_at or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
-        purpose = (meeting.purpose_markdown or "").replace("\n", "\\n")
+        created_stamp = _utc_stamp(meeting.created_at)
+        summary = _escape_ics_text(f"[会议] {meeting.title}")
+        purpose = _escape_ics_text(meeting.purpose_markdown or "")
         lines.extend([
             "BEGIN:VEVENT",
             f"UID:meeting-{meeting.id}@meetflow",
@@ -71,7 +95,7 @@ def generate_ics_feed(user: User, actions: list[ActionItem], meetings: list[Meet
             f"CREATED:{created_stamp}",
             f"DTSTART:{start_stamp}",
             f"DTEND:{end_stamp}",
-            f"SUMMARY:[会议] {meeting.title}",
+            f"SUMMARY:{summary}",
             f"DESCRIPTION:会议议题与目的:\\n{purpose}",
             "STATUS:CONFIRMED",
             "END:VEVENT",

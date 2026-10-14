@@ -21,7 +21,13 @@ from app.agendas.schemas import (
 )
 from app.auth.models import User, UserStatus
 from app.collaboration.activity import ActivityRecorder
-from app.domain.enums import ActionStatus, AgendaStatus, MeetingStatus, OpenQuestionStatus
+from app.domain.enums import (
+    ActionStatus,
+    AgendaStatus,
+    DecisionStatus,
+    MeetingStatus,
+    OpenQuestionStatus,
+)
 from app.domain.versioning import StaleCheck, require_version, resolve_stale
 from app.errors import AppError
 from app.meetings.models import Meeting
@@ -76,20 +82,31 @@ class AgendaService:
     def _resolve_owner_identifier(self, identifier: str | None) -> str | None:
         if not identifier:
             return None
-        user = self.session.scalar(
-            select(User).where(
+        user = self.session.scalars(
+            select(User)
+            .where(
+                User.status == UserStatus.ACTIVE,
                 (User.username == identifier)
                 | (User.display_name == identifier)
-                | (User.id == identifier)
+                | (User.id == identifier),
             )
-        )
+            .order_by(User.created_at.asc(), User.id.asc())
+        ).first()
         return user.id if user else None
+
+    @staticmethod
+    def _row_content(kind: str, row: Any) -> str:
+        if kind == "decision":
+            return row.title
+        if kind == "action":
+            return row.content
+        return row.question_markdown
 
     def _reconcile_derived_outcomes(
         self, item: AgendaItem, tags: list[TaggedOutcome], actor: User
     ) -> None:
         meeting = item.meeting
-        rows = {
+        rows: dict[str, list[Any]] = {
             "decision": list(
                 self.session.scalars(
                     select(Decision).where(Decision.source_agenda_item_id == item.id)
@@ -108,17 +125,99 @@ class AgendaService:
                 )
             ),
         }
-        existing = {
-            kind: {row.source_tag_key: row for row in values}
-            for kind, values in rows.items()
-        }
-        requested = {
-            kind: {tag.source_tag_key for tag in tags if tag.kind == kind}
-            for kind in ("decision", "action", "question")
-        }
+
+        matched_rows: dict[str, Any] = {}
+        needs_key_flush = False
+
+        for kind in ("decision", "action", "question"):
+            kind_tags = [tag for tag in tags if tag.kind == kind]
+            kind_rows = rows[kind]
+            by_key = {
+                row.source_tag_key: row
+                for row in kind_rows
+                if row.source_tag_key is not None
+            }
+            used_row_ids: set[str] = set()
+
+            # 1a. Exact content match at the same positional source_tag_key
+            for tag in kind_tags:
+                same_key_row = by_key.get(tag.source_tag_key)
+                if (
+                    same_key_row is not None
+                    and same_key_row.id not in used_row_ids
+                    and self._row_content(kind, same_key_row) == tag.content
+                ):
+                    matched_rows[tag.source_tag_key] = same_key_row
+                    used_row_ids.add(same_key_row.id)
+
+            # 1b. Exact content match at any position
+            for tag in kind_tags:
+                if tag.source_tag_key in matched_rows:
+                    continue
+                for row in kind_rows:
+                    if (
+                        row.id not in used_row_ids
+                        and self._row_content(kind, row) == tag.content
+                    ):
+                        matched_rows[tag.source_tag_key] = row
+                        used_row_ids.add(row.id)
+                        break
+
+            # 2. Fallback to positional source_tag_key or remaining non-final rows
+            for tag in kind_tags:
+                if tag.source_tag_key in matched_rows:
+                    continue
+                same_key_row = by_key.get(tag.source_tag_key)
+                if (
+                    same_key_row is not None
+                    and same_key_row.id not in used_row_ids
+                    and not (
+                        kind == "decision"
+                        and same_key_row.status == DecisionStatus.final
+                    )
+                ):
+                    matched_rows[tag.source_tag_key] = same_key_row
+                    used_row_ids.add(same_key_row.id)
+                    continue
+                for row in kind_rows:
+                    if row.id in used_row_ids:
+                        continue
+                    if kind == "decision" and row.status == DecisionStatus.final:
+                        continue
+                    matched_rows[tag.source_tag_key] = row
+                    used_row_ids.add(row.id)
+                    break
+
+            # 3. Handle unmatched rows (never auto-delete finalized decisions)
+            for row in kind_rows:
+                if row.id in used_row_ids:
+                    continue
+                if kind == "decision" and row.status == DecisionStatus.final:
+                    if row.source_tag_key is not None:
+                        row.source_tag_key = None
+                        row.version += 1
+                        needs_key_flush = True
+                else:
+                    self.session.delete(row)
+                    needs_key_flush = True
+
+        # Temporarily clear source_tag_key on rows whose key is shifting to avoid SQLite UNIQUE collisions
+        shifting: list[tuple[Any, str]] = []
+        for tag in tags:
+            row = matched_rows.get(tag.source_tag_key)
+            if row is not None and row.source_tag_key != tag.source_tag_key:
+                row.source_tag_key = None
+                shifting.append((row, tag.source_tag_key))
+                needs_key_flush = True
+
+        if needs_key_flush:
+            self.session.flush()
+
+        for row, new_key in shifting:
+            row.source_tag_key = new_key
 
         for tag in tags:
-            row = existing[tag.kind].get(tag.source_tag_key)
+            row = matched_rows.get(tag.source_tag_key)
             if row is None:
                 if tag.kind == "decision":
                     self.session.add(
@@ -164,7 +263,7 @@ class AgendaService:
                     )
                 continue
 
-            changed = False
+            changed = any(r is row for r, _ in shifting)
             for field, value in (
                 ("project_id", meeting.project_id),
                 ("meeting_id", meeting.id),
@@ -184,12 +283,15 @@ class AgendaService:
                     changed = True
 
             if tag.kind == "action":
-                if tag.owner_name:
-                    resolved_owner = self._resolve_owner_identifier(tag.owner_name)
-                    if row.owner_user_id != resolved_owner:
-                        row.owner_user_id = resolved_owner
-                        changed = True
-                if tag.due_date is not None and row.due_date != tag.due_date:
+                resolved_owner = (
+                    self._resolve_owner_identifier(tag.owner_name)
+                    if tag.owner_name
+                    else None
+                )
+                if row.owner_user_id != resolved_owner:
+                    row.owner_user_id = resolved_owner
+                    changed = True
+                if row.due_date != tag.due_date:
                     row.due_date = tag.due_date
                     changed = True
                 if tag.status != row.status:
@@ -202,11 +304,6 @@ class AgendaService:
 
             if changed:
                 row.version += 1
-
-        for kind, values in rows.items():
-            for row in values:
-                if row.source_tag_key not in requested[kind]:
-                    self.session.delete(row)
 
     def list(
         self, meeting_id: str, *, actor: User | None = None

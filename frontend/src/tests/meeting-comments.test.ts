@@ -132,4 +132,39 @@ describe('meeting comments', () => {
 
     expect(await screen.findByText('@乔安')).toBeVisible()
   })
+
+  it('edits an existing comment using NInput without unresolved component warnings', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      apiMock
+        .mockResolvedValueOnce(page([comment()]))
+        .mockResolvedValueOnce(comment({ body_markdown: '修改后的评论', version: 2 }))
+        .mockResolvedValueOnce(page([comment({ body_markdown: '修改后的评论', version: 2 })]))
+
+      render(MeetingCommentsPanel, { props: { meeting } })
+      await screen.findByText('需要确认')
+
+      await fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+      const editBox = screen.getByLabelText('编辑评论')
+      await fireEvent.update(editBox, '修改后的评论')
+      await fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+      await waitFor(() =>
+        expect(apiMock).toHaveBeenCalledWith('/api/comments/c1', {
+          method: 'PUT',
+          body: JSON.stringify({
+            expected_version: 1,
+            body_markdown: '修改后的评论',
+            mention_user_ids: [],
+          }),
+        }),
+      )
+      const nInputWarnings = warnSpy.mock.calls.filter((args) =>
+        String(args[0] ?? '').includes('Failed to resolve component: n-input'),
+      )
+      expect(nInputWarnings).toHaveLength(0)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
 })
