@@ -9,6 +9,7 @@ import { parseUtcTimestamp } from '../utils/time'
 import MarkdownEditor from './MarkdownEditor.vue'
 import type { MarkdownEditorHandle } from './MarkdownEditor.vue'
 import OutcomeComposer from './OutcomeComposer.vue'
+import AiIngestModal from './AiIngestModal.vue'
 import { Check, ChevronLeft, ChevronRight } from '@lucide/vue'
 
 const props = defineProps<{
@@ -29,6 +30,7 @@ const saving = ref(false)
 const advancing = ref(false)
 const composer = ref<'decision' | 'action' | 'question' | null>(null)
 const hoveredOutcomeId = ref<string | null>(null)
+const aiIngestOpen = ref(false)
 
 // Current selected agenda item in Focus Mode
 const selectedAgendaId = ref<string>('')
@@ -330,6 +332,15 @@ const noteActionTags = computed(() => {
           {{ saving ? '保存中…' : '保存笔记' }}
         </button>
 
+        <button
+          type="button"
+          class="button button-quiet"
+          data-testid="focus-ai-ingest-btn"
+          @click="aiIngestOpen = true"
+        >
+          🤖 AI 纪要导入 / API 接入
+        </button>
+
         <button type="button" class="focus-exit-btn" @click="exitFocus" title="退出专注模式 (Esc)">
           退出专注 <kbd>Esc</kbd>
         </button>
@@ -493,6 +504,14 @@ const noteActionTags = computed(() => {
         </div>
       </aside>
     </div>
+
+    <AiIngestModal
+      :show="aiIngestOpen"
+      :meeting="meeting"
+      :can-contribute="canContribute"
+      @update:show="aiIngestOpen = $event"
+      @reload="emit('reload')"
+    />
   </div>
 </template>
 
