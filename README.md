@@ -10,6 +10,10 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](compose.yaml)
 
+<p align="center">
+  <img src="docs/assets/demo_meetflow.gif" alt="MeetFlow Live Demo" width="820">
+</p>
+
 MeetFlow 是一个轻量级多人共享会议档案工具。一次会议可以保存 Markdown 原始记录、关键结论、结构化行动项、后续补充、图片与小文件。所有成员使用同一个共享工作区；管理员负责账号审批和插件配置。
 
 ## 快速启动
