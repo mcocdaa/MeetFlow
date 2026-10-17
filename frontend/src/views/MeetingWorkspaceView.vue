@@ -22,7 +22,6 @@ import PluginSlot from '../components/PluginSlot.vue'
 import CalendarSubscriptionModal from '../components/CalendarSubscriptionModal.vue'
 import FocusMode from '../components/FocusMode.vue'
 import WebhookNotifyModal from '../components/WebhookNotifyModal.vue'
-import AiIngestModal from '../components/AiIngestModal.vue'
 import type { Attachment, Meeting, MeetingParticipantWrite } from '../domain/meetings'
 import type { Project } from '../domain/projects'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
@@ -40,7 +39,6 @@ const materialsOpen = ref(false)
 const focusModeOpen = ref(false)
 const calendarOpen = ref(false)
 const webhookOpen = ref(false)
-const aiIngestOpen = ref(false)
 const materialItems = ref<Attachment[]>([])
 const now = ref(Date.now())
 const minutesSaved = ref(false)
@@ -379,7 +377,6 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <template #actions>
-          <n-button quaternary data-testid="ai-ingest-open-btn" @click="aiIngestOpen = true">🤖 AI 纪要导入 / API 接入</n-button>
           <n-button quaternary @click="calendarOpen = true">日历订阅</n-button>
           <n-button v-if="canContribute && (meeting.status === 'in_progress' || meeting.status === 'completed')" quaternary @click="webhookOpen = true">推送群聊</n-button>
           <n-button v-if="meeting.status === 'in_progress' || meeting.status === 'ready'" quaternary @click="focusModeOpen = true">专注模式</n-button>
@@ -497,7 +494,6 @@ onBeforeUnmount(() => {
       <FocusMode :show="focusModeOpen" :meeting="meeting" :can-contribute="canContribute" @update:show="focusModeOpen = $event" @reload="refreshAgenda" />
       <CalendarSubscriptionModal :show="calendarOpen" @update:show="calendarOpen = $event" />
       <WebhookNotifyModal :show="webhookOpen" :meeting="meeting" @update:show="webhookOpen = $event" />
-      <AiIngestModal :show="aiIngestOpen" :meeting="meeting" :can-contribute="canContribute" @update:show="aiIngestOpen = $event" @ingested="(updated) => acceptMeeting(updated, false)" @reload="refreshAgenda" />
     </template>
     <p v-else class="notice notice-error">{{ error || '会议不存在' }}</p>
   </main>

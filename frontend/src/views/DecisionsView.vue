@@ -132,35 +132,36 @@ function reviewerBadges(row: Decision) {
 }
 
 const columns: DataTableColumns<Decision> = [
-  { title: '标题', key: 'title', minWidth: 220, ellipsis: { tooltip: true } },
+  { title: '标题', key: 'title', minWidth: 160, ellipsis: { tooltip: true } },
   {
     title: '项目',
     key: 'project',
-    minWidth: 140,
+    width: 148,
+    ellipsis: { tooltip: true },
     render: (row) => projectNames.value[row.project_id] ?? row.project_id,
   },
   {
     title: '状态',
     key: 'status',
-    minWidth: 110,
+    width: 82,
     render: (row) => h(StatusPill, { status: row.status, kind: 'decision' }),
   },
   {
     title: '评审人',
     key: 'reviewers',
-    minWidth: 220,
+    width: 80,
     render: (row) => reviewerBadges(row),
   },
   {
     title: '更新时间',
     key: 'updated_at',
-    minWidth: 170,
+    width: 144,
     render: (row) => formatDateTime(row.updated_at),
   },
   {
     title: '来源会议',
     key: 'meeting',
-    minWidth: 120,
+    width: 80,
     render: (row) => (row.meeting_id
       ? h(RouterLink, {
         to: `/meetings/${row.meeting_id}`,
@@ -208,7 +209,7 @@ onBeforeUnmount(() => {
         :row-key="(row: Decision) => row.id"
         :row-props="rowProps"
         :pagination="pagination"
-        :scroll-x="960"
+        :scroll-x="694"
         :bordered="false"
         @update:page="changePage"
       />

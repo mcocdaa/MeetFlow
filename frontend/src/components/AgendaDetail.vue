@@ -6,10 +6,10 @@ import { errorMessage } from '../utils/errors'
 
 import { api, ApiError } from '../api/client'
 import type { Page, UserRef } from '../api/contracts'
+import { ingestMeetingNotes, smartStructureAgendaNotes } from '../api/meetings'
 import type { AgendaDraft, AgendaItem, Attachment, Meeting } from '../domain/meetings'
 import type { ActionItem, ActionStatus } from '../domain/outcomes'
 import type { Project } from '../domain/projects'
-import { assistantsForSlot } from '../plugins/registry'
 import { Check } from '@lucide/vue'
 import AttachmentPanel from './AttachmentPanel.vue'
 import MarkdownEditor from './MarkdownEditor.vue'
@@ -51,9 +51,10 @@ const dirty = computed(() => draft.title !== accepted.value.title
   || draft.presenter_user_id !== accepted.value.presenter_user_id)
 const composer = ref<'decision' | 'action' | 'question' | null>(null)
 const saving = ref(false)
+const extractingNotes = ref(false)
+const extractStatus = ref('')
 const error = ref('')
 const conflict = ref<{ version: number; server: string } | null>(null)
-const hasAgendaNotesAssistant = computed(() => assistantsForSlot('agenda-notes-editor').length > 0)
 const projectMembers = ref<UserRef[]>([])
 let memberRequest: Promise<void> | null = null
 const attachmentItems = ref<Attachment[] | null>(null)
@@ -241,6 +242,46 @@ async function save(expectedVersion = currentVersion.value) {
     if (await persistIfDirty(expectedVersion)) emit('changed')
   } catch {
     // The persistence helper keeps the error and conflict state local to this editor.
+  }
+}
+
+async function smartExtractNotes() {
+  if (!props.canContribute || meetingLocked.value || extractingNotes.value || saving.value) return
+  extractingNotes.value = true
+  extractStatus.value = ''
+  error.value = ''
+  try {
+    const flushed = typeof notesEditor.value?.flush === 'function' ? notesEditor.value.flush() : undefined
+    if (flushed !== undefined) draft.notes_markdown = flushed
+    const structured = smartStructureAgendaNotes(draft.notes_markdown, draft.title || props.item.title)
+    draft.notes_markdown = structured
+
+    const res = await ingestMeetingNotes(props.meeting.id, {
+      agenda_item_id: props.item.id,
+      agenda_title: draft.title.trim() || props.item.title,
+      notes_markdown: structured,
+      auto_complete_agenda: false,
+    })
+    const updatedItem = res.agenda_items?.find((row) => row.id === props.item.id)
+    if (updatedItem) {
+      const next = draftFor(updatedItem)
+      next.notes_markdown = structured
+      Object.assign(draft, next)
+      accepted.value = { ...next }
+      currentVersion.value = updatedItem.version
+    } else {
+      accepted.value = { ...draft }
+      currentVersion.value += 1
+    }
+    const decisions = res.decisions ?? res.extracted?.decisions ?? 0
+    const actions = res.actions ?? res.extracted?.actions ?? 0
+    const questions = res.questions ?? res.extracted?.questions ?? 0
+    extractStatus.value = `✨ 已智能提炼 ${decisions} 项决策 · ${actions} 项行动 · ${questions} 项开放问题`
+    emit('changed')
+  } catch (caught) {
+    error.value = errorMessage(caught, 'AI 提炼失败，请检查议题记录格式')
+  } finally {
+    extractingNotes.value = false
   }
 }
 
@@ -443,14 +484,27 @@ const noteActionTags = computed(() => {
       <label>主讲人<n-select v-model:value="draft.presenter_user_id" :options="memberSelectOptions" filterable clearable :virtual-scroll="false" :disabled="!canContribute" :input-props="{ 'aria-label': '主讲人' }" placeholder="未指定" @update:show="onMemberMenu" /></label>
     </div>
     <div class="agenda-notes">
-      <span v-if="!canContribute || !hasAgendaNotesAssistant" class="agenda-notes-label">议题记录</span>
+      <span v-if="!canContribute" class="agenda-notes-label">议题记录</span>
       <PluginEditorSlot v-if="canContribute" v-model="draft.notes_markdown" editor-label="议题记录" data-testid="agenda-notes-editor" target-type="agenda_item" :target-id="item.id" slot="agenda-notes-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id }" @notice="error = $event">
+        <template #header-actions="{ disabled }">
+          <button
+            v-if="!meetingLocked"
+            type="button"
+            class="ai-inline-extract-btn"
+            data-testid="ai-extract-notes-btn"
+            :disabled="saving || disabled || extractingNotes"
+            @click="smartExtractNotes"
+          >
+            ✨ {{ extractingNotes ? '正在提炼…' : 'AI 智能提炼' }}
+          </button>
+        </template>
         <template #editor="{ disabled, registerEditor }">
-          <MarkdownEditor ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="saving || disabled" :register-editor="registerEditor" />
+          <MarkdownEditor ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="saving || disabled || extractingNotes" :register-editor="registerEditor" />
         </template>
       </PluginEditorSlot>
       <MarkdownEditor v-else ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="true" />
     </div>
+    <p v-if="extractStatus" class="ai-extract-status" data-testid="ai-extract-status" role="status">{{ extractStatus }}</p>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
     <div v-if="canContribute" class="agenda-save-row"><span class="muted">保存后会同步识别记录中的 @决策:、@行动:、@开放问题:。</span><button class="button button-quiet" :disabled="saving || !draft.title.trim()" @click="save()">保存议题</button></div>
 

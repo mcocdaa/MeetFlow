@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NProgress, NTag, useMessage } from 'naive-ui'
-import { api, ApiError } from '../api/client'
+import { api } from '../api/client'
+import { ingestMeetingNotes, smartStructureAgendaNotes } from '../api/meetings'
 import type { AgendaItem, Meeting } from '../domain/meetings'
 import type { ActionItem, ActionStatus } from '../domain/outcomes'
 import { errorMessage } from '../utils/errors'
@@ -9,7 +10,6 @@ import { parseUtcTimestamp } from '../utils/time'
 import MarkdownEditor from './MarkdownEditor.vue'
 import type { MarkdownEditorHandle } from './MarkdownEditor.vue'
 import OutcomeComposer from './OutcomeComposer.vue'
-import AiIngestModal from './AiIngestModal.vue'
 import { Check, ChevronLeft, ChevronRight } from '@lucide/vue'
 
 const props = defineProps<{
@@ -27,10 +27,10 @@ const message = useMessage()
 const notesEditor = ref<MarkdownEditorHandle | null>(null)
 const now = ref(Date.now())
 const saving = ref(false)
+const extracting = ref(false)
 const advancing = ref(false)
 const composer = ref<'decision' | 'action' | 'question' | null>(null)
 const hoveredOutcomeId = ref<string | null>(null)
-const aiIngestOpen = ref(false)
 
 // Current selected agenda item in Focus Mode
 const selectedAgendaId = ref<string>('')
@@ -92,7 +92,19 @@ watch(() => currentItem.value, (item) => {
   }
 }, { immediate: true })
 
+function normalizeMarkdownSyntax(md: string): string {
+  return md
+    .replace(/\\([[\]])/g, '$1')
+    .replace(/^[-*+]\s+/gm, '* ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function onNotesInput(val: string) {
+  if (normalizeMarkdownSyntax(val) === normalizeMarkdownSyntax(localNotes.value)) {
+    localNotes.value = val
+    return
+  }
   localNotes.value = val
   dirty.value = true
 }
@@ -188,6 +200,34 @@ function selectAgenda(id: string) {
     void persistCurrentNotes()
   }
   selectedAgendaId.value = id
+}
+
+async function smartExtractFocusNotes() {
+  if (!props.canContribute || !currentItem.value || extracting.value || saving.value) return
+  extracting.value = true
+  try {
+    const flushed = typeof notesEditor.value?.flush === 'function' ? notesEditor.value.flush() : localNotes.value
+    const structured = smartStructureAgendaNotes(flushed, currentItem.value.title)
+    localNotes.value = structured
+    const res = await ingestMeetingNotes(props.meeting.id, {
+      agenda_item_id: currentItem.value.id,
+      agenda_title: currentItem.value.title,
+      notes_markdown: structured,
+      auto_complete_agenda: false,
+    })
+    const updatedItem = res.agenda_items?.find((row) => row.id === currentItem.value?.id)
+    localVersion.value = updatedItem ? updatedItem.version : localVersion.value + 1
+    dirty.value = false
+    const decisions = res.decisions ?? res.extracted?.decisions ?? 0
+    const actions = res.actions ?? res.extracted?.actions ?? 0
+    const questions = res.questions ?? res.extracted?.questions ?? 0
+    message.success(`已智能提炼 ${decisions} 项决策、${actions} 项行动、${questions} 项开放问题`)
+    emit('reload')
+  } catch (caught) {
+    message.error(errorMessage(caught, 'AI 提炼失败，请检查笔记标签格式'))
+  } finally {
+    extracting.value = false
+  }
 }
 
 // Action Status Cycling and Checkbox Toggle
@@ -332,15 +372,6 @@ const noteActionTags = computed(() => {
           {{ saving ? '保存中…' : '保存笔记' }}
         </button>
 
-        <button
-          type="button"
-          class="button button-quiet"
-          data-testid="focus-ai-ingest-btn"
-          @click="aiIngestOpen = true"
-        >
-          🤖 AI 纪要导入 / API 接入
-        </button>
-
         <button type="button" class="focus-exit-btn" @click="exitFocus" title="退出专注模式 (Esc)">
           退出专注 <kbd>Esc</kbd>
         </button>
@@ -366,6 +397,15 @@ const noteActionTags = computed(() => {
             <button type="button" class="tag-insert-btn tag-btn-decision" @click="insertTag('@决策: ')">+ 决策</button>
             <button type="button" class="tag-insert-btn tag-btn-action" @click="insertTag('@行动:[open] ')">+ 待办行动</button>
             <button type="button" class="tag-insert-btn tag-btn-question" @click="insertTag('@开放问题: ')">+ 开放问题</button>
+            <button
+              type="button"
+              class="tag-insert-btn tag-btn-ai"
+              data-testid="focus-ai-extract-btn"
+              :disabled="saving || extracting"
+              @click="smartExtractFocusNotes"
+            >
+              ✨ {{ extracting ? '正在提炼…' : 'AI 智能提炼' }}
+            </button>
           </div>
         </div>
 
@@ -375,7 +415,7 @@ const noteActionTags = computed(() => {
             :model-value="localNotes"
             label="议题笔记"
             placeholder="专注于此项议题的核心讨论、事实依据与快速手记…"
-            :disabled="!canContribute || saving"
+            :disabled="!canContribute || saving || extracting"
             @update:model-value="onNotesInput"
           />
         </div>
@@ -504,14 +544,6 @@ const noteActionTags = computed(() => {
         </div>
       </aside>
     </div>
-
-    <AiIngestModal
-      :show="aiIngestOpen"
-      :meeting="meeting"
-      :can-contribute="canContribute"
-      @update:show="aiIngestOpen = $event"
-      @reload="emit('reload')"
-    />
   </div>
 </template>
 
@@ -545,7 +577,8 @@ const noteActionTags = computed(() => {
 .focus-bar-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .focus-live-badge {
@@ -559,6 +592,8 @@ const noteActionTags = computed(() => {
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .live-dot-pulse {
@@ -581,6 +616,13 @@ const noteActionTags = computed(() => {
   align-items: center;
   gap: 8px;
   font-size: 0.95rem;
+  min-width: 0;
+}
+
+.focus-meeting-title strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .project-pill {
@@ -590,6 +632,8 @@ const noteActionTags = computed(() => {
   color: #475569;
   font-size: 0.75rem;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .focus-bar-center {
@@ -597,6 +641,7 @@ const noteActionTags = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 3px;
+  min-width: 0;
 }
 
 .focus-topic-pill {
@@ -604,6 +649,7 @@ const noteActionTags = computed(() => {
   align-items: center;
   gap: 8px;
   font-size: 0.88rem;
+  white-space: nowrap;
 }
 
 .topic-index {
@@ -613,12 +659,14 @@ const noteActionTags = computed(() => {
   color: white;
   font-size: 0.72rem;
   font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .topic-title {
   font-weight: 700;
   color: #0f172a;
-  max-width: 280px;
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -626,6 +674,8 @@ const noteActionTags = computed(() => {
 
 .presenter-tag {
   font-size: 0.72rem;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .focus-progress-wrapper {
@@ -635,12 +685,19 @@ const noteActionTags = computed(() => {
 .focus-bar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.focus-bar-right .button {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .focus-nav-arrows {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .icon-nav-btn {
@@ -671,6 +728,8 @@ const noteActionTags = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .shortcut-key {
@@ -694,6 +753,8 @@ const noteActionTags = computed(() => {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .focus-exit-btn:hover {
@@ -771,6 +832,7 @@ const noteActionTags = computed(() => {
 
 .quick-tag-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
@@ -780,6 +842,7 @@ const noteActionTags = computed(() => {
   font-size: 0.76rem;
   color: #64748b;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .tag-insert-btn {
@@ -789,6 +852,8 @@ const noteActionTags = computed(() => {
   font-size: 0.76rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s;
 }
 
@@ -817,6 +882,21 @@ const noteActionTags = computed(() => {
 }
 .tag-btn-question:hover {
   background: #fef3c7;
+}
+
+.tag-btn-ai {
+  margin-left: auto;
+  background: #edf7f1;
+  color: #075044;
+  border-color: #b8d7c4;
+}
+.tag-btn-ai:hover:not(:disabled) {
+  background: #dcebe6;
+  border-color: #0b6a58;
+}
+.tag-btn-ai:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .editor-content-area {

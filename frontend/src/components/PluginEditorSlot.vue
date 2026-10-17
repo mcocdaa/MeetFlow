@@ -63,36 +63,39 @@ function writeAssistantResult(markdown: string) {
     :aria-busy="busy.active ? 'true' : undefined"
     @keydown.esc="menuOpen = false"
   >
-    <div v-if="assistants.length" class="plugin-editor-chrome">
+    <div v-if="assistants.length || $slots['header-actions']" class="plugin-editor-chrome">
       <span class="plugin-editor-label">{{ editorLabel }}</span>
-      <div class="plugin-editor-menu">
-        <button
-          type="button"
-          class="editor-assistant-trigger"
-          :class="{ 'is-active': menuOpen || busy.active }"
-          :aria-label="busy.active ? 'AI 工具，正在处理' : 'AI 工具'"
-          :aria-expanded="menuOpen"
-          :disabled="busy.active"
-          @click="menuOpen = !menuOpen"
-        ><Sparkles :size="15" :stroke-width="2" aria-hidden="true" /></button>
-        <div
-          v-if="menuOpen || busy.active"
-          v-show="menuOpen"
-          class="editor-assistant-menu"
-          role="group"
-          aria-label="AI 操作"
-        >
-          <component
-            :is="assistant"
-            v-for="(assistant, index) in assistants"
-            :key="index"
-            :model-value="modelValue"
-            :context="context"
+      <div class="plugin-editor-actions">
+        <slot name="header-actions" :disabled="busy.active" />
+        <div v-if="assistants.length" class="plugin-editor-menu">
+          <button
+            type="button"
+            class="editor-assistant-trigger"
+            :class="{ 'is-active': menuOpen || busy.active }"
+            :aria-label="busy.active ? 'AI 工具，正在处理' : 'AI 工具'"
+            :aria-expanded="menuOpen"
             :disabled="busy.active"
-            @update:model-value="writeAssistantResult"
-            @update:busy="updateBusy"
-            @notice="emit('notice', $event)"
-          />
+            @click="menuOpen = !menuOpen"
+          ><Sparkles :size="15" :stroke-width="2" aria-hidden="true" /></button>
+          <div
+            v-if="menuOpen || busy.active"
+            v-show="menuOpen"
+            class="editor-assistant-menu"
+            role="group"
+            aria-label="AI 操作"
+          >
+            <component
+              :is="assistant"
+              v-for="(assistant, index) in assistants"
+              :key="index"
+              :model-value="modelValue"
+              :context="context"
+              :disabled="busy.active"
+              @update:model-value="writeAssistantResult"
+              @update:busy="updateBusy"
+              @notice="emit('notice', $event)"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -110,8 +113,9 @@ function writeAssistantResult(markdown: string) {
 
 <style scoped>
 .plugin-editor-slot { position: relative; container-type: inline-size; }
-.plugin-editor-chrome { align-items: center; display: flex; height: 34px; justify-content: space-between; padding: 0 .4rem 0 .65rem; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--paper); }
+.plugin-editor-chrome { align-items: center; display: flex; min-height: 36px; justify-content: space-between; gap: .5rem; padding: 0 .45rem 0 .65rem; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--paper); }
 .plugin-editor-label { overflow: hidden; color: var(--muted); font-size: .76rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-editor-actions { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
 .plugin-editor-menu { position: relative; }
 .editor-assistant-trigger { display: inline-grid; width: 27px; height: 27px; place-items: center; padding: 0; border: 0; border-radius: 8px; color: var(--green); background: #edf7f1; cursor: pointer; font-size: 1rem; line-height: 1; transition: background .16s ease, box-shadow .16s ease, color .16s ease; }
 .editor-assistant-trigger:hover:not(:disabled), .editor-assistant-trigger:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(11, 106, 88, .16); }

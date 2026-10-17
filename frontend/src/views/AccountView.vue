@@ -15,6 +15,7 @@ import { errorMessage } from '../utils/errors'
 import { useRouter } from 'vue-router'
 
 import { api } from '../api/client'
+import { fetchApiKey, rotateApiKey } from '../api/meetings'
 import { clearSession } from '../auth/session'
 
 const router = useRouter()
@@ -33,6 +34,39 @@ const rules: FormRules = {
 }
 const error = ref('')
 const saving = ref(false)
+const apiKey = ref('')
+const loadingKey = ref(false)
+const rotatingKey = ref(false)
+const keyError = ref('')
+
+async function loadToken() {
+  if (loadingKey.value) return
+  loadingKey.value = true
+  keyError.value = ''
+  try {
+    const res = await fetchApiKey()
+    apiKey.value = res.api_key
+  } catch (caught) {
+    keyError.value = errorMessage(caught, '访问令牌加载失败')
+  } finally {
+    loadingKey.value = false
+  }
+}
+
+async function rotateToken() {
+  if (rotatingKey.value) return
+  rotatingKey.value = true
+  keyError.value = ''
+  try {
+    const res = await rotateApiKey()
+    apiKey.value = res.api_key
+    message.success('访问令牌已轮换，旧令牌已失效')
+  } catch (caught) {
+    keyError.value = errorMessage(caught, '令牌轮换失败')
+  } finally {
+    rotatingKey.value = false
+  }
+}
 
 async function changePassword() {
   if (saving.value) return
@@ -66,7 +100,7 @@ async function changePassword() {
 </script>
 
 <template>
-  <main class="page page-narrow">
+  <main class="page page-narrow account-page">
     <header class="page-heading">
       <div><p class="eyebrow">Account</p><h1>账号设置</h1></div>
     </header>
@@ -101,6 +135,22 @@ async function changePassword() {
           {{ saving ? '正在修改…' : '修改密码' }}
         </n-button>
       </n-form>
+    </n-card>
+
+    <n-card title="个人访问令牌" style="margin-top: 20px;">
+      <p class="muted">用于自动化脚本或外部工具授权访问，轮换后旧令牌立即失效。</p>
+      <div v-if="!apiKey" class="row-actions" style="justify-content: flex-start;">
+        <n-button quaternary :loading="loadingKey" @click="loadToken">查看访问令牌</n-button>
+      </div>
+      <div v-else class="token-row" style="display: flex; gap: 8px; align-items: center;">
+        <n-input
+          :value="apiKey"
+          readonly
+          :input-props="{ 'aria-label': '个人访问令牌' }"
+        />
+        <n-button quaternary :loading="rotatingKey" @click="rotateToken">轮换令牌</n-button>
+      </div>
+      <n-alert v-if="keyError" type="error" style="margin-top: 10px;">{{ keyError }}</n-alert>
     </n-card>
   </main>
 </template>
