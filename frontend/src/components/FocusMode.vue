@@ -13,7 +13,7 @@ import OutcomeComposer from './OutcomeComposer.vue'
 import { useI18n } from '../i18n'
 import { Check, ChevronLeft, ChevronRight } from '@lucide/vue'
 
-const { locale, tr, translateSeededText, translateNotesMarkdown } = useI18n()
+const { locale, toggleLocale, tr, translateSeededText, translateNotesMarkdown } = useI18n()
 
 const props = defineProps<{
   show: boolean
@@ -96,6 +96,7 @@ watch(() => currentItem.value, (item) => {
 }, { immediate: true })
 
 watch(locale, (nextLocale) => {
+  message.destroyAll()
   localNotes.value = translateNotesMarkdown(localNotes.value, nextLocale)
 })
 
@@ -174,6 +175,7 @@ async function persistCurrentNotes(): Promise<boolean> {
     emit('reload')
     return true
   } catch (caught) {
+    message.destroyAll()
     message.error(errorMessage(caught, tr('议题笔记保存失败', 'Failed to save agenda notes')))
     return false
   } finally {
@@ -190,16 +192,18 @@ async function completeAndAdvance() {
       method: 'POST',
       body: JSON.stringify({ expected_version: localVersion.value }),
     })
+    message.destroyAll()
     message.success(
       locale.value === 'en'
-        ? `Agenda "${currentItem.value.title}" completed`
-        : `议题「${currentItem.value.title}」已完成`,
+        ? `Agenda "${translateSeededText(currentItem.value.title, 'en')}" completed`
+        : `议题「${translateSeededText(currentItem.value.title, 'zh')}」已完成`,
     )
     emit('reload')
     if (result.next_agenda_item_id) {
       selectedAgendaId.value = result.next_agenda_item_id
     }
   } catch (caught) {
+    message.destroyAll()
     message.error(errorMessage(caught, tr('完成议题失败', 'Failed to complete agenda item')))
   } finally {
     advancing.value = false
@@ -232,6 +236,7 @@ async function smartExtractFocusNotes() {
     const decisions = res.decisions ?? res.extracted?.decisions ?? 0
     const actions = res.actions ?? res.extracted?.actions ?? 0
     const questions = res.questions ?? res.extracted?.questions ?? 0
+    message.destroyAll()
     message.success(
       locale.value === 'en'
         ? `Extracted ${decisions} decisions, ${actions} actions, and ${questions} open questions`
@@ -239,6 +244,7 @@ async function smartExtractFocusNotes() {
     )
     emit('reload')
   } catch (caught) {
+    message.destroyAll()
     message.error(errorMessage(caught, tr('AI 提炼失败，请检查笔记标签格式', 'AI extraction failed, please check notes format')))
   } finally {
     extracting.value = false
@@ -270,6 +276,7 @@ async function toggleActionStatus(action: ActionItem, targetStatus?: ActionStatu
     })
     action.status = updated.status
     action.version = updated.version
+    message.destroyAll()
     message.success(
       locale.value === 'en'
         ? `Action status updated to: ${actionStatusLabel(nextStatus)}`
@@ -277,6 +284,7 @@ async function toggleActionStatus(action: ActionItem, targetStatus?: ActionStatu
     )
     emit('reload')
   } catch (caught) {
+    message.destroyAll()
     message.error(errorMessage(caught, tr('更新行动项失败', 'Failed to update action item')))
   }
 }
@@ -398,6 +406,16 @@ const noteActionTags = computed(() => {
           @click="persistCurrentNotes"
         >
           {{ saving ? tr('保存中…', 'Saving…') : tr('保存笔记', 'Save Notes') }}
+        </button>
+
+        <button
+          type="button"
+          class="focus-lang-btn"
+          data-testid="focus-lang-toggle"
+          :aria-label="tr('切换语言', 'Switch Language')"
+          @click="toggleLocale"
+        >
+          🌐 {{ locale === 'zh' ? 'EN' : '中文' }}
         </button>
 
         <button type="button" class="focus-exit-btn" @click="exitFocus" :title="tr('退出专注模式 (Esc)', 'Exit Focus Mode (Esc)')">
@@ -780,6 +798,28 @@ const noteActionTags = computed(() => {
   font-family: inherit;
 }
 
+.focus-lang-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.focus-lang-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
 .focus-exit-btn {
   display: inline-flex;
   align-items: center;
@@ -836,18 +876,24 @@ const noteActionTags = computed(() => {
 .agenda-title-row {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 6px;
 }
 
 .focus-agenda-title {
   margin: 0;
-  font-size: 1.65rem;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 1.5rem;
   font-weight: 800;
   color: #0f172a;
 }
 
 .focus-agenda-type {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: 0.78rem;
   color: #64748b;
   font-weight: 600;

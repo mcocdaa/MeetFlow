@@ -258,6 +258,16 @@ export const SEEDED_ZH_TO_EN: Record<string, string> = {
   'iCal 日历订阅与飞书/钉钉群卡片推送': 'iCal Calendar Subscription & Feishu/DingTalk Cards',
   '默认启用 RFC 5545 签名日历订阅源': 'Enable RFC 5545 signed calendar subscription feeds by default',
   '完成飞书与钉钉交互卡片回归验证': 'Complete Feishu and DingTalk interactive card regression verification',
+  '分布式缓存容灾演练与网关限流压测': 'Distributed Cache DR Drill & Gateway Rate-Limit Stress Test',
+  '启用 Redis Sentinel 自动主从切换方案': 'Enable Redis Sentinel Automatic Failover Plan',
+  '完成网关限流压测脚本验证': 'Complete Gateway Rate-Limit Stress Test Script Verification',
+  '跨机房专线延迟峰值如何兜底？': 'How to Mitigate Cross-DC Dedicated Line Latency Spikes?',
+  '把聚焦模式补齐键盘快捷键与中英双语切换支持': 'Complete keyboard shortcuts and bilingual switching support for Focus Mode',
+  '周会例行同步': 'Weekly Sync',
+  '双周架构评审': 'Bi-weekly Architecture Review',
+  '每周三 10:00 固定同步': 'Every Wednesday at 10:00',
+  '确认采用页内 ✨ AI 智能提炼直接写入当前议题记录，彻底移除冗余弹窗':
+    'Confirm in-place ✨ AI Smart Extract directly in agenda notes, removing redundant modals',
 }
 
 export const SEEDED_EN_TO_ZH: Record<string, string> = Object.fromEntries(

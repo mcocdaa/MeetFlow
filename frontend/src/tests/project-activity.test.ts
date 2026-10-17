@@ -193,4 +193,33 @@ describe('project activity ledger', () => {
     expect(screen.queryByRole('button', { name: '发布进展' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '编辑进展 up1' })).not.toBeInTheDocument()
   })
+
+  it('localizes meeting.notes_ingested and translates seeded subjects across zh and en', async () => {
+    const { setLocale } = await import('../i18n')
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/projects/p1/activity?limit=50') {
+        return Promise.resolve({
+          items: [
+            activityItem({ id: 10, event_type: 'meeting.notes_ingested', payload: {} }),
+            activityItem({ id: 11, event_type: 'agenda.created', payload: { title: '分布式缓存容灾演练与网关限流压测' } }),
+          ],
+          next_cursor: null,
+        })
+      }
+      if (path === '/api/projects/p1/updates?limit=50&offset=0') return Promise.resolve([])
+      return Promise.resolve({})
+    })
+
+    renderActivity()
+    expect(await screen.findByText(/在会议中完成了 AI 智能提炼/)).toBeInTheDocument()
+    expect(await screen.findByText(/创建了议题「分布式缓存容灾演练与网关限流压测」/)).toBeInTheDocument()
+
+    setLocale('en')
+    try {
+      expect(await screen.findByText(/Ran AI Smart Extract on meeting notes/)).toBeInTheDocument()
+      expect(await screen.findByText(/Created agenda item "Distributed Cache DR Drill & Gateway Rate-Limit Stress Test"/)).toBeInTheDocument()
+    } finally {
+      setLocale('zh')
+    }
+  })
 })
