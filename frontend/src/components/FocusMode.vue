@@ -13,7 +13,7 @@ import OutcomeComposer from './OutcomeComposer.vue'
 import { useI18n } from '../i18n'
 import { Check, ChevronLeft, ChevronRight } from '@lucide/vue'
 
-const { locale, tr } = useI18n()
+const { locale, tr, translateSeededText, translateNotesMarkdown } = useI18n()
 
 const props = defineProps<{
   show: boolean
@@ -89,11 +89,15 @@ const dirty = ref(false)
 
 watch(() => currentItem.value, (item) => {
   if (item) {
-    localNotes.value = item.notes_markdown
+    localNotes.value = translateNotesMarkdown(item.notes_markdown, locale.value)
     localVersion.value = item.version
     dirty.value = false
   }
 }, { immediate: true })
+
+watch(locale, (nextLocale) => {
+  localNotes.value = translateNotesMarkdown(localNotes.value, nextLocale)
+})
 
 function normalizeMarkdownSyntax(md: string): string {
   return md
@@ -329,17 +333,17 @@ const noteActionTags = computed(() => {
           <span class="live-time-text">{{ liveElapsed || tr('进行中', 'Live') }}</span>
         </div>
         <div class="focus-meeting-title">
-          <span class="project-pill">{{ meeting.project.name }}</span>
-          <strong>{{ meeting.title }}</strong>
+          <span class="project-pill">{{ translateSeededText(meeting.project.name) }}</span>
+          <strong>{{ translateSeededText(meeting.title) }}</strong>
         </div>
       </div>
 
       <div class="focus-bar-center" v-if="currentItem">
         <div class="focus-topic-pill">
           <span class="topic-index">{{ currentIndex + 1 }}/{{ totalItems }}</span>
-          <span class="topic-title">{{ currentItem.title }}</span>
+          <span class="topic-title">{{ translateSeededText(currentItem.title) }}</span>
           <n-tag v-if="currentItem.presenter" size="small" :bordered="false" class="presenter-tag">
-            {{ tr('主讲:', 'Speaker:') }} {{ currentItem.presenter.display_name }}
+            {{ tr('主讲:', 'Speaker:') }} {{ translateSeededText(currentItem.presenter.display_name) }}
           </n-tag>
         </div>
         <div class="focus-progress-wrapper">
@@ -408,7 +412,7 @@ const noteActionTags = computed(() => {
       <section class="focus-editor-pane">
         <div class="pane-header">
           <div class="agenda-title-row" v-if="currentItem">
-            <h1 class="focus-agenda-title">{{ currentItem.title }}</h1>
+            <h1 class="focus-agenda-title">{{ translateSeededText(currentItem.title) }}</h1>
             <span class="focus-agenda-type">
               {{ currentItem.agenda_type === 'decision' ? tr('决策议题', 'Decision') : currentItem.agenda_type === 'discussion' ? tr('讨论议题', 'Discussion') : tr('信息同步', 'Info Sync') }}
             </span>
@@ -422,7 +426,7 @@ const noteActionTags = computed(() => {
           <div class="quick-tag-toolbar" v-if="canContribute">
             <span class="quick-tag-label">{{ tr('快捷标签:', 'Quick Tags:') }}</span>
             <button type="button" class="tag-insert-btn tag-btn-decision" @click="insertTag(locale === 'en' ? '@Decision: ' : '@决策: ')">{{ tr('+ 决策', '+ Decision') }}</button>
-            <button type="button" class="tag-insert-btn tag-btn-action" @click="insertTag(locale === 'en' ? '@Action:[open] ' : '@行动:[open] ')">{{ tr('+ 待办行动', '+ Action') }}</button>
+            <button type="button" class="tag-insert-btn tag-btn-action" @click="insertTag(locale === 'en' ? '@Action:[open] ' : '@行动:[待办] ')">{{ tr('+ 待办行动', '+ Action') }}</button>
             <button type="button" class="tag-insert-btn tag-btn-question" @click="insertTag(locale === 'en' ? '@Question: ' : '@开放问题: ')">{{ tr('+ 开放问题', '+ Question') }}</button>
             <button
               type="button"
@@ -492,7 +496,7 @@ const noteActionTags = computed(() => {
               <span class="card-badge badge-decision">{{ tr('决策', 'Decision') }}</span>
               <span v-if="decision.is_derived" class="derived-badge">{{ tr('来自手记', 'From Notes') }}</span>
             </div>
-            <div class="card-title">{{ decision.title }}</div>
+            <div class="card-title">{{ translateSeededText(decision.title) }}</div>
           </div>
 
           <!-- Actions with one-click checkbox & status cycle -->
@@ -502,7 +506,7 @@ const noteActionTags = computed(() => {
             class="outcome-card action-card"
             :class="{
               'action-card--done': action.status === 'done',
-              'linked-glow': hoveredOutcomeId === action.id || noteActionTags.includes(action.content)
+              'linked-glow': hoveredOutcomeId === action.id || noteActionTags.includes(action.content) || noteActionTags.includes(translateSeededText(action.content))
             }"
             @mouseenter="hoveredOutcomeId = action.id"
             @mouseleave="hoveredOutcomeId = null"
@@ -522,7 +526,7 @@ const noteActionTags = computed(() => {
                   <span v-else-if="action.status === 'in_progress'" class="progress-dot"></span>
                 </button>
                 <div class="action-text" :class="{ 'done-strikethrough': action.status === 'done' }">
-                  {{ action.content }}
+                  {{ translateSeededText(action.content) }}
                 </div>
               </div>
 
@@ -540,7 +544,7 @@ const noteActionTags = computed(() => {
             </div>
 
             <div class="action-card-meta">
-              <span v-if="action.owner" class="meta-tag owner-tag">@{{ action.owner.display_name }}</span>
+              <span v-if="action.owner" class="meta-tag owner-tag">@{{ translateSeededText(action.owner.display_name) }}</span>
               <span v-if="action.due_date" class="meta-tag due-tag">{{ tr('截止', 'Due') }} {{ action.due_date }}</span>
               <span v-if="action.is_derived" class="derived-badge">{{ tr('手记双向映射', 'Two-way Sync') }}</span>
             </div>
@@ -559,7 +563,7 @@ const noteActionTags = computed(() => {
               <span class="card-badge badge-question">{{ tr('开放问题', 'Open Question') }}</span>
               <span v-if="question.is_derived" class="derived-badge">{{ tr('来自手记', 'From Notes') }}</span>
             </div>
-            <div class="card-title">{{ question.question_markdown }}</div>
+            <div class="card-title">{{ translateSeededText(question.question_markdown) }}</div>
           </div>
 
           <div

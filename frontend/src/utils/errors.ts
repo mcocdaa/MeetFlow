@@ -224,7 +224,44 @@ export const EN_ERROR_MAP: Record<string, string> = {
     'Server restarted; AI request was not resent',
   '服务重启，事件重新排队':
     'Server restarted; event was re-queued',
+
+  // Frontend fallback error messages
+  '议题保存失败': 'Failed to save agenda item',
+  'AI 提炼失败，请检查议题记录格式': 'AI extraction failed, please check notes format',
+  'AI 提炼失败，请检查笔记标签格式': 'AI extraction failed, please check notes format',
+  '议题状态更新失败': 'Failed to update agenda status',
+  '请选择目标议题': 'Please select a target agenda item',
+  '产出迁移失败': 'Failed to migrate outcomes',
+  '转为开放问题失败': 'Failed to convert to open question',
+  '目标会议加载失败': 'Failed to load target meetings',
+  '请选择目标会议': 'Please select a target meeting',
+  '议题复制失败': 'Failed to copy agenda item',
+  '更新行动项失败': 'Failed to update action item',
+  '结束时间必须晚于开始时间': 'End time must be after start time',
+  '准备信息保存失败': 'Failed to save preparation info',
+  '会议加载失败': 'Failed to load meeting',
+  '会议保存失败': 'Failed to save meeting',
+  '会议状态更新失败': 'Failed to update meeting status',
+  '议题刷新失败': 'Failed to refresh agenda',
+  '会议导出失败': 'Failed to export meeting',
+  '议题排序失败': 'Failed to reorder agenda items',
+  '议题添加失败': 'Failed to add agenda item',
+  '议题操作失败': 'Agenda action failed',
+  '议题已有产出，请先迁移产出，或将议题标记为取消。':
+    'This agenda item already has outcomes. Please migrate its outcomes or cancel the item first.',
+  '议题删除失败': 'Failed to delete agenda item',
+  '议题移动失败': 'Failed to move agenda item',
+  '议题开始失败': 'Failed to start agenda item',
+  '插件列表加载失败': 'Failed to load plugins',
+  '插件配置保存失败': 'Failed to save plugin configuration',
+  '敏感配置清除失败': 'Failed to clear secret configuration',
+  '插件状态更新失败': 'Failed to update plugin state',
+  '插件事件重试失败': 'Failed to retry plugin event',
 }
+
+export const ZH_ERROR_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(EN_ERROR_MAP).map(([zh, en]) => [en, zh]),
+)
 
 export const EN_ERROR_CODE_MAP: Record<string, string> = {
   invalid_credentials: 'Incorrect username or password',
@@ -270,9 +307,27 @@ export const EN_ERROR_CODE_MAP: Record<string, string> = {
 
 export function translateBackendError(msg: string, code?: string | null): string {
   if (!msg) return msg
-  if (locale.value !== 'en') return msg
-
   const trimmed = msg.trim()
+
+  if (locale.value !== 'en') {
+    if (ZH_ERROR_MAP[trimmed]) {
+      return ZH_ERROR_MAP[trimmed]
+    }
+    const enChunkMatch = trimmed.match(/^Chunk\s+(\d+)\s+has not been uploaded yet$/)
+    if (enChunkMatch) {
+      return `分片 ${enChunkMatch[1]} 尚未上传`
+    }
+    const enWebhookStatusMatch = trimmed.match(/^Webhook returned error status:\s*(.+)$/)
+    if (enWebhookStatusMatch) {
+      return `Webhook返回错误状态码: ${enWebhookStatusMatch[1]}`
+    }
+    const enWebhookErrorMatch = trimmed.match(/^Webhook delivery failed:\s*(.+)$/)
+    if (enWebhookErrorMatch) {
+      return `Webhook发送失败: ${enWebhookErrorMatch[1]}`
+    }
+    return msg
+  }
+
   if (EN_ERROR_MAP[trimmed]) {
     return EN_ERROR_MAP[trimmed]
   }

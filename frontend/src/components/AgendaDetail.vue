@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { NButton, NDrawer, NDrawerContent, NInputNumber, NPopconfirm, NSelect, NTag } from 'naive-ui'
 import StatusPill from './StatusPill.vue'
-import { errorMessage } from '../utils/errors'
+import { errorMessage, translateBackendError } from '../utils/errors'
 
 import { api, ApiError } from '../api/client'
 import type { Page, UserRef } from '../api/contracts'
@@ -20,7 +20,7 @@ import VersionConflictDialog from './VersionConflictDialog.vue'
 import { useI18n } from '../i18n'
 import { formatDateTime, formatDuration, parseUtcTimestamp } from '../utils/time'
 
-const { locale, tr } = useI18n()
+const { locale, tr, translateSeededText, translateNotesMarkdown } = useI18n()
 const props = defineProps<{ meeting: Meeting; item: AgendaItem; canContribute: boolean }>()
 const emit = defineEmits<{ changed: []; advance: [nextId: string | null] }>()
 type AgendaAdvanceResult = { next_agenda_item_id: string | null }
@@ -32,9 +32,9 @@ type MeetingOption = { id: string; title: string; version: number }
 
 function draftFor(item: AgendaItem): AgendaDetailDraft {
   return {
-    title: item.title,
+    title: translateSeededText(item.title, locale.value),
     agenda_type: item.agenda_type,
-    notes_markdown: item.notes_markdown,
+    notes_markdown: translateNotesMarkdown(item.notes_markdown, locale.value),
     estimated_minutes: item.estimated_minutes,
     proposer_user_id: item.proposer?.id ?? null,
     presenter_user_id: item.presenter?.id ?? null,
@@ -54,7 +54,14 @@ const dirty = computed(() => draft.title !== accepted.value.title
 const composer = ref<'decision' | 'action' | 'question' | null>(null)
 const saving = ref(false)
 const extractingNotes = ref(false)
-const extractStatus = ref('')
+const extractCounts = ref<{ decisions: number; actions: number; questions: number } | null>(null)
+const extractStatus = computed(() => {
+  if (!extractCounts.value) return ''
+  const { decisions, actions, questions } = extractCounts.value
+  return locale.value === 'en'
+    ? `✨ Extracted ${decisions} decisions · ${actions} actions · ${questions} open questions`
+    : `✨ 已智能提炼 ${decisions} 项决策 · ${actions} 项行动 · ${questions} 项开放问题`
+})
 const error = ref('')
 const conflict = ref<{ version: number; server: string } | null>(null)
 const projectMembers = ref<UserRef[]>([])
@@ -86,7 +93,7 @@ const memberSelectOptions = computed(() => {
   for (const person of candidates) {
     if (seen.has(person.id)) continue
     seen.add(person.id)
-    options.push({ label: person.display_name, value: person.id })
+    options.push({ label: translateSeededText(person.display_name), value: person.id })
   }
   return options
 })
@@ -101,7 +108,7 @@ const canConvert = computed(() => props.canContribute && !meetingLocked.value &&
 const canCopy = computed(() => props.canContribute && !meetingLocked.value && props.item.status === 'skipped')
 const migrateOptions = computed(() => props.meeting.agenda_items
   .filter((row) => row.id !== props.item.id)
-  .map((row) => ({ label: row.title, value: row.id })))
+  .map((row) => ({ label: translateSeededText(row.title), value: row.id })))
 const actualDurationText = computed(() => {
   const seconds = props.item.actual_duration_seconds
   if (props.item.status !== 'completed' || seconds === null || seconds === undefined) return ''
@@ -137,8 +144,19 @@ watch(() => props.item, (item) => {
   if (switchedItem) {
     attachmentItems.value = null
     conflict.value = null
+    extractCounts.value = null
   }
 }, { deep: true })
+
+watch(locale, (nextLocale) => {
+  if (error.value) error.value = translateBackendError(error.value)
+  if (migrateError.value) migrateError.value = translateBackendError(migrateError.value)
+  if (copyError.value) copyError.value = translateBackendError(copyError.value)
+  draft.title = translateSeededText(draft.title, nextLocale)
+  accepted.value.title = translateSeededText(accepted.value.title, nextLocale)
+  draft.notes_markdown = translateNotesMarkdown(draft.notes_markdown, nextLocale)
+  accepted.value.notes_markdown = translateNotesMarkdown(accepted.value.notes_markdown, nextLocale)
+})
 
 let clockHandle: number | undefined
 onMounted(() => {
@@ -250,7 +268,7 @@ async function save(expectedVersion = currentVersion.value) {
 async function smartExtractNotes() {
   if (!props.canContribute || meetingLocked.value || extractingNotes.value || saving.value) return
   extractingNotes.value = true
-  extractStatus.value = ''
+  extractCounts.value = null
   error.value = ''
   try {
     const flushed = typeof notesEditor.value?.flush === 'function' ? notesEditor.value.flush() : undefined
@@ -278,9 +296,7 @@ async function smartExtractNotes() {
     const decisions = res.decisions ?? res.extracted?.decisions ?? 0
     const actions = res.actions ?? res.extracted?.actions ?? 0
     const questions = res.questions ?? res.extracted?.questions ?? 0
-    extractStatus.value = locale.value === 'en'
-      ? `✨ Extracted ${decisions} decisions · ${actions} actions · ${questions} open questions`
-      : `✨ 已智能提炼 ${decisions} 项决策 · ${actions} 项行动 · ${questions} 项开放问题`
+    extractCounts.value = { decisions, actions, questions }
     emit('changed')
   } catch (caught) {
     error.value = errorMessage(caught, tr('AI 提炼失败，请检查议题记录格式', 'AI extraction failed, please check notes format'))
@@ -543,7 +559,7 @@ const noteActionTags = computed(() => {
           @mouseleave="hoveredOutcomeId = null"
         >
           <span>{{ decision.is_derived ? tr('来自议题记录', 'From Notes') : tr('决策', 'Decision') }}</span>
-          <strong>{{ decision.title }}</strong>
+          <strong>{{ translateSeededText(decision.title) }}</strong>
         </article>
 
         <article
@@ -552,7 +568,7 @@ const noteActionTags = computed(() => {
           class="outcome-action-item"
           :class="{
             'action-item--done': action.status === 'done',
-            'linked-glow': hoveredOutcomeId === action.id || noteActionTags.includes(action.content)
+            'linked-glow': hoveredOutcomeId === action.id || noteActionTags.includes(action.content) || noteActionTags.includes(translateSeededText(action.content))
           }"
           @mouseenter="hoveredOutcomeId = action.id"
           @mouseleave="hoveredOutcomeId = null"
@@ -570,9 +586,9 @@ const noteActionTags = computed(() => {
               <span v-if="action.status === 'done'" class="action-check-icon"><Check :size="12" :stroke-width="3" /></span>
               <span v-else-if="action.status === 'in_progress'" class="action-dot-icon"></span>
             </button>
-            <strong :class="{ 'text-strikethrough': action.status === 'done' }">{{ action.content }}</strong>
+            <strong :class="{ 'text-strikethrough': action.status === 'done' }">{{ translateSeededText(action.content) }}</strong>
             <div class="action-tags-inline">
-              <span v-if="action.owner" class="action-user-pill">@{{ action.owner.display_name }}</span>
+              <span v-if="action.owner" class="action-user-pill">@{{ translateSeededText(action.owner.display_name) }}</span>
               <span v-if="action.due_date" class="action-date-pill">{{ tr('截止', 'Due') }} {{ action.due_date }}</span>
               <button
                 type="button"
@@ -596,7 +612,7 @@ const noteActionTags = computed(() => {
           @mouseleave="hoveredOutcomeId = null"
         >
           <span>{{ question.is_derived ? tr('来自议题记录', 'From Notes') : tr('问题', 'Question') }}</span>
-          <strong>{{ question.question_markdown }}</strong>
+          <strong>{{ translateSeededText(question.question_markdown) }}</strong>
         </article>
         <p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">{{ tr('讨论结果会在这里形成可追踪的链条。', 'Decisions, actions, and questions captured during discussion appear here.') }}</p>
       </div>

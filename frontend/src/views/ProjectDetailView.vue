@@ -30,7 +30,7 @@ import type {
 
 type Tab = 'overview' | 'meetings' | 'actions' | 'decisions' | 'questions' | 'files' | 'activity'
 
-const { tr } = useI18n()
+const { tr, translateSeededText } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const dialog = useDialog()
@@ -342,12 +342,12 @@ onMounted(load)
     <p v-if="loading" class="empty-state">{{ tr('正在加载项目工作区…', 'Loading project workspace…') }}</p>
     <p v-else-if="error && !project" class="notice notice-error">{{ error }}</p>
     <template v-else-if="project">
-      <PageHeader :eyebrow="tr('项目工作区', 'Project workspace')" :title="project.name" :summary="project.summary">
+      <PageHeader :eyebrow="tr('项目工作区', 'Project workspace')" :title="translateSeededText(project.name)" :summary="translateSeededText(project.summary)">
         <template #meta>
           <div class="project-context">
             <StatusPill :status="project.status" kind="project" />
             <span><i class="health-dot" :data-health="project.health"></i>{{ healthLabels[project.health] }}</span>
-            <span>{{ tr('负责人：', 'Lead: ') }}{{ project.lead?.display_name ?? tr('未指定', 'Unassigned') }}</span>
+            <span>{{ tr('负责人：', 'Lead: ') }}{{ project.lead ? translateSeededText(project.lead.display_name) : tr('未指定', 'Unassigned') }}</span>
             <span>{{ tr('成员：', 'Members: ') }}{{ project.memberships.length }}</span>
             <span>{{ tr('目标：', 'Target: ') }}{{ project.target_date ?? tr('未设置', 'Unset') }}</span>
           </div>

@@ -14,7 +14,7 @@ import { subjectHref } from '../utils/links'
 import { priorityLabel } from '../utils/labels'
 import { formatDate, formatDateTime } from '../utils/time'
 
-const { tr } = useI18n()
+const { tr, translateSeededText } = useI18n()
 
 const props = defineProps<{
   project: ProjectDetail
@@ -35,7 +35,7 @@ const activityRows = ref<ProjectActivityItem[]>([])
 const attentionLink = (item: AttentionItem) => subjectHref(item.subject_type, item.subject_id)
 
 function actorName(item: ProjectActivityItem) {
-  return item.actor?.display_name || item.actor?.username || tr('系统', 'System')
+  return translateSeededText(item.actor?.display_name || item.actor?.username || tr('系统', 'System'))
 }
 
 function reasonLabel(reason: string): string {
@@ -72,7 +72,7 @@ onMounted(async () => {
           <h2>{{ tr('项目状态', 'Project State') }}</h2>
         </div>
       </div>
-      <p class="project-state-summary">{{ project.summary || tr('尚未填写项目摘要。', 'No project summary provided yet.') }}</p>
+      <p class="project-state-summary">{{ translateSeededText(project.summary) || tr('尚未填写项目摘要。', 'No project summary provided yet.') }}</p>
       <dl class="project-state-metrics">
         <div>
           <dt>{{ tr('健康度', 'Health') }}</dt>
@@ -89,7 +89,7 @@ onMounted(async () => {
           </dd>
         </div>
         <div><dt>{{ tr('目标日期', 'Target Date') }}</dt><dd>{{ project.target_date ?? tr('未设置', 'Unset') }}</dd></div>
-        <div><dt>{{ tr('负责人', 'Lead') }}</dt><dd>{{ project.lead?.display_name ?? tr('未指定', 'Unassigned') }}</dd></div>
+        <div><dt>{{ tr('负责人', 'Lead') }}</dt><dd>{{ project.lead ? translateSeededText(project.lead.display_name) : tr('未指定', 'Unassigned') }}</dd></div>
       </dl>
     </section>
 
@@ -99,7 +99,7 @@ onMounted(async () => {
         <button v-if="canContribute && !project.next_meeting" class="button button-small button-primary" @click="emit('scheduleMeeting')">{{ tr('安排会议', 'Schedule Meeting') }}</button>
       </div>
       <RouterLink v-if="project.next_meeting" class="next-meeting-card" :to="`/meetings/${project.next_meeting.id}`">
-        <strong>{{ project.next_meeting.title }}</strong>
+        <strong>{{ translateSeededText(project.next_meeting.title) }}</strong>
         <time>{{ formatDateTime(project.next_meeting.scheduled_start) }}</time>
         <span><StatusPill :status="project.next_meeting.status" kind="meeting" /> · {{ tr('打开会议', 'Open Meeting') }} <NIcon aria-hidden="true" :size="16"><ChevronRight /></NIcon></span>
       </RouterLink>
@@ -109,7 +109,7 @@ onMounted(async () => {
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading"><h2>{{ tr('需要处理', 'Needs Attention') }}</h2><span class="metric"><strong>{{ attentionRows.length }}</strong> {{ tr('项', 'items') }}</span></div>
       <div v-if="attentionRows.length" class="project-dashboard-list">
-        <RouterLink v-for="item in attentionRows" :key="`${item.subject_type}-${item.subject_id}`" class="compact-row" :to="attentionLink(item)"><strong>{{ item.title }}</strong><span>{{ item.reasons.map(reasonLabel).join(' · ') }}</span></RouterLink>
+        <RouterLink v-for="item in attentionRows" :key="`${item.subject_type}-${item.subject_id}`" class="compact-row" :to="attentionLink(item)"><strong>{{ translateSeededText(item.title) }}</strong><span>{{ item.reasons.map(reasonLabel).join(' · ') }}</span></RouterLink>
       </div>
       <p v-else class="muted">{{ tr('当前没有需要立即处理的事项。', 'No items require immediate attention.') }}</p>
     </section>
@@ -117,7 +117,7 @@ onMounted(async () => {
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading"><h2>{{ tr('近期行动项', 'Recent Actions') }}</h2><n-button size="small" quaternary round @click="emit('openTab', 'actions')">{{ tr('查看全部', 'View All') }}</n-button></div>
       <div v-if="actionRows.length" class="project-dashboard-list">
-        <RouterLink v-for="item in actionRows" :key="item.id" class="compact-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/actions?highlight=${item.id}`"><strong>{{ item.content }}</strong><span>{{ item.due_date ? tr(`截止 ${item.due_date}`, `Due ${item.due_date}`) : tr('未设截止日期', 'No due date') }} · {{ priorityLabel(item.priority) }}</span></RouterLink>
+        <RouterLink v-for="item in actionRows" :key="item.id" class="compact-row" :to="item.meeting_id ? `/meetings/${item.meeting_id}` : `/actions?highlight=${item.id}`"><strong>{{ translateSeededText(item.content) }}</strong><span>{{ item.due_date ? tr(`截止 ${item.due_date}`, `Due ${item.due_date}`) : tr('未设截止日期', 'No due date') }} · {{ priorityLabel(item.priority) }}</span></RouterLink>
       </div>
       <p v-else class="muted">{{ tr('没有未完成行动项。', 'No open action items.') }}</p>
     </section>
@@ -125,7 +125,7 @@ onMounted(async () => {
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading"><h2>{{ tr('近期决策', 'Recent Decisions') }}</h2><n-button size="small" quaternary round @click="emit('openTab', 'decisions')">{{ tr('查看全部', 'View All') }}</n-button></div>
       <div v-if="decisionRows.length" class="project-dashboard-list">
-        <RouterLink v-for="item in decisionRows" :key="item.id" class="compact-row" :to="`/decisions?highlight=${item.id}`"><strong>{{ item.title }}</strong><span><StatusPill :status="item.status" kind="decision" /></span></RouterLink>
+        <RouterLink v-for="item in decisionRows" :key="item.id" class="compact-row" :to="`/decisions?highlight=${item.id}`"><strong>{{ translateSeededText(item.title) }}</strong><span><StatusPill :status="item.status" kind="decision" /></span></RouterLink>
       </div>
       <p v-else class="muted">{{ tr('尚未形成项目决策。', 'No project decisions recorded yet.') }}</p>
     </section>

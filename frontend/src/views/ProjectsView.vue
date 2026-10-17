@@ -11,7 +11,7 @@ import { session } from '../auth/session'
 import type { Project, ProjectHealth, ProjectStatus } from '../domain/projects'
 import { useI18n } from '../i18n'
 
-const { tr } = useI18n()
+const { tr, translateSeededText } = useI18n()
 const projects = ref<Project[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -102,8 +102,8 @@ onMounted(load)
     <section v-else-if="filtered.length" class="project-grid">
       <RouterLink v-for="project in filtered" :key="project.id" class="project-card" :to="`/projects/${project.id}`">
         <div class="project-card-top"><span class="health-dot" :data-health="project.health"></span><span>{{ healthLabels[project.health] }}</span><StatusPill :status="project.status" kind="project" /></div>
-        <h2>{{ project.name }}</h2><p>{{ project.summary || tr('尚未填写项目说明', 'No project summary provided') }}</p>
-        <dl><div><dt>{{ tr('负责人', 'Lead') }}</dt><dd>{{ project.lead?.display_name ?? tr('未指定', 'Unassigned') }}</dd></div><div><dt>{{ tr('目标日期', 'Target Date') }}</dt><dd>{{ project.target_date ?? tr('未设置', 'Unset') }}</dd></div><div><dt>{{ tr('成员', 'Members') }}</dt><dd>{{ project.memberships.length }}</dd></div></dl>
+        <h2>{{ translateSeededText(project.name) }}</h2><p>{{ translateSeededText(project.summary) || tr('尚未填写项目说明', 'No project summary provided') }}</p>
+        <dl><div><dt>{{ tr('负责人', 'Lead') }}</dt><dd>{{ project.lead ? translateSeededText(project.lead.display_name) : tr('未指定', 'Unassigned') }}</dd></div><div><dt>{{ tr('目标日期', 'Target Date') }}</dt><dd>{{ project.target_date ?? tr('未设置', 'Unset') }}</dd></div><div><dt>{{ tr('成员', 'Members') }}</dt><dd>{{ project.memberships.length }}</dd></div></dl>
         <span class="text-link">{{ tr('打开项目', 'Open Project') }} <NIcon aria-hidden="true" :size="16"><ChevronRight /></NIcon></span>
       </RouterLink>
     </section>

@@ -348,9 +348,19 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
       )
     })
     expect((notesTextarea as HTMLTextAreaElement).value).toContain('@决策: 大家一致决定采用 Canonical REST API 统一接入')
-    expect((notesTextarea as HTMLTextAreaElement).value).toContain('@行动:[open][@lin] 请 @lin 跟进接口联调验证')
+    expect((notesTextarea as HTMLTextAreaElement).value).toContain('@行动:[待办][@lin] 请 @lin 跟进接口联调验证')
     expect((notesTextarea as HTMLTextAreaElement).value).toContain('@开放问题: 是否需要做历史数据迁移？')
     expect(screen.getByTestId('ai-extract-status')).toHaveTextContent('已智能提炼 2 项决策 · 2 项行动 · 1 项开放问题')
+
+    // Toggling locale to 'en' should reactively translate extractStatus and outcome tags
+    setLocale('en')
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-extract-status')).toHaveTextContent('Extracted 2 decisions · 2 actions · 1 open questions')
+    })
+    setLocale('zh')
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-extract-status')).toHaveTextContent('已智能提炼 2 项决策 · 2 项行动 · 1 项开放问题')
+    })
     expect(onChanged).toHaveBeenCalled()
   })
 

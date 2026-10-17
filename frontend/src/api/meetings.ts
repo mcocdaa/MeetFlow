@@ -96,7 +96,7 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
     return [
       `### ${title} · 讨论要点`,
       `@决策: 确认「${title}」核心实施方案与演进路径`,
-      `@行动:[open] 完成「${title}」接口联调与自动化回归测试`,
+      `@行动:[待办] 完成「${title}」接口联调与自动化回归测试`,
       `@开放问题: 「${title}」存量数据迁移窗口是否需要灰度验证？`,
     ].join('\n')
   }
@@ -108,6 +108,7 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
 
   const decPrefix = useEn ? '@Decision:' : '@决策:'
   const actPrefix = useEn ? '@Action:' : '@行动:'
+  const actStatus = useEn ? '[open]' : '[待办]'
   const qPrefix = useEn ? '@Question:' : '@开放问题:'
 
   for (const originalLine of lines) {
@@ -160,7 +161,7 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
       if (content) {
         const ownerMatch = content.match(/@([a-zA-Z0-9_-]+)/)
         const ownerTag = ownerMatch ? `[@${ownerMatch[1]}]` : ''
-        const tag = `${actPrefix}[open]${ownerTag} ${content}`
+        const tag = `${actPrefix}${actStatus}${ownerTag} ${content}`
         if (!existingTags.has(tag)) extractedTags.push(tag)
       }
     } else if (
@@ -185,7 +186,7 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
       if (content) {
         const ownerMatch = content.match(/@([a-zA-Z0-9_-]+)/)
         const ownerTag = ownerMatch ? `[@${ownerMatch[1]}]` : ''
-        const tag = `${actPrefix}[open]${ownerTag} ${content}`
+        const tag = `${actPrefix}${actStatus}${ownerTag} ${content}`
         if (!existingTags.has(tag)) extractedTags.push(tag)
       }
     }
@@ -213,7 +214,7 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
       '',
       `@决策: 确认推进「${title}」方案落地`,
       '',
-      `@行动:[open] 跟进「${title}」后续实施与联调验证`,
+      `@行动:[待办] 跟进「${title}」后续实施与联调验证`,
       '',
       `@开放问题: 「${title}」跨模块边界细节待最终确认`,
     ].join('\n')
