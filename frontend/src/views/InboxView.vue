@@ -6,6 +6,7 @@ import { RouterLink } from 'vue-router'
 
 import { api } from '../api/client'
 import { refreshUnread } from '../composables/useInboxUnread'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import { notificationHref, subjectLabel } from '../utils/links'
 import { formatDateTime } from '../utils/time'
@@ -32,6 +33,7 @@ type InboxChanges = {
 
 const CHANGES_PAGE_SIZE = 50
 
+const { tr } = useI18n()
 const items = ref<NotificationItem[]>([])
 const nextCursor = ref<number | null>(null)
 const changesCursor = ref(0)
@@ -43,18 +45,21 @@ const readAllBusy = ref(false)
 const error = ref('')
 let changesInFlight = false
 
-const kindLabels: Record<string, string> = {
-  'action.assigned': '分配了行动项给你',
-  'decision.review_requested': '请求你评审决策',
-  'comment.mention': '提到了你',
-  'comment.reply': '回复了你',
+const kindLabel = (kind: string) => {
+  const map: Record<string, string> = {
+    'action.assigned': tr('分配了行动项给你', 'assigned an action item to you'),
+    'decision.review_requested': tr('请求你评审决策', 'requested your decision review'),
+    'comment.mention': tr('提到了你', 'mentioned you'),
+    'comment.reply': tr('回复了你', 'replied to you'),
+  }
+  return map[kind] ?? kind
 }
 
 const actorLabel = (item: NotificationItem) =>
-  item.actor?.display_name || item.actor?.username || '系统'
+  item.actor?.display_name || item.actor?.username || tr('系统', 'System')
 
 const message = (item: NotificationItem) =>
-  `${actorLabel(item)} · ${kindLabels[item.kind] ?? item.kind} · ${subjectLabel(item.subject.type)}`
+  `${actorLabel(item)} · ${kindLabel(item.kind)} · ${subjectLabel(item.subject.type)}`
 
 async function load() {
   loading.value = true
@@ -68,7 +73,7 @@ async function load() {
     hasMoreChanges.value = false
     void refreshChanges()
   } catch (reason) {
-    error.value = errorMessage(reason, '通知加载失败')
+    error.value = errorMessage(reason, tr('通知加载失败', 'Failed to load notifications'))
   } finally {
     loading.value = false
   }
@@ -116,7 +121,7 @@ async function loadMore() {
     items.value.push(...value.items)
     nextCursor.value = value.next_cursor
   } catch (reason) {
-    error.value = errorMessage(reason, '通知加载失败')
+    error.value = errorMessage(reason, tr('通知加载失败', 'Failed to load notifications'))
   } finally {
     loadingMore.value = false
   }
@@ -132,7 +137,7 @@ async function markRead(item: NotificationItem) {
   } catch (reason) {
     item.read_at = null
     unreadCount.value += 1
-    error.value = errorMessage(reason, '标记已读失败')
+    error.value = errorMessage(reason, tr('标记已读失败', 'Failed to mark as read'))
   }
 }
 
@@ -146,7 +151,7 @@ async function readAll() {
     unreadCount.value = 0
     await refreshUnread()
   } catch (reason) {
-    error.value = errorMessage(reason, '全部已读失败')
+    error.value = errorMessage(reason, tr('全部已读失败', 'Failed to mark all as read'))
   } finally {
     readAllBusy.value = false
   }
@@ -165,11 +170,11 @@ onBeforeUnmount(() => {
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Inbox</p><h1>收件箱</h1><p>评论提及、指派和评审请求都会汇总到这里。</p></div>
-      <n-button secondary :disabled="!unreadCount" :loading="readAllBusy" @click="readAll">全部已读</n-button>
+      <div><p class="eyebrow">Inbox</p><h1>{{ tr('收件箱', 'Inbox') }}</h1><p>{{ tr('评论提及、指派和评审请求都会汇总到这里。', 'Mentions, assignments, and review requests are collected here.') }}</p></div>
+      <n-button secondary :disabled="!unreadCount" :loading="readAllBusy" @click="readAll">{{ tr('全部已读', 'Mark All Read') }}</n-button>
     </header>
     <n-alert v-if="error" type="error" class="workspace-section">{{ error }}</n-alert>
-    <p v-if="loading" class="empty-state">正在加载通知…</p>
+    <p v-if="loading" class="empty-state">{{ tr('正在加载通知…', 'Loading notifications…') }}</p>
     <template v-else-if="items.length">
       <n-list bordered class="inbox-list">
         <n-list-item
@@ -184,21 +189,21 @@ onBeforeUnmount(() => {
             <span class="attention-kind" :data-kind="item.subject.type">{{ subjectLabel(item.subject.type) }}</span>
             <div class="grow">
               <h3>{{ message(item) }}</h3>
-              <p class="attention-reasons"><time>{{ formatDateTime(item.created_at) }}</time><span v-if="item.read_at" class="muted"> · 已读</span></p>
+              <p class="attention-reasons"><time>{{ formatDateTime(item.created_at) }}</time><span v-if="item.read_at" class="muted"> · {{ tr('已读', 'Read') }}</span></p>
             </div>
             <NIcon aria-hidden="true" :size="18"><ChevronRight /></NIcon>
           </RouterLink>
         </n-list-item>
       </n-list>
       <div v-if="nextCursor" class="inbox-load-more">
-        <n-button quaternary :loading="loadingMore" :disabled="loadingMore" @click="loadMore">加载更多</n-button>
+        <n-button quaternary :loading="loadingMore" :disabled="loadingMore" @click="loadMore">{{ tr('加载更多', 'Load more') }}</n-button>
       </div>
       <div v-if="hasMoreChanges" class="inbox-changes-more">
-        <n-button text @click="load">点击刷新查看全部</n-button>
+        <n-button text @click="load">{{ tr('点击刷新查看全部', 'Click to refresh all') }}</n-button>
       </div>
     </template>
-    <n-empty v-else class="workspace-section" description="暂无通知">
-      <template #extra>新的提及、指派和评审请求会出现在这里。</template>
+    <n-empty v-else class="workspace-section" :description="tr('暂无通知', 'No notifications')">
+      <template #extra>{{ tr('新的提及、指派和评审请求会出现在这里。', 'New mentions, assignments, and review requests will appear here.') }}</template>
     </n-empty>
   </main>
 </template>

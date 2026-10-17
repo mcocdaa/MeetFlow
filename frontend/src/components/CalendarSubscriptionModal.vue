@@ -2,10 +2,12 @@
 import { ref, watch } from 'vue'
 import { NButton, NInput, NModal, useMessage } from 'naive-ui'
 import { api } from '../api/client'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ 'update:show': [value: boolean] }>()
+const { tr } = useI18n()
 
 const loading = ref(false)
 const error = ref('')
@@ -21,7 +23,7 @@ async function loadFeedUrl() {
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     feedUrl.value = data.full_feed_url || `${origin}${data.feed_url}`
   } catch (caught) {
-    error.value = errorMessage(caught, '日历订阅链接获取失败')
+    error.value = errorMessage(caught, tr('日历订阅链接获取失败', 'Failed to load calendar feed URL'))
   } finally {
     loading.value = false
   }
@@ -47,52 +49,52 @@ async function copyUrl() {
       input.remove()
     }
     copied.value = true
-    message.success('订阅链接已复制到剪贴板')
+    message.success(tr('订阅链接已复制到剪贴板', 'Subscription URL copied to clipboard'))
     setTimeout(() => { copied.value = false }, 2000)
   } catch {
-    message.warning('复制失败，请手动选择复制')
+    message.warning(tr('复制失败，请手动选择复制', 'Copy failed, please select and copy manually'))
   }
 }
 </script>
 
 <template>
-  <n-modal :show="props.show" preset="card" title="订阅个人日程与待办 (iCal)" style="width: min(580px, 94vw);" :mask-closable="true" @update:show="(val: boolean) => emit('update:show', val)">
+  <n-modal :show="props.show" preset="card" :title="tr('订阅个人日程与待办 (iCal)', 'Subscribe to Personal Calendar & Tasks (iCal)')" style="width: min(580px, 94vw);" :mask-closable="true" @update:show="(val: boolean) => emit('update:show', val)">
     <div class="calendar-modal-content">
       <p class="calendar-modal-desc">
-        通过标准 RFC 5545 iCalendar 订阅源，自动将您负责的<strong>待办行动项</strong>与<strong>参会日程</strong>单向同步至个人日历工具（支持 Apple 日历、Google Calendar、Outlook 等）。
+        {{ tr('通过标准 RFC 5545 iCalendar 订阅源，自动将您负责的待办行动项与参会日程单向同步至个人日历工具（支持 Apple 日历、Google Calendar、Outlook 等）。', 'Sync your assigned action items and meeting schedule to your personal calendar via a standard RFC 5545 iCalendar feed (Apple Calendar, Google Calendar, Outlook).') }}
       </p>
 
-      <div v-if="loading" class="calendar-loading">正在生成专属订阅令牌…</div>
+      <div v-if="loading" class="calendar-loading">{{ tr('正在生成专属订阅令牌…', 'Generating private subscription token…') }}</div>
       <div v-else-if="error" class="notice notice-error">{{ error }}</div>
       <div v-else class="calendar-feed-box">
-        <label class="feed-label">您的私有订阅链接（请勿泄露）：</label>
+        <label class="feed-label">{{ tr('您的私有订阅链接（请勿泄露）：', 'Your private feed URL (do not share):') }}</label>
         <div class="feed-input-group">
-          <n-input :value="feedUrl" readonly :input-props="{ 'aria-label': '日历订阅链接' }" placeholder="订阅链接" />
+          <n-input :value="feedUrl" readonly :input-props="{ 'aria-label': tr('日历订阅链接', 'Calendar subscription URL') }" :placeholder="tr('订阅链接', 'Subscription URL')" />
           <n-button type="primary" :disabled="!feedUrl" @click="copyUrl">
-            {{ copied ? '已复制' : '复制链接' }}
+            {{ copied ? tr('已复制', 'Copied') : tr('复制链接', 'Copy URL') }}
           </n-button>
         </div>
       </div>
 
       <div class="calendar-guide-section">
-        <h4>快速配置指南</h4>
+        <h4>{{ tr('快速配置指南', 'Quick Setup Guide') }}</h4>
         <div class="guide-item">
-          <strong>🍎 Apple 日历 (Mac / iOS)</strong>
-          <span>文件 ➔ 新建日历订阅 ➔ 粘贴上方链接 ➔ 自动刷新建议选择“每小时”。</span>
+          <strong>🍎 {{ tr('Apple 日历 (Mac / iOS)', 'Apple Calendar (Mac / iOS)') }}</strong>
+          <span>{{ tr('文件 ➔ 新建日历订阅 ➔ 粘贴上方链接 ➔ 自动刷新建议选择“每小时”。', 'File ➔ New Calendar Subscription ➔ Paste URL ➔ Set Auto-refresh to Every Hour.') }}</span>
         </div>
         <div class="guide-item">
           <strong>📅 Google Calendar</strong>
-          <span>其他日历旁点击 “+” ➔ 通过网址添加 ➔ 粘贴链接 ➔ 添加日历。</span>
+          <span>{{ tr('其他日历旁点击 “+” ➔ 通过网址添加 ➔ 粘贴链接 ➔ 添加日历。', 'Click "+" next to Other calendars ➔ From URL ➔ Paste URL ➔ Add calendar.') }}</span>
         </div>
         <div class="guide-item">
           <strong>📧 Microsoft Outlook</strong>
-          <span>添加日历 ➔ 从 Web 订阅 ➔ 粘贴链接并保存。</span>
+          <span>{{ tr('添加日历 ➔ 从 Web 订阅 ➔ 粘贴链接并保存。', 'Add calendar ➔ Subscribe from web ➔ Paste URL and save.') }}</span>
         </div>
       </div>
     </div>
     <template #footer>
       <div class="row-actions">
-        <n-button quaternary @click="emit('update:show', false)">关闭</n-button>
+        <n-button quaternary @click="emit('update:show', false)">{{ tr('关闭', 'Close') }}</n-button>
       </div>
     </template>
   </n-modal>

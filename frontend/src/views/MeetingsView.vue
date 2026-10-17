@@ -10,6 +10,7 @@ import { api } from '../api/client'
 import type { Page, UserRef } from '../api/contracts'
 import type { MeetingStatus } from '../domain/meetings'
 import type { Project } from '../domain/projects'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import { formatDateTime } from '../utils/time'
 
@@ -18,6 +19,7 @@ type MeetingRow = { id: string; project: { id: string; name: string }; series: {
 const PAGE_SIZE = 50
 
 const router = useRouter()
+const { tr } = useI18n()
 const projects = ref<Project[]>([])
 const meetings = ref<MeetingRow[]>([])
 const total = ref(0)
@@ -66,10 +68,10 @@ const visible = computed(() => meetings.value.filter((item) => (
   && (!search.value || `${item.title} ${item.project.name} ${item.series?.title ?? ''}`.toLowerCase().includes(search.value.toLowerCase()))
 )))
 const groups = computed(() => [
-  { id: 'active', title: '进行中的会议', items: visible.value.filter((item) => item.status === 'in_progress') },
-  { id: 'upcoming', title: '即将开始', items: visible.value.filter((item) => item.status === 'draft' || item.status === 'ready').sort((a, b) => a.scheduled_start.localeCompare(b.scheduled_start)) },
-  { id: 'completed', title: '最近完成', items: visible.value.filter((item) => item.status === 'completed').sort((a, b) => b.scheduled_start.localeCompare(a.scheduled_start)) },
-  { id: 'canceled', title: '已取消', items: visible.value.filter((item) => item.status === 'canceled').sort((a, b) => b.scheduled_start.localeCompare(a.scheduled_start)) },
+  { id: 'active', title: tr('进行中的会议', 'In Progress'), items: visible.value.filter((item) => item.status === 'in_progress') },
+  { id: 'upcoming', title: tr('即将开始', 'Upcoming'), items: visible.value.filter((item) => item.status === 'draft' || item.status === 'ready').sort((a, b) => a.scheduled_start.localeCompare(b.scheduled_start)) },
+  { id: 'completed', title: tr('最近完成', 'Recently Completed'), items: visible.value.filter((item) => item.status === 'completed').sort((a, b) => b.scheduled_start.localeCompare(a.scheduled_start)) },
+  { id: 'canceled', title: tr('已取消', 'Canceled'), items: visible.value.filter((item) => item.status === 'canceled').sort((a, b) => b.scheduled_start.localeCompare(a.scheduled_start)) },
 ])
 
 function syncSeriesFilterToUrl() {
@@ -121,7 +123,7 @@ async function load(more = false) {
     total.value = page.total
     offset.value = meetings.value.length
   } catch (caught) {
-    if (revision === loadRevision) error.value = errorMessage(caught, '会议加载失败')
+    if (revision === loadRevision) error.value = errorMessage(caught, tr('会议加载失败', 'Failed to load meetings'))
   } finally {
     if (revision === loadRevision) loading.value = false
   }
@@ -144,8 +146,8 @@ onMounted(load)
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Meeting workspace</p><h1>会议</h1><p>围绕项目组织准备、现场议题、产出和会后档案。</p></div>
-      <button class="button button-primary" @click="createOpen = true">新建会议</button>
+      <div><p class="eyebrow">Meeting workspace</p><h1>{{ tr('会议', 'Meetings') }}</h1><p>{{ tr('围绕项目组织准备、现场议题、产出和会后档案。', 'Organize prep, live agenda items, outcomes, and archives around projects.') }}</p></div>
+      <button class="button button-primary" @click="createOpen = true">{{ tr('新建会议', 'New Meeting') }}</button>
     </header>
     <MeetingCreateDrawer
       :show="createOpen"
@@ -154,32 +156,32 @@ onMounted(load)
       @close="createOpen = false"
       @created="onCreated"
     />
-    <section class="meeting-list-filters" aria-label="会议搜索与筛选">
-      <label class="search-box"><span class="search-icon" aria-hidden="true"><n-icon><Search :size="16" /></n-icon></span><input v-model.trim="search" aria-label="搜索会议" placeholder="搜索会议、项目或系列" /></label>
-      <button class="button button-quiet meeting-advanced-toggle" type="button" :class="{ 'is-active': advancedFilterCount }" :aria-label="advancedFilterCount ? `高级筛选（已启用 ${advancedFilterCount} 项）` : '高级筛选'" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
-        高级筛选<span v-if="advancedFilterCount" class="meeting-filter-count">{{ advancedFilterCount }}</span>
+    <section class="meeting-list-filters" :aria-label="tr('会议搜索与筛选', 'Meeting search and filters')">
+      <label class="search-box"><span class="search-icon" aria-hidden="true"><n-icon><Search :size="16" /></n-icon></span><input v-model.trim="search" :aria-label="tr('搜索会议', 'Search meetings')" :placeholder="tr('搜索会议、项目或系列', 'Search meetings, projects, or series')" /></label>
+      <button class="button button-quiet meeting-advanced-toggle" type="button" :class="{ 'is-active': advancedFilterCount }" :aria-label="advancedFilterCount ? tr(`高级筛选（已启用 ${advancedFilterCount} 项）`, `Advanced Filters (${advancedFilterCount} active)`) : tr('高级筛选', 'Advanced Filters')" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
+        {{ tr('高级筛选', 'Advanced Filters') }}<span v-if="advancedFilterCount" class="meeting-filter-count">{{ advancedFilterCount }}</span>
       </button>
-      <section v-if="advancedOpen" class="meeting-advanced-panel" aria-label="高级筛选条件">
-        <header><div><strong>高级筛选</strong><span v-if="advancedFilterCount">已启用 {{ advancedFilterCount }} 项</span></div><button v-if="advancedFilterCount" class="button button-quiet button-small" type="button" aria-label="清除全部高级筛选" @click="clearAdvancedFilters">清除全部</button></header>
+      <section v-if="advancedOpen" class="meeting-advanced-panel" :aria-label="tr('高级筛选条件', 'Advanced filter options')">
+        <header><div><strong>{{ tr('高级筛选', 'Advanced Filters') }}</strong><span v-if="advancedFilterCount">{{ tr(`已启用 ${advancedFilterCount} 项`, `${advancedFilterCount} active`) }}</span></div><button v-if="advancedFilterCount" class="button button-quiet button-small" type="button" :aria-label="tr('清除全部高级筛选', 'Clear all advanced filters')" @click="clearAdvancedFilters">{{ tr('清除全部', 'Clear all') }}</button></header>
         <div class="meeting-advanced-fields">
-          <label>项目<select v-model="projectFilter"><option value="">全部项目</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
-          <label>会议系列<select v-model="activeSeriesFilter" @change="syncSeriesFilterToUrl"><option value="">全部系列</option><option v-if="activeSeriesFilter && !hasActiveSeriesOption" :value="activeSeriesFilter">当前筛选系列（不可用）</option><option v-for="series in seriesOptions" :key="series.id" :value="series.id">{{ series.title }}</option></select></label>
-          <label>会议状态<select v-model="statusFilter"><option value="">全部状态</option><option value="draft">草稿</option><option value="ready">待开始</option><option value="in_progress">进行中</option><option value="completed">已完成</option><option value="canceled">已取消</option></select></label>
-          <label>参与者<select v-model="participantFilter"><option value="">全部参与者</option><option v-for="member in memberOptions" :key="member.id" :value="member.id">{{ member.display_name }}</option></select></label>
-          <label>开始时间不早于<n-date-picker v-model:value="startAfter" type="datetime" clearable :virtual-scroll="false" /></label>
-          <label>开始时间不晚于<n-date-picker v-model:value="startBefore" type="datetime" clearable :virtual-scroll="false" /></label>
+          <label>{{ tr('项目', 'Project') }}<select v-model="projectFilter"><option value="">{{ tr('全部项目', 'All Projects') }}</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
+          <label>{{ tr('会议系列', 'Series') }}<select v-model="activeSeriesFilter" @change="syncSeriesFilterToUrl"><option value="">{{ tr('全部系列', 'All Series') }}</option><option v-if="activeSeriesFilter && !hasActiveSeriesOption" :value="activeSeriesFilter">{{ tr('当前筛选系列（不可用）', 'Current series (unavailable)') }}</option><option v-for="series in seriesOptions" :key="series.id" :value="series.id">{{ series.title }}</option></select></label>
+          <label>{{ tr('会议状态', 'Status') }}<select v-model="statusFilter"><option value="">{{ tr('全部状态', 'All Statuses') }}</option><option value="draft">{{ tr('草稿', 'Draft') }}</option><option value="ready">{{ tr('待开始', 'Ready') }}</option><option value="in_progress">{{ tr('进行中', 'In Progress') }}</option><option value="completed">{{ tr('已完成', 'Completed') }}</option><option value="canceled">{{ tr('已取消', 'Canceled') }}</option></select></label>
+          <label>{{ tr('参与者', 'Participant') }}<select v-model="participantFilter"><option value="">{{ tr('全部参与者', 'All Participants') }}</option><option v-for="member in memberOptions" :key="member.id" :value="member.id">{{ member.display_name }}</option></select></label>
+          <label>{{ tr('开始时间不早于', 'Start After') }}<n-date-picker v-model:value="startAfter" type="datetime" clearable :virtual-scroll="false" /></label>
+          <label>{{ tr('开始时间不晚于', 'Start Before') }}<n-date-picker v-model:value="startBefore" type="datetime" clearable :virtual-scroll="false" /></label>
         </div>
-        <p>已加载 {{ meetings.length }} / 共 {{ total }} 场会议</p>
-        <p class="meeting-scope-note">搜索与系列筛选仅作用于已加载页</p>
+        <p>{{ tr(`已加载 ${meetings.length} / 共 ${total} 场会议`, `Loaded ${meetings.length} / ${total} meetings`) }}</p>
+        <p class="meeting-scope-note">{{ tr('搜索与系列筛选仅作用于已加载页', 'Search and series filters apply to loaded pages only') }}</p>
       </section>
     </section>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
-    <p v-if="loading && !meetings.length" class="empty-state">正在加载会议…</p>
+    <p v-if="loading && !meetings.length" class="empty-state">{{ tr('正在加载会议…', 'Loading meetings…') }}</p>
     <template v-else>
-      <section v-for="group in groups" :key="group.id" class="meeting-group"><header><h2>{{ group.title }}</h2><span>{{ group.items.length }}</span></header><div v-if="group.items.length" class="meeting-workspace-list"><RouterLink v-for="item in group.items" :key="item.id" :to="`/meetings/${item.id}`" class="workspace-section meeting-workspace-row"><time>{{ formatDateTime(item.scheduled_start) }}</time><div><div class="tag-row"><span class="tag tag-project">{{ item.project.name }}</span><span v-if="item.series" class="tag">{{ item.series.title }}</span><span v-if="item.occurrence_kind === 'manual'" class="tag">临时</span><StatusPill :status="item.status" kind="meeting" /></div><h3>{{ item.title }}</h3><p>{{ item.purpose_markdown || '尚未填写会议目的' }}</p></div><dl><div><dt>议题</dt><dd>{{ item.agenda_count }}</dd></div><div><dt>快照</dt><dd>{{ item.snapshot_count }}</dd></div><div><dt>更正</dt><dd>{{ item.amendment_count }}</dd></div></dl></RouterLink></div><p v-else class="empty-inline">暂无{{ group.title }}</p></section>
+      <section v-for="group in groups" :key="group.id" class="meeting-group"><header><h2>{{ group.title }}</h2><span>{{ group.items.length }}</span></header><div v-if="group.items.length" class="meeting-workspace-list"><RouterLink v-for="item in group.items" :key="item.id" :to="`/meetings/${item.id}`" class="workspace-section meeting-workspace-row"><time>{{ formatDateTime(item.scheduled_start) }}</time><div><div class="tag-row"><span class="tag tag-project">{{ item.project.name }}</span><span v-if="item.series" class="tag">{{ item.series.title }}</span><span v-if="item.occurrence_kind === 'manual'" class="tag">{{ tr('临时', 'Ad-hoc') }}</span><StatusPill :status="item.status" kind="meeting" /></div><h3>{{ item.title }}</h3><p>{{ item.purpose_markdown || tr('尚未填写会议目的', 'No meeting purpose provided') }}</p></div><dl><div><dt>{{ tr('议题', 'Agendas') }}</dt><dd>{{ item.agenda_count }}</dd></div><div><dt>{{ tr('快照', 'Snapshots') }}</dt><dd>{{ item.snapshot_count }}</dd></div><div><dt>{{ tr('更正', 'Amendments') }}</dt><dd>{{ item.amendment_count }}</dd></div></dl></RouterLink></div><p v-else class="empty-inline">{{ tr(`暂无${group.title}`, `No ${group.title.toLowerCase()} meetings`) }}</p></section>
       <div v-if="meetings.length < total" class="meeting-load-more">
-        <p v-if="activeSeriesFilter && !visible.length">当前系列不在已加载页内，请继续加载更多会议。</p>
-        <button class="button button-quiet" :disabled="loading" @click="loadMore">{{ loading ? '正在加载…' : '加载更多' }}</button>
+        <p v-if="activeSeriesFilter && !visible.length">{{ tr('当前系列不在已加载页内，请继续加载更多会议。', 'Series not in loaded page; please load more meetings.') }}</p>
+        <button class="button button-quiet" :disabled="loading" @click="loadMore">{{ loading ? tr('正在加载…', 'Loading…') : tr('加载更多', 'Load more') }}</button>
       </div>
     </template>
   </main>

@@ -27,10 +27,19 @@ class TaggedOutcome:
 
 _TAGS: tuple[tuple[OutcomeKind, str], ...] = (
     ("decision", "@决策:"),
+    ("decision", "@Decision:"),
+    ("decision", "@decision:"),
     ("action", "@行动:"),
+    ("action", "@Action:"),
+    ("action", "@action:"),
     ("question", "@开放问题:"),
     ("question", "@问题:"),
+    ("question", "@Question:"),
+    ("question", "@question:"),
+    ("question", "@OpenQuestion:"),
 )
+
+_ACTION_PREFIXES: tuple[str, ...] = ("@行动:", "@Action:", "@action:")
 
 
 def parse_action_metadata(
@@ -79,6 +88,7 @@ def format_action_tag(
     status: ActionStatus | str = ActionStatus.open,
     owner: str | None = None,
     due_date: date | str | None = None,
+    tag_prefix: str = "@行动:",
 ) -> str:
     """Format an ActionItem into the tag syntax @行动:[status][@owner][due_date] content."""
     status_str = status.value if hasattr(status, "value") else str(status)
@@ -100,7 +110,7 @@ def format_action_tag(
         due_str = due_date.isoformat() if hasattr(due_date, "isoformat") else str(due_date).strip()
         if due_str:
             parts.append(f"[{due_str}]")
-    return f"@行动:{''.join(parts)} {content.strip()}"
+    return f"{tag_prefix}{''.join(parts)} {content.strip()}"
 
 
 def rewrite_action_in_notes(
@@ -124,12 +134,19 @@ def rewrite_action_in_notes(
             continue
         if in_fence:
             continue
-        if line.startswith("@行动:"):
+        matched_prefix = next(
+            (prefix for prefix in _ACTION_PREFIXES if line.startswith(prefix)),
+            None,
+        )
+        if matched_prefix is not None:
             if action_count == target_index:
                 leading_ws_len = len(raw_line) - len(raw_line.lstrip())
                 leading = raw_line[:leading_ws_len]
                 ending = "\n" if raw_line.endswith("\n") else ""
-                lines[idx] = f"{leading}{new_tag_line}{ending}"
+                tag_line = new_tag_line
+                if matched_prefix != "@行动:" and tag_line.startswith("@行动:"):
+                    tag_line = f"{matched_prefix}{tag_line[len('@行动:'):]}"
+                lines[idx] = f"{leading}{tag_line}{ending}"
                 return "".join(lines)
             action_count += 1
     return notes_markdown

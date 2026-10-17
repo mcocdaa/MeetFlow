@@ -6,6 +6,7 @@ import { RouterLink } from 'vue-router'
 import { NBadge, NCard, NEmpty, NSkeleton } from 'naive-ui'
 
 import { api } from '../api/client'
+import { useI18n } from '../i18n'
 import { formatDateTime } from '../utils/time'
 import { streamPluginAction } from '../api/plugin-stream'
 import AttentionCard, { type AttentionItem } from '../components/AttentionCard.vue'
@@ -21,6 +22,7 @@ type AttentionResponse = {
 type PluginAction = { action_id: string }
 type WorkBriefResponse = { content_markdown: string; generated_at: string | null }
 
+const { tr } = useI18n()
 const response = ref<AttentionResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
@@ -54,7 +56,7 @@ async function loadWorkBriefCapability(revision: number) {
   } catch (reason) {
     if (!isCurrentWorkBriefRevision(revision)) return
     workBriefEnabled.value = false
-    workBriefError.value = errorMessage(reason, 'AI 插件状态读取失败')
+    workBriefError.value = errorMessage(reason, tr('AI 插件状态读取失败', 'Failed to load AI plugin status'))
   }
 }
 
@@ -66,7 +68,7 @@ async function loadWorkBrief(revision: number) {
   } catch (reason) {
     if (!isCurrentWorkBriefRevision(revision)) return
     if (!workBriefError.value) {
-      workBriefError.value = errorMessage(reason, 'AI 工作简报读取失败')
+      workBriefError.value = errorMessage(reason, tr('AI 工作简报读取失败', 'Failed to load AI work brief'))
     }
   }
 }
@@ -85,7 +87,7 @@ async function load() {
   try {
     await loadAttention()
   } catch (reason) {
-    error.value = errorMessage(reason, '工作区加载失败')
+    error.value = errorMessage(reason, tr('工作区加载失败', 'Failed to load workspace'))
   } finally {
     loading.value = false
   }
@@ -118,7 +120,7 @@ async function generateWorkBrief() {
     }
   } catch (reason) {
     if (!controller.signal.aborted && isCurrentWorkBriefRevision(revision) && workBriefController.value === controller) {
-      workBriefError.value = errorMessage(reason, 'AI 工作简报生成失败，请稍后重试')
+      workBriefError.value = errorMessage(reason, tr('AI 工作简报生成失败，请稍后重试', 'Failed to generate AI work brief'))
     }
   } finally {
     if (workBriefController.value === controller) workBriefController.value = null
@@ -137,18 +139,18 @@ onBeforeUnmount(cancelWorkBrief)
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">For you</p><h1>今天需要你关注的事</h1><p>把跨项目的待办、评审和会议准备收拢到一个队列。</p></div>
+      <div><p class="eyebrow">For you</p><h1>{{ tr('今天需要你关注的事', 'What Needs Your Attention Today') }}</h1><p>{{ tr('把跨项目的待办、评审和会议准备收拢到一个队列。', 'Bring cross-project action items, reviews, and meeting prep into one queue.') }}</p></div>
       <div class="home-heading-actions">
         <span v-if="response" class="unread-summary">
           <n-badge :value="response.unread_count" :show="response.unread_count > 0" />
-          <span>{{ response.unread_count }} 条未读提醒</span>
+          <span>{{ tr(`${response.unread_count} 条未读提醒`, `${response.unread_count} unread alerts`) }}</span>
         </span>
-        <button class="button button-quiet" @click="load">刷新</button>
+        <button class="button button-quiet" @click="load">{{ tr('刷新', 'Refresh') }}</button>
       </div>
     </header>
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
     <div v-if="loading" class="home-loading">
-      <p class="empty-state">正在整理你的工作区…</p>
+      <p class="empty-state">{{ tr('正在整理你的工作区…', 'Organizing your workspace…') }}</p>
       <n-skeleton text :repeat="3" />
     </div>
     <div v-else class="home-workspace">
@@ -160,10 +162,10 @@ onBeforeUnmount(cancelWorkBrief)
           content-class="home-card-body"
           content-style="padding: 0"
         >
-          <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2 id="priority-queue-title">需要关注</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> 项</span></div>
+          <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2 id="priority-queue-title">{{ tr('需要关注', 'Attention Queue') }}</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> {{ tr('项', 'items') }}</span></div>
           <div v-if="priorities.length" class="attention-list"><AttentionCard v-for="item in priorities" :key="`${item.subject_type}:${item.subject_id}`" :item="item" /></div>
-          <n-empty v-else class="empty-state compact" description="目前没有需要立即处理的事项">
-            <p>新的指派、评审和回复会出现在这里。</p>
+          <n-empty v-else class="empty-state compact" :description="tr('目前没有需要立即处理的事项', 'No items require immediate attention')">
+            <p>{{ tr('新的指派、评审和回复会出现在这里。', 'New assignments, reviews, and replies will appear here.') }}</p>
           </n-empty>
         </n-card>
         <n-card
@@ -173,9 +175,9 @@ onBeforeUnmount(cancelWorkBrief)
           content-class="home-card-body"
           content-style="padding: 0"
         >
-          <div class="section-heading"><div><p class="eyebrow">Next up</p><h2 id="upcoming-meetings-title">近期会议</h2></div><RouterLink class="text-link" to="/meetings">全部</RouterLink></div>
+          <div class="section-heading"><div><p class="eyebrow">Next up</p><h2 id="upcoming-meetings-title">{{ tr('近期会议', 'Upcoming Meetings') }}</h2></div><RouterLink class="text-link" to="/meetings">{{ tr('全部', 'All') }}</RouterLink></div>
           <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ formatDateTime(item.scheduled_start) }}</time></RouterLink>
-          <n-empty v-if="!meetings.length" class="empty-state compact" description="未来七天没有需要你参加的会议。" />
+          <n-empty v-if="!meetings.length" class="empty-state compact" :description="tr('未来七天没有需要你参加的会议。', 'No meetings scheduled for you in the next 7 days.')" />
         </n-card>
       </div>
 
@@ -183,19 +185,19 @@ onBeforeUnmount(cancelWorkBrief)
         <div class="ai-work-brief-heading">
           <div>
             <p class="eyebrow">Work brief</p>
-            <h2>AI 工作简报</h2>
-            <p>{{ workBriefEnabled ? '汇总你全部项目中的当前工作，仅供阅读。' : '加载工作简报插件后，可汇总你的跨项目工作。' }}</p>
-            <span v-if="workBrief?.generated_at" class="brief-generated-at">上次生成于 {{ formatDateTime(workBrief.generated_at) }}</span>
+            <h2>{{ tr('AI 工作简报', 'AI Work Brief') }}</h2>
+            <p>{{ workBriefEnabled ? tr('汇总你全部项目中的当前工作，仅供阅读。', 'Summarizes your current work across all projects for quick reading.') : tr('加载工作简报插件后，可汇总你的跨项目工作。', 'Enable the work brief plugin to summarize cross-project work.') }}</p>
+            <span v-if="workBrief?.generated_at" class="brief-generated-at">{{ tr('上次生成于', 'Last generated') }} {{ formatDateTime(workBrief.generated_at) }}</span>
           </div>
           <div v-if="workBriefEnabled" class="ai-brief-actions">
-            <button class="button button-small" :disabled="workBriefRunning" @click="generateWorkBrief">{{ workBriefRunning ? '正在生成…' : '生成工作简报' }}</button>
-            <button v-if="workBriefRunning" class="button button-small button-quiet" @click="cancelWorkBrief">取消</button>
+            <button class="button button-small" :disabled="workBriefRunning" @click="generateWorkBrief">{{ workBriefRunning ? tr('正在生成…', 'Generating…') : tr('生成工作简报', 'Generate Brief') }}</button>
+            <button v-if="workBriefRunning" class="button button-small button-quiet" @click="cancelWorkBrief">{{ tr('取消', 'Cancel') }}</button>
           </div>
-          <button v-else class="button button-small" disabled>尚未启用</button>
+          <button v-else class="button button-small" disabled>{{ tr('尚未启用', 'Not Enabled') }}</button>
         </div>
         <p v-if="workBriefError" class="notice notice-error ai-brief-output" role="alert">{{ workBriefError }}</p>
         <section v-else-if="workBriefRunning || displayedWorkBriefMarkdown" class="ai-brief-output" aria-live="polite">
-          <p v-if="workBriefRunning && !workBriefStreamMarkdown" class="muted">正在汇总全部项目的当前工作…</p>
+          <p v-if="workBriefRunning && !workBriefStreamMarkdown" class="muted">{{ tr('正在汇总全部项目的当前工作…', 'Summarizing current work across all projects…') }}</p>
           <MarkdownView v-else :source="displayedWorkBriefMarkdown" />
         </section>
       </n-card>

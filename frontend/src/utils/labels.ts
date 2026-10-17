@@ -1,5 +1,6 @@
 import type { DecisionReviewStatus } from '../domain/outcomes'
 import type { ParticipationRole } from '../domain/meetings'
+import { locale } from '../i18n'
 
 export const PARTICIPATION_ROLE_LABELS: Record<ParticipationRole, string> = {
   host: '主持',
@@ -8,11 +9,32 @@ export const PARTICIPATION_ROLE_LABELS: Record<ParticipationRole, string> = {
   attendee: '参与',
 }
 
+export const EN_PARTICIPATION_ROLE_LABELS: Record<ParticipationRole, string> = {
+  host: 'Host',
+  recorder: 'Recorder',
+  presenter: 'Speaker',
+  attendee: 'Attendee',
+}
+
+export function participationRoleLabel(role: ParticipationRole): string {
+  return locale.value === 'en' ? (EN_PARTICIPATION_ROLE_LABELS[role] ?? role) : (PARTICIPATION_ROLE_LABELS[role] ?? role)
+}
+
 /** 决策评审人状态文案（DecisionsView 全局表与 DecisionDetailDrawer 共用）。 */
 export const REVIEW_STATUS_LABELS: Record<DecisionReviewStatus, string> = {
   pending: '待评审',
   approved: '已同意',
   changes_requested: '需修改',
+}
+
+export const EN_REVIEW_STATUS_LABELS: Record<DecisionReviewStatus, string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  changes_requested: 'Changes Req.',
+}
+
+export function reviewStatusLabel(status: DecisionReviewStatus): string {
+  return locale.value === 'en' ? (EN_REVIEW_STATUS_LABELS[status] ?? status) : (REVIEW_STATUS_LABELS[status] ?? status)
 }
 
 export type StatusKind =
@@ -108,8 +130,73 @@ const LABELS_BY_KIND: Record<StatusKind, Record<string, string>> = {
   priority: PRIORITY_LABELS,
 }
 
+const EN_LABELS_BY_KIND: Record<StatusKind, Record<string, string>> = {
+  meeting: {
+    draft: 'Draft',
+    ready: 'Ready',
+    in_progress: 'In Progress',
+    completed: 'Completed',
+    canceled: 'Canceled',
+  },
+  agenda: {
+    planned: 'Planned',
+    in_progress: 'In Progress',
+    completed: 'Completed',
+    skipped: 'Skipped',
+    canceled: 'Canceled',
+  },
+  decision: {
+    proposed: 'Proposed',
+    final: 'Final',
+    superseded: 'Superseded',
+    withdrawn: 'Withdrawn',
+  },
+  action: {
+    open: 'Open',
+    in_progress: 'In Progress',
+    done: 'Done',
+    canceled: 'Canceled',
+  },
+  question: {
+    open: 'Open',
+    scheduled: 'Scheduled',
+    resolved: 'Resolved',
+    dropped: 'Dropped',
+  },
+  project: {
+    planned: 'Planned',
+    active: 'Active',
+    paused: 'Paused',
+    completed: 'Completed',
+    canceled: 'Canceled',
+  },
+  user: {
+    pending: 'Pending',
+    active: 'Active',
+    rejected: 'Rejected',
+    disabled: 'Archived',
+  },
+  job: {
+    queued: 'Queued',
+    requesting: 'Running',
+    succeeded: 'Succeeded',
+    failed: 'Failed',
+    interrupted: 'Interrupted',
+    canceled: 'Canceled',
+    dismissed: 'Dismissed',
+    applied: 'Applied',
+  },
+  priority: {
+    urgent: 'Urgent',
+    high: 'High',
+    normal: 'Normal',
+    low: 'Low',
+  },
+}
+
 export function statusLabel(kind: StatusKind, status: string): string {
-  return LABELS_BY_KIND[kind][status] ?? status
+  const table = locale.value === 'en' ? EN_LABELS_BY_KIND : LABELS_BY_KIND
+  return table[kind][status] ?? status
 }
 
 export const meetingStatusLabel = (status: string) => statusLabel('meeting', status)
@@ -121,3 +208,4 @@ export const projectStatusLabel = (status: string) => statusLabel('project', sta
 export const userStatusLabel = (status: string) => statusLabel('user', status)
 export const jobStatusLabel = (status: string) => statusLabel('job', status)
 export const priorityLabel = (priority: string) => statusLabel('priority', priority)
+

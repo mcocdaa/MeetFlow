@@ -17,8 +17,10 @@ import type { MarkdownEditorHandle } from './MarkdownEditor.vue'
 import OutcomeComposer from './OutcomeComposer.vue'
 import PluginEditorSlot from './PluginEditorSlot.vue'
 import VersionConflictDialog from './VersionConflictDialog.vue'
+import { useI18n } from '../i18n'
 import { formatDateTime, formatDuration, parseUtcTimestamp } from '../utils/time'
 
+const { locale, tr } = useI18n()
 const props = defineProps<{ meeting: Meeting; item: AgendaItem; canContribute: boolean }>()
 const emit = defineEmits<{ changed: []; advance: [nextId: string | null] }>()
 type AgendaAdvanceResult = { next_agenda_item_id: string | null }
@@ -103,13 +105,13 @@ const migrateOptions = computed(() => props.meeting.agenda_items
 const actualDurationText = computed(() => {
   const seconds = props.item.actual_duration_seconds
   if (props.item.status !== 'completed' || seconds === null || seconds === undefined) return ''
-  return `实际用时 ${formatDuration(seconds)}`
+  return `${tr('实际用时', 'Actual')} ${formatDuration(seconds)}`
 })
 const completedWindow = computed(() => {
   if (props.item.status !== 'completed') return ''
   const parts: string[] = []
-  if (props.item.started_at) parts.push(`开始 ${formatDateTime(props.item.started_at)}`)
-  if (props.item.completed_at) parts.push(`完成 ${formatDateTime(props.item.completed_at)}`)
+  if (props.item.started_at) parts.push(`${tr('开始', 'Start')} ${formatDateTime(props.item.started_at)}`)
+  if (props.item.completed_at) parts.push(`${tr('完成', 'End')} ${formatDateTime(props.item.completed_at)}`)
   return parts.join(' · ')
 })
 const liveElapsed = computed(() => {
@@ -253,7 +255,7 @@ async function smartExtractNotes() {
   try {
     const flushed = typeof notesEditor.value?.flush === 'function' ? notesEditor.value.flush() : undefined
     if (flushed !== undefined) draft.notes_markdown = flushed
-    const structured = smartStructureAgendaNotes(draft.notes_markdown, draft.title || props.item.title)
+    const structured = smartStructureAgendaNotes(draft.notes_markdown, draft.title || props.item.title, locale.value)
     draft.notes_markdown = structured
 
     const res = await ingestMeetingNotes(props.meeting.id, {
@@ -276,7 +278,9 @@ async function smartExtractNotes() {
     const decisions = res.decisions ?? res.extracted?.decisions ?? 0
     const actions = res.actions ?? res.extracted?.actions ?? 0
     const questions = res.questions ?? res.extracted?.questions ?? 0
-    extractStatus.value = `✨ 已智能提炼 ${decisions} 项决策 · ${actions} 项行动 · ${questions} 项开放问题`
+    extractStatus.value = locale.value === 'en'
+      ? `✨ Extracted ${decisions} decisions · ${actions} actions · ${questions} open questions`
+      : `✨ 已智能提炼 ${decisions} 项决策 · ${actions} 项行动 · ${questions} 项开放问题`
     emit('changed')
   } catch (caught) {
     error.value = errorMessage(caught, 'AI 提炼失败，请检查议题记录格式')
@@ -443,6 +447,15 @@ function cycleActionStatus(action: ActionItem) {
 }
 
 function actionStatusLabel(status: ActionStatus): string {
+  if (locale.value === 'en') {
+    const enMap: Record<ActionStatus, string> = {
+      open: 'Todo',
+      in_progress: 'Doing',
+      done: 'Done',
+      canceled: 'Canceled',
+    }
+    return enMap[status] || status
+  }
   const map: Record<ActionStatus, string> = {
     open: '待办',
     in_progress: '进行中',
@@ -453,7 +466,7 @@ function actionStatusLabel(status: ActionStatus): string {
 }
 
 const noteActionTags = computed(() => {
-  const regex = /@行动:(\[[^\]]*\])*\s*([^\n\r]+)/g
+  const regex = /@(?:行动|Action|action):(\[[^\]]*\])*\s*([^\n\r]+)/g
   const matches: string[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(draft.notes_markdown)) !== null) {
@@ -466,26 +479,26 @@ const noteActionTags = computed(() => {
 <template>
   <div class="agenda-detail" data-testid="agenda-detail">
     <header class="agenda-detail-header">
-      <div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" aria-label="议题标题" :readonly="!canContribute" /></div>
+      <div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" :aria-label="tr('议题标题', 'Agenda Title')" :readonly="!canContribute" /></div>
       <div class="agenda-detail-status">
         <StatusPill :status="props.item.status" kind="agenda" />
-        <n-tag v-if="item.carry_from_open_question_id" size="small" :bordered="false">来自开放问题</n-tag>
+        <n-tag v-if="item.carry_from_open_question_id" size="small" :bordered="false">{{ tr('来自开放问题', 'From Question') }}</n-tag>
       </div>
     </header>
     <p v-if="actualDurationText || completedWindow || liveElapsed" class="agenda-timing">
       <span v-if="actualDurationText" class="agenda-actual-duration">{{ actualDurationText }}</span>
       <span v-if="completedWindow" class="agenda-actual-window">{{ completedWindow }}</span>
-      <span v-if="liveElapsed" class="agenda-live-elapsed">已进行 {{ liveElapsed }}</span>
+      <span v-if="liveElapsed" class="agenda-live-elapsed">{{ tr('已进行', 'Elapsed') }} {{ liveElapsed }}</span>
     </p>
     <div class="agenda-meta-fields">
-      <label>类型<select v-model="draft.agenda_type" :disabled="!canContribute"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label>
-      <label>预计时长<n-input-number v-model:value="draft.estimated_minutes" :min="1" :max="480" :disabled="!canContribute" :input-props="{ 'aria-label': '预计时长' }" /></label>
-      <label>提案人<n-select v-model:value="draft.proposer_user_id" :options="memberSelectOptions" filterable clearable :virtual-scroll="false" :disabled="!canContribute" :input-props="{ 'aria-label': '提案人' }" placeholder="未指定" @update:show="onMemberMenu" /></label>
-      <label>主讲人<n-select v-model:value="draft.presenter_user_id" :options="memberSelectOptions" filterable clearable :virtual-scroll="false" :disabled="!canContribute" :input-props="{ 'aria-label': '主讲人' }" placeholder="未指定" @update:show="onMemberMenu" /></label>
+      <label>{{ tr('类型', 'Type') }}<select v-model="draft.agenda_type" :disabled="!canContribute"><option value="information">{{ tr('信息同步', 'Info Sync') }}</option><option value="discussion">{{ tr('讨论', 'Discussion') }}</option><option value="decision">{{ tr('决策', 'Decision') }}</option></select></label>
+      <label>{{ tr('预计时长', 'Duration') }}<n-input-number v-model:value="draft.estimated_minutes" :min="1" :max="480" :disabled="!canContribute" :input-props="{ 'aria-label': tr('预计时长', 'Duration') }" /></label>
+      <label>{{ tr('提案人', 'Proposer') }}<n-select v-model:value="draft.proposer_user_id" :options="memberSelectOptions" filterable clearable :virtual-scroll="false" :disabled="!canContribute" :input-props="{ 'aria-label': tr('提案人', 'Proposer') }" :placeholder="tr('未指定', 'Unassigned')" @update:show="onMemberMenu" /></label>
+      <label>{{ tr('主讲人', 'Speaker') }}<n-select v-model:value="draft.presenter_user_id" :options="memberSelectOptions" filterable clearable :virtual-scroll="false" :disabled="!canContribute" :input-props="{ 'aria-label': tr('主讲人', 'Speaker') }" :placeholder="tr('未指定', 'Unassigned')" @update:show="onMemberMenu" /></label>
     </div>
     <div class="agenda-notes">
-      <span v-if="!canContribute" class="agenda-notes-label">议题记录</span>
-      <PluginEditorSlot v-if="canContribute" v-model="draft.notes_markdown" editor-label="议题记录" data-testid="agenda-notes-editor" target-type="agenda_item" :target-id="item.id" slot="agenda-notes-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id }" @notice="error = $event">
+      <span v-if="!canContribute" class="agenda-notes-label">{{ tr('议题记录', 'Agenda Notes') }}</span>
+      <PluginEditorSlot v-if="canContribute" v-model="draft.notes_markdown" :editor-label="tr('议题记录', 'Agenda Notes')" data-testid="agenda-notes-editor" target-type="agenda_item" :target-id="item.id" slot="agenda-notes-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, agendaId: item.id }" @notice="error = $event">
         <template #header-actions="{ disabled }">
           <button
             v-if="!meetingLocked"
@@ -495,31 +508,31 @@ const noteActionTags = computed(() => {
             :disabled="saving || disabled || extractingNotes"
             @click="smartExtractNotes"
           >
-            ✨ {{ extractingNotes ? '正在提炼…' : 'AI 智能提炼' }}
+            ✨ {{ extractingNotes ? tr('正在提炼…', 'Extracting…') : tr('AI 智能提炼', 'AI Extract') }}
           </button>
         </template>
         <template #editor="{ disabled, registerEditor }">
-          <MarkdownEditor ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="saving || disabled || extractingNotes" :register-editor="registerEditor" />
+          <MarkdownEditor ref="notesEditor" v-model="draft.notes_markdown" :label="tr('议题记录', 'Agenda Notes')" :placeholder="tr('记录讨论上下文、材料和过程…', 'Capture discussion context, materials, and notes…')" :disabled="saving || disabled || extractingNotes" :register-editor="registerEditor" />
         </template>
       </PluginEditorSlot>
-      <MarkdownEditor v-else ref="notesEditor" v-model="draft.notes_markdown" label="议题记录" placeholder="记录讨论上下文、材料和过程…" :disabled="true" />
+      <MarkdownEditor v-else ref="notesEditor" v-model="draft.notes_markdown" :label="tr('议题记录', 'Agenda Notes')" :placeholder="tr('记录讨论上下文、材料和过程…', 'Capture discussion context, materials, and notes…')" :disabled="true" />
     </div>
     <p v-if="extractStatus" class="ai-extract-status" data-testid="ai-extract-status" role="status">{{ extractStatus }}</p>
     <p v-if="error" class="notice notice-error">{{ error }}</p>
-    <div v-if="canContribute" class="agenda-save-row"><span class="muted">保存后会同步识别记录中的 @决策:、@行动:、@开放问题:。</span><button class="button button-quiet" :disabled="saving || !draft.title.trim()" @click="save()">保存议题</button></div>
+    <div v-if="canContribute" class="agenda-save-row"><span class="muted">{{ tr('保存后会同步识别记录中的 @决策:、@行动:、@开放问题:。', 'Saving syncs @Decision:, @Action:, and @Question: tags from notes.') }}</span><button class="button button-quiet" :disabled="saving || !draft.title.trim()" @click="save()">{{ tr('保存议题', 'Save Agenda') }}</button></div>
 
     <div v-if="canMigrate || canConvert || canCopy" class="agenda-command-actions" data-testid="agenda-commands">
-      <n-button v-if="canMigrate" quaternary size="small" @click="openMigrate">迁移产出</n-button>
-      <n-popconfirm v-if="canConvert" positive-text="确认" negative-text="取消" @positive-click="convertToQuestion">
+      <n-button v-if="canMigrate" quaternary size="small" @click="openMigrate">{{ tr('迁移产出', 'Migrate Outcomes') }}</n-button>
+      <n-popconfirm v-if="canConvert" :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="convertToQuestion">
         <template #trigger>
-          <n-button quaternary size="small" :loading="converting" :disabled="converting">转为开放问题</n-button>
+          <n-button quaternary size="small" :loading="converting" :disabled="converting">{{ tr('转为开放问题', 'To Question') }}</n-button>
         </template>
-        转为开放问题后，议题标题会成为一条待跟进的开放问题。
+        {{ tr('转为开放问题后，议题标题会成为一条待跟进的开放问题。', 'Converting turns the agenda title into an open question for follow-up.') }}
       </n-popconfirm>
-      <n-button v-if="canCopy" quaternary size="small" @click="openCopy">复制到其他会议</n-button>
+      <n-button v-if="canCopy" quaternary size="small" @click="openCopy">{{ tr('复制到其他会议', 'Copy to Meeting') }}</n-button>
     </div>
 
-    <section class="agenda-outcomes"><header class="section-heading"><div><p class="eyebrow">Outcomes</p><h2>本议题产出</h2></div><div v-if="canContribute" class="outcome-action-group" data-testid="outcome-actions"><button class="button button-small button-quiet" @click="composer = 'decision'">+ 决策</button><button class="button button-small button-quiet" @click="composer = 'action'">+ 行动</button><button class="button button-small button-quiet" @click="composer = 'question'">+ 开放问题</button></div></header>
+    <section class="agenda-outcomes"><header class="section-heading"><div><p class="eyebrow">Outcomes</p><h2>{{ tr('本议题产出', 'Topic Outcomes') }}</h2></div><div v-if="canContribute" class="outcome-action-group" data-testid="outcome-actions"><button class="button button-small button-quiet" @click="composer = 'decision'">{{ tr('+ 决策', '+ Decision') }}</button><button class="button button-small button-quiet" @click="composer = 'action'">{{ tr('+ 行动', '+ Action') }}</button><button class="button button-small button-quiet" @click="composer = 'question'">{{ tr('+ 开放问题', '+ Question') }}</button></div></header>
       <OutcomeComposer v-if="canContribute && composer" :mode="composer" :meeting="meeting" :item="item" @close="composer = null" @saved="emit('changed')" />
       <div class="outcome-list">
         <article
@@ -529,7 +542,7 @@ const noteActionTags = computed(() => {
           @mouseenter="hoveredOutcomeId = decision.id"
           @mouseleave="hoveredOutcomeId = null"
         >
-          <span>{{ decision.is_derived ? '来自议题记录' : '决策' }}</span>
+          <span>{{ decision.is_derived ? tr('来自议题记录', 'From Notes') : tr('决策', 'Decision') }}</span>
           <strong>{{ decision.title }}</strong>
         </article>
 
@@ -544,14 +557,14 @@ const noteActionTags = computed(() => {
           @mouseenter="hoveredOutcomeId = action.id"
           @mouseleave="hoveredOutcomeId = null"
         >
-          <span>{{ action.is_derived ? '来自议题记录' : '行动' }}</span>
+          <span>{{ action.is_derived ? tr('来自议题记录', 'From Notes') : tr('行动', 'Action') }}</span>
           <div class="outcome-action-content">
             <button
               type="button"
               class="action-checkbox-btn"
               :class="[`status-${action.status}`]"
               :disabled="!canContribute"
-              title="切换完成状态"
+              :title="tr('切换完成状态', 'Toggle completion')"
               @click="toggleActionStatus(action)"
             >
               <span v-if="action.status === 'done'" class="action-check-icon"><Check :size="12" :stroke-width="3" /></span>
@@ -560,13 +573,13 @@ const noteActionTags = computed(() => {
             <strong :class="{ 'text-strikethrough': action.status === 'done' }">{{ action.content }}</strong>
             <div class="action-tags-inline">
               <span v-if="action.owner" class="action-user-pill">@{{ action.owner.display_name }}</span>
-              <span v-if="action.due_date" class="action-date-pill">截止 {{ action.due_date }}</span>
+              <span v-if="action.due_date" class="action-date-pill">{{ tr('截止', 'Due') }} {{ action.due_date }}</span>
               <button
                 type="button"
                 class="action-status-pill-btn"
                 :class="[`pill-${action.status}`]"
                 :disabled="!canContribute"
-                title="点击切换状态"
+                :title="tr('点击切换状态', 'Click to cycle status')"
                 @click="cycleActionStatus(action)"
               >
                 {{ actionStatusLabel(action.status) }}
@@ -582,45 +595,45 @@ const noteActionTags = computed(() => {
           @mouseenter="hoveredOutcomeId = question.id"
           @mouseleave="hoveredOutcomeId = null"
         >
-          <span>{{ question.is_derived ? '来自议题记录' : '问题' }}</span>
+          <span>{{ question.is_derived ? tr('来自议题记录', 'From Notes') : tr('问题', 'Question') }}</span>
           <strong>{{ question.question_markdown }}</strong>
         </article>
-        <p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">讨论结果会在这里形成可追踪的链条。</p>
+        <p v-if="!item.decisions.length && !item.actions.length && !item.open_questions.length" class="empty-inline">{{ tr('讨论结果会在这里形成可追踪的链条。', 'Decisions, actions, and questions captured during discussion appear here.') }}</p>
       </div>
     </section>
 
     <section class="agenda-attachments" data-testid="agenda-attachments">
-      <header class="section-heading"><div><p class="eyebrow">Attachments</p><h2>议题附件</h2></div></header>
+      <header class="section-heading"><div><p class="eyebrow">Attachments</p><h2>{{ tr('议题附件', 'Attachments') }}</h2></div></header>
       <AttachmentPanel target-type="agenda_item" :target-id="item.id" :attachments="attachments" :can-contribute="canContribute" @uploaded="onAttachmentUploaded" @deleted="onAttachmentDeleted" />
     </section>
 
-    <footer v-if="canContribute && item.status === 'in_progress'" class="agenda-flow-actions" data-testid="flow-actions"><button class="button button-primary" :disabled="saving" @click="complete">完成议题并进入下一项</button></footer>
+    <footer v-if="canContribute && item.status === 'in_progress'" class="agenda-flow-actions" data-testid="flow-actions"><button class="button button-primary" :disabled="saving" @click="complete">{{ tr('完成议题并进入下一项', 'Complete & Next') }}</button></footer>
     <VersionConflictDialog v-if="conflict" :local-markdown="draft.notes_markdown" :server-markdown="conflict.server" :actual-version="conflict.version" @close="conflict = null" @reload="reloadFromServer" @overwrite="save" />
 
     <n-drawer :show="migrateOpen" placement="right" :width="'min(560px, 100vw)'" :mask-closable="!migrateSaving" @update:show="(value: boolean) => { if (!value && !migrateSaving) migrateOpen = false }">
-      <n-drawer-content title="迁移产出" closable>
-        <p class="muted">把“{{ item.title }}”的直接产出移动到同一会议的另一项议题。</p>
-        <label class="agenda-command-field">目标议题
-          <n-select v-model:value="migrateTargetId" class="migrate-target-select" :options="migrateOptions" :disabled="migrateSaving" :virtual-scroll="false" :input-props="{ 'aria-label': '目标议题' }" placeholder="选择目标议题" />
+      <n-drawer-content :title="tr('迁移产出', 'Migrate Outcomes')" closable>
+        <p class="muted">{{ tr(`把“${item.title}”的直接产出移动到同一会议的另一项议题。`, `Move direct outcomes from "${item.title}" to another agenda item in this meeting.`) }}</p>
+        <label class="agenda-command-field">{{ tr('目标议题', 'Target Agenda') }}
+          <n-select v-model:value="migrateTargetId" class="migrate-target-select" :options="migrateOptions" :disabled="migrateSaving" :virtual-scroll="false" :input-props="{ 'aria-label': tr('目标议题', 'Target Agenda') }" :placeholder="tr('选择目标议题', 'Select target agenda')" />
         </label>
         <p v-if="migrateError" class="notice notice-error" role="alert">{{ migrateError }}</p>
         <template #footer>
-          <n-button quaternary :disabled="migrateSaving" @click="migrateOpen = false">取消</n-button>
-          <n-button type="primary" :loading="migrateSaving" :disabled="migrateSaving" @click="submitMigrate">确认迁移</n-button>
+          <n-button quaternary :disabled="migrateSaving" @click="migrateOpen = false">{{ tr('取消', 'Cancel') }}</n-button>
+          <n-button type="primary" :loading="migrateSaving" :disabled="migrateSaving" @click="submitMigrate">{{ tr('确认迁移', 'Confirm Migration') }}</n-button>
         </template>
       </n-drawer-content>
     </n-drawer>
 
     <n-drawer :show="copyOpen" placement="right" :width="'min(560px, 100vw)'" :mask-closable="!copySaving" @update:show="(value: boolean) => { if (!value && !copySaving) copyOpen = false }">
-      <n-drawer-content title="复制到其他会议" closable>
-        <p class="muted">只有已跳过的议题可以复制到之后的会议。</p>
-        <label class="agenda-command-field">目标会议
-          <n-select v-model:value="copyTargetId" class="copy-target-select" :options="copyOptions.map((option) => ({ label: option.title, value: option.id }))" :loading="copyLoading" :disabled="copySaving" :virtual-scroll="false" :input-props="{ 'aria-label': '目标会议' }" placeholder="选择目标会议" />
+      <n-drawer-content :title="tr('复制到其他会议', 'Copy to Meeting')" closable>
+        <p class="muted">{{ tr('只有已跳过的议题可以复制到之后的会议。', 'Only skipped agenda items can be copied to another meeting.') }}</p>
+        <label class="agenda-command-field">{{ tr('目标会议', 'Target Meeting') }}
+          <n-select v-model:value="copyTargetId" class="copy-target-select" :options="copyOptions.map((option) => ({ label: option.title, value: option.id }))" :loading="copyLoading" :disabled="copySaving" :virtual-scroll="false" :input-props="{ 'aria-label': tr('目标会议', 'Target Meeting') }" :placeholder="tr('选择目标会议', 'Select target meeting')" />
         </label>
         <p v-if="copyError" class="notice notice-error" role="alert">{{ copyError }}</p>
         <template #footer>
-          <n-button quaternary :disabled="copySaving" @click="copyOpen = false">取消</n-button>
-          <n-button type="primary" :loading="copySaving" :disabled="copySaving || copyLoading" @click="submitCopy">确认复制</n-button>
+          <n-button quaternary :disabled="copySaving" @click="copyOpen = false">{{ tr('取消', 'Cancel') }}</n-button>
+          <n-button type="primary" :loading="copySaving" :disabled="copySaving || copyLoading" @click="submitCopy">{{ tr('确认复制', 'Confirm Copy') }}</n-button>
         </template>
       </n-drawer-content>
     </n-drawer>
