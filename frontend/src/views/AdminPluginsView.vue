@@ -21,7 +21,10 @@ import { computed, h, onMounted, reactive, ref } from 'vue'
 
 import { api } from '../api/client'
 import StatusPill from '../components/StatusPill.vue'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
+
+const { tr } = useI18n()
 
 type ConfigField = { key: string; type: 'string' | 'number' | 'boolean' | 'secret'; required?: boolean; label?: string; description?: string }
 type PluginInfo = {
@@ -99,7 +102,7 @@ async function load() {
       // Keep failedEvents from /api/admin/plugins as the fallback.
     }
   } catch (reason) {
-    error.value = errorMessage(reason, '插件列表加载失败')
+    error.value = errorMessage(reason, tr('插件列表加载失败', 'Failed to load plugins'))
   }
 }
 
@@ -117,7 +120,7 @@ async function saveConfig(plugin: PluginInfo) {
     await api(`/api/admin/plugins/${plugin.id}/config`, { method: 'PUT', body: JSON.stringify(payload) })
     await load()
   } catch (reason) {
-    error.value = errorMessage(reason, '插件配置保存失败')
+    error.value = errorMessage(reason, tr('插件配置保存失败', 'Failed to save plugin configuration'))
   } finally {
     saving.value = ''
   }
@@ -129,7 +132,7 @@ async function clearSecret(plugin: PluginInfo, key: string) {
     await api(`/api/admin/plugins/${plugin.id}/config`, { method: 'PUT', body: JSON.stringify({ [key]: null }) })
     await load()
   } catch (reason) {
-    error.value = errorMessage(reason, '敏感配置清除失败')
+    error.value = errorMessage(reason, tr('敏感配置清除失败', 'Failed to clear secret configuration'))
   }
 }
 
@@ -147,7 +150,7 @@ async function toggle(plugin: PluginInfo, value: boolean) {
     await load()
   } catch (reason) {
     plugin.enabled = previous
-    error.value = errorMessage(reason, '插件状态更新失败')
+    error.value = errorMessage(reason, tr('插件状态更新失败', 'Failed to update plugin state'))
   } finally {
     toggling.value = ''
   }
@@ -161,7 +164,7 @@ async function retryEvent(eventId: string) {
     await api(`/api/admin/plugins/events/${encodeURIComponent(eventId)}/retry`, { method: 'POST' })
     await load()
   } catch (reason) {
-    error.value = errorMessage(reason, '插件事件重试失败')
+    error.value = errorMessage(reason, tr('插件事件重试失败', 'Failed to retry plugin event'))
   } finally {
     retryingEvent.value = ''
   }
@@ -172,14 +175,40 @@ function secretConfigured(plugin: PluginInfo, key: string) {
   return !!value && typeof value === 'object' && 'configured' in value && (value as { configured: boolean }).configured
 }
 
+function pluginDisplayName(plugin: PluginInfo): string {
+  if (plugin.id === 'ai-work-assistant' && plugin.name === 'AI 工作助手') {
+    return tr('AI 工作助手', 'AI Work Assistant')
+  }
+  if (plugin.id === 'meeting-export' && plugin.name === '会议导出') {
+    return tr('会议导出', 'Meeting Export')
+  }
+  return plugin.name
+}
+
+function pluginDisplayDescription(plugin: PluginInfo): string {
+  if (plugin.id === 'ai-work-assistant' && plugin.description?.includes('生成可编辑的会议纪要')) {
+    return tr(
+      plugin.description,
+      'Generate editable meeting minutes, agenda notes, project progress, and outcome suggestions',
+    )
+  }
+  if (plugin.id === 'meeting-export' && plugin.description?.includes('会议上下文导出')) {
+    return tr(
+      plugin.description,
+      'Export bounded meeting context as Markdown or JSON',
+    )
+  }
+  return plugin.description || plugin.id
+}
+
 const eventColumns = computed<DataTableColumns<PluginEvent>>(() => {
   const retrying = retryingEvent.value
   return [
-    { title: '事件类型', key: 'event_type', minWidth: 200 },
-    { title: '尝试次数', key: 'attempts', minWidth: 100 },
-    { title: '最后错误', key: 'last_error', minWidth: 220, render: (event) => event.last_error || '—' },
+    { title: tr('事件类型', 'Event Type'), key: 'event_type', minWidth: 200 },
+    { title: tr('尝试次数', 'Attempts'), key: 'attempts', minWidth: 100 },
+    { title: tr('最后错误', 'Last Error'), key: 'last_error', minWidth: 220, render: (event) => event.last_error || '—' },
     {
-      title: '操作',
+      title: tr('操作', 'Actions'),
       key: 'actions',
       minWidth: 120,
       render: (event) => h(NButton, {
@@ -187,7 +216,7 @@ const eventColumns = computed<DataTableColumns<PluginEvent>>(() => {
         disabled: retrying !== '',
         loading: retrying === event.event_id,
         onClick: () => retryEvent(event.event_id),
-      }, { default: () => (retrying === event.event_id ? '重试中…' : '重试') }),
+      }, { default: () => (retrying === event.event_id ? tr('重试中…', 'Retrying…') : tr('重试', 'Retry')) }),
     },
   ]
 })
@@ -197,35 +226,35 @@ onMounted(() => { void load() })
 
 <template>
   <main class="page">
-    <header class="page-heading"><div><p class="eyebrow">Extensions</p><h1>插件管理</h1><p>配置由服务器管理员安装的可信扩展。代码变更与启停需要重启。</p></div><span class="metric"><strong>{{ plugins.length }}</strong> 已发现</span></header>
+    <header class="page-heading"><div><p class="eyebrow">Extensions</p><h1>{{ tr('插件管理', 'Plugin Management') }}</h1><p>{{ tr('配置由服务器管理员安装的可信扩展。代码变更与启停需要重启。', 'Configure trusted extensions installed by the server administrator. Code or state changes require a restart.') }}</p></div><span class="metric"><strong>{{ plugins.length }}</strong> {{ tr('已发现', 'Discovered') }}</span></header>
     <n-alert v-if="error" type="error">{{ error }}</n-alert>
-    <n-alert v-if="restartRequired" type="warning" class="restart-notice">插件启用状态已保存，重启后生效。</n-alert>
+    <n-alert v-if="restartRequired" type="warning" class="restart-notice">{{ tr('插件启用状态已保存，重启后生效。', 'Plugin enabled state saved; restart required to take effect.') }}</n-alert>
     <n-grid v-if="plugins.length" class="plugin-grid" :cols="2" :x-gap="16" :y-gap="16">
       <n-grid-item v-for="plugin in plugins" :key="plugin.id">
         <n-card class="plugin-card" size="small">
           <div class="plugin-card-heading">
             <div class="plugin-icon" aria-hidden="true"><n-icon :size="20"><Puzzle /></n-icon></div>
             <div class="grow">
-              <div class="tag-row"><n-tag size="small" :bordered="false">v{{ plugin.version }}</n-tag><StatusPill v-if="plugin.load_error" status="rejected" label="加载失败" /></div>
-              <h2>{{ plugin.name }}</h2>
-              <p>{{ plugin.description || plugin.id }}</p>
+              <div class="tag-row"><n-tag size="small" :bordered="false">v{{ plugin.version }}</n-tag><StatusPill v-if="plugin.load_error" status="rejected" :label="tr('加载失败', 'Load Failed')" /></div>
+              <h2>{{ pluginDisplayName(plugin) }}</h2>
+              <p>{{ pluginDisplayDescription(plugin) }}</p>
             </div>
             <n-switch
               :value="plugin.enabled"
               :disabled="Boolean(toggling)"
-              :aria-label="`启用 ${plugin.name}`"
+              :aria-label="tr(`启用 ${pluginDisplayName(plugin)}`, `Enable ${pluginDisplayName(plugin)}`)"
               @update:value="(value: boolean) => toggle(plugin, value)"
             />
           </div>
           <p v-if="plugin.load_error" class="notice notice-error">{{ plugin.load_error }}</p>
-          <div v-if="plugin.capabilities" class="plugin-capabilities" aria-label="插件能力">
+          <div v-if="plugin.capabilities" class="plugin-capabilities" :aria-label="tr('插件能力', 'Plugin capabilities')">
             <n-tag size="small" :bordered="false">API v{{ plugin.api_version ?? 1 }}</n-tag>
-            <n-tag v-if="plugin.loaded" size="small" :bordered="false">已加载</n-tag>
-            <n-tag v-for="scope in plugin.capabilities.context_scopes ?? []" :key="`scope-${scope}`" size="small" :bordered="false">上下文范围：{{ scope }}</n-tag>
-            <n-tag v-if="plugin.capabilities.external_network" class="capability-warning" size="small" type="warning" :bordered="false">可访问外部网络</n-tag>
+            <n-tag v-if="plugin.loaded" size="small" :bordered="false">{{ tr('已加载', 'Loaded') }}</n-tag>
+            <n-tag v-for="scope in plugin.capabilities.context_scopes ?? []" :key="`scope-${scope}`" size="small" :bordered="false">{{ tr('上下文范围：', 'Scope: ') }}{{ scope }}</n-tag>
+            <n-tag v-if="plugin.capabilities.external_network" class="capability-warning" size="small" type="warning" :bordered="false">{{ tr('可访问外部网络', 'External Network') }}</n-tag>
             <n-tag v-for="capability in [...(plugin.capabilities.exporters ?? []), ...(plugin.capabilities.event_subscriptions ?? []), ...(plugin.capabilities.ui_slots ?? [])]" :key="capability" size="small" :bordered="false">{{ capability }}</n-tag>
           </div>
-          <p class="restart-note">状态变更：<span>重启后生效</span></p>
+          <p class="restart-note">{{ tr('状态变更：', 'State change: ') }}<span>{{ tr('重启后生效', 'Requires restart') }}</span></p>
           <n-form v-if="plugin.config_schema" class="plugin-config" label-placement="top" :show-require-mark="false" @submit.prevent>
             <n-form-item v-for="field in plugin.config_schema.fields ?? []" :key="field.key" :label="field.label || field.key">
               <n-switch
@@ -255,33 +284,33 @@ onMounted(() => { void load() })
                 autocomplete="new-password"
                 :value="stringDraft(plugin, field.key)"
                 :input-props="{ 'aria-label': field.label || field.key, autocomplete: 'new-password' }"
-                :placeholder="secretConfigured(plugin, field.key) ? '留空则保持不变' : '尚未配置'"
+                :placeholder="secretConfigured(plugin, field.key) ? tr('留空则保持不变', 'Leave blank to keep unchanged') : tr('尚未配置', 'Not configured')"
                 @update:value="(value: string) => setDraft(plugin, field.key, value)"
               />
               <template #feedback>
                 <span v-if="secretConfigured(plugin, field.key)" class="secret-state">
-                  <StatusPill status="active" label="已配置" />
-                  <n-popconfirm positive-text="确认清除" negative-text="取消" @positive-click="clearSecret(plugin, field.key)">
+                  <StatusPill status="active" :label="tr('已配置', 'Configured')" />
+                  <n-popconfirm :positive-text="tr('确认清除', 'Clear')" :negative-text="tr('取消', 'Cancel')" @positive-click="clearSecret(plugin, field.key)">
                     <template #trigger>
-                      <n-button size="small" type="error" quaternary :aria-label="`清除 ${field.label || field.key}`">清除</n-button>
+                      <n-button size="small" type="error" quaternary :aria-label="tr(`清除 ${field.label || field.key}`, `Clear ${field.label || field.key}`)">{{ tr('清除', 'Clear') }}</n-button>
                     </template>
-                    确定清除已保存的敏感配置吗？
+                    {{ tr('确定清除已保存的敏感配置吗？', 'Clear saved secret configuration?') }}
                   </n-popconfirm>
                 </span>
               </template>
             </n-form-item>
-            <n-button type="primary" :loading="saving === plugin.id" :disabled="Boolean(saving)" @click="saveConfig(plugin)">{{ saving === plugin.id ? '保存中…' : '保存配置' }}</n-button>
+            <n-button type="primary" :loading="saving === plugin.id" :disabled="Boolean(saving)" @click="saveConfig(plugin)">{{ saving === plugin.id ? tr('保存中…', 'Saving…') : tr('保存配置', 'Save Config') }}</n-button>
           </n-form>
         </n-card>
       </n-grid-item>
     </n-grid>
     <div v-if="unmatchedErrors.length" class="plugin-errors"><p v-for="item in unmatchedErrors" :key="`${item.plugin_id}-${item.error_type}`" class="notice notice-error">{{ item.plugin_id }} · {{ item.message }}</p></div>
     <section v-if="failedEvents.length" class="plugin-errors" aria-labelledby="plugin-event-errors-title">
-      <h2 id="plugin-event-errors-title">事件失败</h2>
+      <h2 id="plugin-event-errors-title">{{ tr('事件失败', 'Failed Events') }}</h2>
       <n-data-table :columns="eventColumns" :data="failedEvents" :bordered="false" size="small" :scroll-x="720" />
-      <p class="plugin-events-note">最多显示 {{ EVENT_LIMIT }} 条，可用状态筛选</p>
+      <p class="plugin-events-note">{{ tr(`最多显示 ${EVENT_LIMIT} 条，可用状态筛选`, `Showing up to ${EVENT_LIMIT} items`) }}</p>
     </section>
-    <div v-if="!plugins.length" class="empty-state"><strong>没有发现插件</strong><p>将插件挂载到服务器插件目录并重启后，它们会显示在这里。</p></div>
+    <div v-if="!plugins.length" class="empty-state"><strong>{{ tr('没有发现插件', 'No plugins discovered') }}</strong><p>{{ tr('将插件挂载到服务器插件目录并重启后，它们会显示在这里。', 'Mount plugins to the server plugin directory and restart to display them here.') }}</p></div>
   </main>
 </template>
 

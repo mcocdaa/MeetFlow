@@ -7,7 +7,10 @@ import { RouterLink } from 'vue-router'
 import { api, ApiError } from '../api/client'
 import type { Decision, OpenQuestion } from '../domain/outcomes'
 import type { ProjectDetail } from '../domain/projects'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
+
+const { tr } = useI18n()
 
 type MeetingOption = { id: string; title: string; scheduled_start: string; status: string; version?: number }
 
@@ -53,9 +56,9 @@ const resolveDecisionOptions = computed(() => resolveDecisions.value.map((decisi
 })))
 
 function ownerName(userId: string | null | undefined) {
-  if (!userId) return '未指派'
+  if (!userId) return tr('未指派', 'Unassigned')
   const row = props.project.memberships.find((item) => item.user.id === userId)
-  return row?.user.display_name || row?.user.username || '未指派'
+  return row?.user.display_name || row?.user.username || tr('未指派', 'Unassigned')
 }
 
 async function load() {
@@ -65,7 +68,7 @@ async function load() {
     const value = await api<OpenQuestion[]>(`/api/projects/${props.project.id}/open-questions?limit=200`)
     questions.value = Array.isArray(value) ? value : []
   } catch (reason) {
-    error.value = errorMessage(reason, '开放问题加载失败')
+    error.value = errorMessage(reason, tr('开放问题加载失败', 'Failed to load open questions'))
   } finally {
     loading.value = false
   }
@@ -118,7 +121,7 @@ async function saveForm() {
     await load()
     emit('reload')
   } catch (reason) {
-    formError.value = errorMessage(reason, '开放问题保存失败')
+    formError.value = errorMessage(reason, tr('开放问题保存失败', 'Failed to save open question'))
   } finally {
     formSaving.value = false
   }
@@ -137,7 +140,7 @@ async function openSchedule(question: OpenQuestion) {
       meeting.status !== 'canceled' && new Date(meeting.scheduled_start).getTime() > now
     ))
   } catch (reason) {
-    scheduleError.value = errorMessage(reason, '会议列表加载失败')
+    scheduleError.value = errorMessage(reason, tr('会议列表加载失败', 'Failed to load meetings'))
   } finally {
     scheduleLoading.value = false
   }
@@ -166,9 +169,9 @@ async function saveSchedule() {
     await load()
     emit('reload')
   } catch (reason) {
-    const message = errorMessage(reason, '排期失败')
+    const message = errorMessage(reason, tr('排期失败', 'Failed to schedule question'))
     scheduleError.value = reason instanceof ApiError && reason.status === 409
-      ? `${message}，请刷新后重试`
+      ? `${message}${tr('，请刷新后重试', '; please refresh and retry')}`
       : message
   } finally {
     scheduleSaving.value = false
@@ -194,7 +197,7 @@ async function openResolve(question: OpenQuestion) {
     )
     resolveDecisions.value = page?.items ?? []
   } catch (reason) {
-    resolveError.value = errorMessage(reason, '决策列表加载失败')
+    resolveError.value = errorMessage(reason, tr('决策列表加载失败', 'Failed to load decisions'))
   } finally {
     resolveLoading.value = false
   }
@@ -217,9 +220,9 @@ async function saveResolve() {
     await load()
     emit('reload')
   } catch (reason) {
-    const message = errorMessage(reason, '解决失败')
+    const message = errorMessage(reason, tr('解决失败', 'Failed to resolve question'))
     resolveError.value = reason instanceof ApiError && reason.status === 409
-      ? `${message}，请刷新后重试`
+      ? `${message}${tr('，请刷新后重试', '; please refresh and retry')}`
       : message
   } finally {
     resolveSaving.value = false
@@ -232,10 +235,10 @@ onMounted(load)
 <template>
   <section class="workspace-section project-questions-tab">
     <header class="section-heading">
-      <h2>开放问题</h2>
-      <NButton v-if="canContribute" type="primary" size="small" @click="openCreate">添加开放问题</NButton>
+      <h2>{{ tr('开放问题', 'Open Questions') }}</h2>
+      <NButton v-if="canContribute" type="primary" size="small" @click="openCreate">{{ tr('添加开放问题', 'Add Question') }}</NButton>
     </header>
-    <p v-if="loading" class="muted">正在加载开放问题…</p>
+    <p v-if="loading" class="muted">{{ tr('正在加载开放问题…', 'Loading open questions…') }}</p>
     <div v-else-if="questions.length" class="project-record-list">
       <div v-for="item in questions" :key="item.id" class="project-record-row question-row">
         <div class="question-row-main">
@@ -243,42 +246,42 @@ onMounted(load)
           <span>
             <StatusPill :status="item.status" kind="question" />
             · {{ ownerName(item.owner_user_id) }}
-            <template v-if="item.meeting_id"> · <RouterLink :to="`/meetings/${item.meeting_id}`">来源会议</RouterLink></template>
+            <template v-if="item.meeting_id"> · <RouterLink :to="`/meetings/${item.meeting_id}`">{{ tr('来源会议', 'Source Meeting') }}</RouterLink></template>
           </span>
           <span v-if="item.scheduled_meeting_id" class="muted">
-            已排入会议 <RouterLink :to="`/meetings/${item.scheduled_meeting_id}`">{{ item.scheduled_meeting_id }}</RouterLink>
+            {{ tr('已排入会议 ', 'Scheduled in meeting ') }}<RouterLink :to="`/meetings/${item.scheduled_meeting_id}`">{{ item.scheduled_meeting_id }}</RouterLink>
           </span>
           <span v-if="item.resolved_by_decision_id" class="muted">
-            由决策解决 <RouterLink :to="`/decisions?highlight=${item.resolved_by_decision_id}`">{{ item.resolved_by_decision_id }}</RouterLink>
+            {{ tr('由决策解决 ', 'Resolved by decision ') }}<RouterLink :to="`/decisions?highlight=${item.resolved_by_decision_id}`">{{ item.resolved_by_decision_id }}</RouterLink>
           </span>
           <span v-if="item.converted_from_agenda_item_id || item.source_agenda_item_id" class="muted">
-            来源议程 {{ item.converted_from_agenda_item_id ?? item.source_agenda_item_id }}
+            {{ tr('来源议程 ', 'Source agenda ') }}{{ item.converted_from_agenda_item_id ?? item.source_agenda_item_id }}
           </span>
         </div>
         <div v-if="canContribute && !item.is_derived" class="row-actions">
-          <button class="button button-quiet" type="button" :aria-label="`编辑开放问题“${item.question_markdown}”`" @click="openEdit(item)">编辑</button>
+          <button class="button button-quiet" type="button" :aria-label="tr(`编辑开放问题“${item.question_markdown}”`, `Edit question &quot;${item.question_markdown}&quot;`)" @click="openEdit(item)">{{ tr('编辑', 'Edit') }}</button>
           <button
             v-if="item.status === 'open' && !item.scheduled_meeting_id"
             class="button button-primary"
             type="button"
-            :aria-label="`排期开放问题“${item.question_markdown}”`"
+            :aria-label="tr(`排期开放问题“${item.question_markdown}”`, `Schedule question &quot;${item.question_markdown}&quot;`)"
             @click="openSchedule(item)"
           >
-            排期
+            {{ tr('排期', 'Schedule') }}
           </button>
           <button
             v-if="canResolve(item)"
             class="button button-quiet"
             type="button"
-            :aria-label="`解决开放问题“${item.question_markdown}”`"
+            :aria-label="tr(`解决开放问题“${item.question_markdown}”`, `Resolve question &quot;${item.question_markdown}&quot;`)"
             @click="openResolve(item)"
           >
-            解决
+            {{ tr('解决', 'Resolve') }}
           </button>
         </div>
       </div>
     </div>
-    <p v-else class="muted">当前没有开放问题。</p>
+    <p v-else class="muted">{{ tr('当前没有开放问题。', 'No open questions.') }}</p>
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
 
     <NDrawer
@@ -288,32 +291,32 @@ onMounted(load)
       :mask-closable="!formSaving"
       @update:show="(value: boolean) => { if (!value) formOpen = false }"
     >
-      <NDrawerContent :title="formMode === 'create' ? '添加开放问题' : '编辑开放问题'" closable>
+      <NDrawerContent :title="formMode === 'create' ? tr('添加开放问题', 'Add Open Question') : tr('编辑开放问题', 'Edit Open Question')" closable>
         <NForm label-placement="top" :show-require-mark="false">
-          <NFormItem label="问题内容">
-            <NInput v-model:value="form.question_markdown" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': '问题内容' }" />
+          <NFormItem :label="tr('问题内容', 'Question')">
+            <NInput v-model:value="form.question_markdown" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': tr('问题内容', 'Question') }" />
           </NFormItem>
-          <NFormItem label="负责人">
+          <NFormItem :label="tr('负责人', 'Owner')">
             <NSelect
               v-model:value="form.owner_user_id"
               class="question-owner-select"
               :options="memberOptions"
               :virtual-scroll="false"
               clearable
-              placeholder="选择负责人"
+              :placeholder="tr('选择负责人', 'Select owner')"
             />
           </NFormItem>
         </NForm>
         <p v-if="formError" class="notice notice-error" role="alert">{{ formError }}</p>
         <template #footer>
-          <NButton quaternary :disabled="formSaving" @click="formOpen = false">取消</NButton>
+          <NButton quaternary :disabled="formSaving" @click="formOpen = false">{{ tr('取消', 'Cancel') }}</NButton>
           <NButton
             type="primary"
             :loading="formSaving"
             :disabled="formSaving || !form.question_markdown.trim()"
             @click="saveForm"
           >
-            {{ formMode === 'create' ? '提交' : '保存修改' }}
+            {{ formMode === 'create' ? tr('提交', 'Submit') : tr('保存修改', 'Save Changes') }}
           </NButton>
         </template>
       </NDrawerContent>
@@ -326,28 +329,28 @@ onMounted(load)
       :mask-closable="!scheduleSaving"
       @update:show="(value: boolean) => { if (!value) scheduleTarget = null }"
     >
-      <NDrawerContent title="排期开放问题" closable>
-        <p class="form-hint">只能排入之后举行的同项目会议；排期会生成一个议题。</p>
-        <p v-if="scheduleLoading" class="muted">正在加载可选会议…</p>
+      <NDrawerContent :title="tr('排期开放问题', 'Schedule Open Question')" closable>
+        <p class="form-hint">{{ tr('只能排入之后举行的同项目会议；排期会生成一个议题。', 'Can only be scheduled into an upcoming meeting in the same project; scheduling creates an agenda item.') }}</p>
+        <p v-if="scheduleLoading" class="muted">{{ tr('正在加载可选会议…', 'Loading available meetings…') }}</p>
         <NSelect
           v-else
           v-model:value="scheduleMeetingId"
           class="question-schedule-meeting"
           :options="scheduleOptions"
           :virtual-scroll="false"
-          placeholder="选择未来会议"
+          :placeholder="tr('选择未来会议', 'Select upcoming meeting')"
         />
-        <p v-if="!scheduleLoading && !scheduleOptions.length" class="muted">没有可排期的未来会议。</p>
+        <p v-if="!scheduleLoading && !scheduleOptions.length" class="muted">{{ tr('没有可排期的未来会议。', 'No upcoming meetings available for scheduling.') }}</p>
         <p v-if="scheduleError" class="notice notice-error" role="alert">{{ scheduleError }}</p>
         <template #footer>
-          <NButton quaternary :disabled="scheduleSaving" @click="scheduleTarget = null">取消</NButton>
+          <NButton quaternary :disabled="scheduleSaving" @click="scheduleTarget = null">{{ tr('取消', 'Cancel') }}</NButton>
           <NButton
             type="primary"
             :loading="scheduleSaving"
             :disabled="scheduleSaving || !scheduleMeetingId"
             @click="saveSchedule"
           >
-            确认排期
+            {{ tr('确认排期', 'Confirm Schedule') }}
           </NButton>
         </template>
       </NDrawerContent>
@@ -360,9 +363,9 @@ onMounted(load)
       :mask-closable="!resolveSaving"
       @update:show="(value: boolean) => { if (!value) resolveTarget = null }"
     >
-      <NDrawerContent title="解决开放问题" closable>
-        <p class="form-hint">可以关联一个同项目的最终决策，也可以不关联直接标记为已解决。</p>
-        <p v-if="resolveLoading" class="muted">正在加载最终决策…</p>
+      <NDrawerContent :title="tr('解决开放问题', 'Resolve Open Question')" closable>
+        <p class="form-hint">{{ tr('可以关联一个同项目的最终决策，也可以不关联直接标记为已解决。', 'Optionally link a final decision in the same project, or resolve directly.') }}</p>
+        <p v-if="resolveLoading" class="muted">{{ tr('正在加载最终决策…', 'Loading final decisions…') }}</p>
         <NSelect
           v-else
           v-model:value="resolveDecisionId"
@@ -370,12 +373,12 @@ onMounted(load)
           :options="resolveDecisionOptions"
           :virtual-scroll="false"
           clearable
-          placeholder="关联最终决策（可选）"
+          :placeholder="tr('关联最终决策（可选）', 'Link final decision (optional)')"
         />
         <p v-if="resolveError" class="notice notice-error" role="alert">{{ resolveError }}</p>
         <template #footer>
-          <NButton quaternary :disabled="resolveSaving" @click="resolveTarget = null">取消</NButton>
-          <NButton type="primary" :loading="resolveSaving" :disabled="resolveSaving" @click="saveResolve">确认解决</NButton>
+          <NButton quaternary :disabled="resolveSaving" @click="resolveTarget = null">{{ tr('取消', 'Cancel') }}</NButton>
+          <NButton type="primary" :loading="resolveSaving" :disabled="resolveSaving" @click="saveResolve">{{ tr('确认解决', 'Confirm Resolve') }}</NButton>
         </template>
       </NDrawerContent>
     </NDrawer>

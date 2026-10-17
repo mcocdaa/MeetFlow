@@ -1,3 +1,5 @@
+import { locale } from '../i18n'
+
 type ActivityPayload = Record<string, unknown> | null | undefined
 
 /**
@@ -65,6 +67,64 @@ const ACTIVITY_TEMPLATES: Record<string, [string, string]> = {
   'comment.reopened': ['重新打开了评论', '重新打开了评论'],
 }
 
+const EN_ACTIVITY_TEMPLATES: Record<string, [string, string]> = {
+  'project.created': ['Created project "{subject}"', 'Created project'],
+  'project.updated': ['Updated project "{subject}"', 'Updated project'],
+  'project.progress_posted': ['Posted project update "{subject}"', 'Posted project update'],
+  'project.progress_updated': ['Updated project progress "{subject}"', 'Updated project progress'],
+  'project.deleted': ['Deleted project "{subject}"', 'Deleted project'],
+
+  'meeting.created': ['Created meeting "{subject}"', 'Created meeting'],
+  'meeting.updated': ['Updated meeting "{subject}"', 'Updated meeting'],
+  'meeting.started': ['Started meeting "{subject}"', 'Started meeting'],
+  'meeting.finished': ['Finished meeting "{subject}"', 'Finished meeting'],
+  'meeting.amended': ['Amended meeting notes "{subject}"', 'Amended meeting notes'],
+  'meeting.canceled': ['Canceled meeting "{subject}"', 'Canceled meeting'],
+  'meeting.completed': ['Completed meeting "{subject}"', 'Completed meeting'],
+  'meeting.reopened': ['Reopened meeting "{subject}"', 'Reopened meeting'],
+
+  'agenda.created': ['Created agenda item "{subject}"', 'Created agenda item'],
+  'agenda.updated': ['Updated agenda item "{subject}"', 'Updated agenda item'],
+  'agenda.deleted': ['Deleted agenda item "{subject}"', 'Deleted agenda item'],
+  'agenda.moved': ['Moved agenda item "{subject}"', 'Moved agenda item'],
+  'agenda.reordered': ['Reordered agenda items', 'Reordered agenda items'],
+  'agenda.started': ['Started agenda item "{subject}"', 'Started agenda item'],
+  'agenda.completed': ['Completed agenda item "{subject}"', 'Completed agenda item'],
+  'agenda.skipped': ['Skipped agenda item "{subject}"', 'Skipped agenda item'],
+  'agenda.canceled': ['Canceled agenda item "{subject}"', 'Canceled agenda item'],
+  'agenda.converted_to_question': ['Converted agenda item to open question "{subject}"', 'Converted agenda item to open question'],
+  'agenda.copied': ['Copied agenda item "{subject}"', 'Copied agenda item'],
+  'agenda.outcomes_migrated': ['Migrated agenda outcomes "{subject}"', 'Migrated agenda outcomes'],
+
+  'attachment.uploaded': ['Uploaded attachment "{subject}"', 'Uploaded attachment'],
+  'attachment.deleted': ['Deleted attachment "{subject}"', 'Deleted attachment'],
+
+  'decision.created': ['Created decision "{subject}"', 'Created decision'],
+  'decision.updated': ['Updated decision "{subject}"', 'Updated decision'],
+  'decision.reviewed': ['Reviewed decision "{subject}"', 'Reviewed decision'],
+  'decision.finalized': ['Finalized decision "{subject}"', 'Finalized decision'],
+  'decision.withdrawn': ['Withdrawn decision "{subject}"', 'Withdrawn decision'],
+  'decision.superseded': ['Superseded decision "{subject}"', 'Superseded decision'],
+
+  'action.created': ['Created action item "{subject}"', 'Created action item'],
+  'action.updated': ['Updated action item "{subject}"', 'Updated action item'],
+  'action.completed': ['Completed action item "{subject}"', 'Completed action item'],
+  'action.reopened': ['Reopened action item "{subject}"', 'Reopened action item'],
+  'action.status_changed': ['Changed action item status "{subject}"', 'Changed action item status'],
+
+  'question.created': ['Created open question "{subject}"', 'Created open question'],
+  'question.updated': ['Updated open question "{subject}"', 'Updated open question'],
+  'question.scheduled': ['Scheduled open question "{subject}"', 'Scheduled open question'],
+  'question.resolved': ['Resolved open question "{subject}"', 'Resolved open question'],
+
+  'comment.created': ['Posted a comment', 'Posted a comment'],
+  'comment.replied': ['Replied to a comment', 'Replied to a comment'],
+  'comment.updated': ['Edited a comment', 'Edited a comment'],
+  'comment.deleted': ['Deleted a comment', 'Deleted a comment'],
+  'comment.resolved': ['Resolved a comment', 'Resolved a comment'],
+  'comment.reopened': ['Reopened a comment', 'Reopened a comment'],
+}
+
 function subjectOf(payload: ActivityPayload): string | null {
   if (!payload) return null
   for (const key of ['title', 'name', 'filename'] as const) {
@@ -74,9 +134,10 @@ function subjectOf(payload: ActivityPayload): string | null {
   return null
 }
 
-/** Human-readable Chinese label for an activity ledger event. */
+/** Human-readable label for an activity ledger event. */
 export function activityLabel(eventType: string, payload?: ActivityPayload): string {
-  const template = ACTIVITY_TEMPLATES[eventType]
+  const dict = locale.value === 'en' ? EN_ACTIVITY_TEMPLATES : ACTIVITY_TEMPLATES
+  const template = dict[eventType]
   if (!template) return eventType
   const subject = subjectOf(payload)
   return (subject ? template[0] : template[1]).replace('{subject}', subject ?? '')

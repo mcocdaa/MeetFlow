@@ -89,7 +89,7 @@ async function load() {
     focusHighlight()
   } catch (caught) {
     if (token !== loadToken) return
-    error.value = errorMessage(caught, '决策加载失败')
+    error.value = errorMessage(caught, tr('决策加载失败', 'Failed to load decisions'))
   } finally {
     if (token === loadToken) loading.value = false
   }

@@ -216,7 +216,7 @@ async function persistIfDirty(expectedVersion = currentVersion.value): Promise<b
         // Fallback to conflict details and current props if fetching latest meeting fails.
       }
       conflict.value = { version: actualVersion, server: serverNotes }
-    } else error.value = errorMessage(caught, '议题保存失败')
+    } else error.value = errorMessage(caught, tr('议题保存失败', 'Failed to save agenda item'))
     throw caught
   } finally {
     saving.value = false
@@ -283,7 +283,7 @@ async function smartExtractNotes() {
       : `✨ 已智能提炼 ${decisions} 项决策 · ${actions} 项行动 · ${questions} 项开放问题`
     emit('changed')
   } catch (caught) {
-    error.value = errorMessage(caught, 'AI 提炼失败，请检查议题记录格式')
+    error.value = errorMessage(caught, tr('AI 提炼失败，请检查议题记录格式', 'AI extraction failed, please check notes format'))
   } finally {
     extractingNotes.value = false
   }
@@ -306,7 +306,7 @@ async function complete() {
     })
     emit('advance', result.next_agenda_item_id)
   } catch (caught) {
-    error.value = errorMessage(caught, '议题状态更新失败')
+    error.value = errorMessage(caught, tr('议题状态更新失败', 'Failed to update agenda status'))
   } finally {
     saving.value = false
   }
@@ -322,7 +322,7 @@ async function submitMigrate() {
   if (migrateSaving.value) return
   const target = props.meeting.agenda_items.find((row) => row.id === migrateTargetId.value)
   if (!target) {
-    migrateError.value = '请选择目标议题'
+    migrateError.value = tr('请选择目标议题', 'Please select a target agenda item')
     return
   }
   migrateSaving.value = true
@@ -341,7 +341,7 @@ async function submitMigrate() {
     migrateOpen.value = false
     emit('changed')
   } catch (caught) {
-    migrateError.value = errorMessage(caught, '产出迁移失败')
+    migrateError.value = errorMessage(caught, tr('产出迁移失败', 'Failed to migrate outcomes'))
   } finally {
     migrateSaving.value = false
   }
@@ -361,7 +361,7 @@ async function convertToQuestion() {
     })
     emit('changed')
   } catch (caught) {
-    error.value = errorMessage(caught, '转为开放问题失败')
+    error.value = errorMessage(caught, tr('转为开放问题失败', 'Failed to convert to open question'))
   } finally {
     converting.value = false
   }
@@ -376,7 +376,7 @@ async function openCopy() {
     const page = await api<Page<MeetingOption>>(`/api/meetings?project_id=${props.meeting.project.id}&limit=200`)
     copyOptions.value = (page.items ?? []).filter((row) => row.id !== props.meeting.id)
   } catch (caught) {
-    copyError.value = errorMessage(caught, '目标会议加载失败')
+    copyError.value = errorMessage(caught, tr('目标会议加载失败', 'Failed to load target meetings'))
   } finally {
     copyLoading.value = false
   }
@@ -385,7 +385,7 @@ async function openCopy() {
 async function submitCopy() {
   if (copySaving.value) return
   if (!copyTargetId.value) {
-    copyError.value = '请选择目标会议'
+    copyError.value = tr('请选择目标会议', 'Please select a target meeting')
     return
   }
   copySaving.value = true
@@ -408,7 +408,7 @@ async function submitCopy() {
     copyOpen.value = false
     emit('changed')
   } catch (caught) {
-    copyError.value = errorMessage(caught, '议题复制失败')
+    copyError.value = errorMessage(caught, tr('议题复制失败', 'Failed to copy agenda item'))
   } finally {
     copySaving.value = false
   }
@@ -431,7 +431,7 @@ async function toggleActionStatus(action: ActionItem, newStatus?: ActionStatus) 
     action.version = updated.version
     emit('changed')
   } catch (caught) {
-    error.value = errorMessage(caught, '更新行动项失败')
+    error.value = errorMessage(caught, tr('更新行动项失败', 'Failed to update action item'))
   }
 }
 

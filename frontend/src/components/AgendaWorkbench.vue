@@ -46,7 +46,7 @@ async function openAgenda(itemId: string) {
     selectedId.value = itemId
     emit('reload')
   } catch (caught) {
-    openError.value = errorMessage(caught, '议题开始失败')
+    openError.value = errorMessage(caught, tr('议题开始失败', 'Failed to start agenda item'))
   } finally {
     openingId.value = ''
   }

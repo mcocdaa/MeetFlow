@@ -1,3 +1,6 @@
+import { locale } from '../i18n'
+import { apiErrorMessage, dispatchAuthExpired } from './client'
+
 function consumeEvent(block: string, onDelta: (text: string) => void): boolean {
   const lines = block.split('\n')
   const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? 'message'
@@ -11,7 +14,7 @@ function consumeEvent(block: string, onDelta: (text: string) => void): boolean {
   try {
     payload = JSON.parse(data)
   } catch {
-    throw new Error('AI 工作简报返回格式无效')
+    throw new Error(locale.value === 'en' ? 'Invalid AI work brief response format' : 'AI 工作简报返回格式无效')
   }
   if (event === 'delta') {
     if (payload && typeof payload === 'object' && 'text' in payload && typeof payload.text === 'string') {
@@ -23,12 +26,11 @@ function consumeEvent(block: string, onDelta: (text: string) => void): boolean {
     if (payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string') {
       throw new Error(payload.message)
     }
-    throw new Error('AI 工作简报生成失败，请稍后重试')
+    throw new Error(locale.value === 'en' ? 'Failed to generate AI work brief, please try again later' : 'AI 工作简报生成失败，请稍后重试')
   }
   return event === 'done'
 }
 
-import { apiErrorMessage, dispatchAuthExpired } from './client'
 export async function streamPluginAction(
   actionId: string,
   onDelta: (text: string) => void,
@@ -44,9 +46,9 @@ export async function streamPluginAction(
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
     if (response.status === 401) dispatchAuthExpired()
-    throw new Error(apiErrorMessage(payload, 'AI 工作简报请求失败，请稍后重试'))
+    throw new Error(apiErrorMessage(payload, locale.value === 'en' ? 'AI work brief request failed, please try again later' : 'AI 工作简报请求失败，请稍后重试'))
   }
-  if (!response.body) throw new Error('AI 工作简报未返回流式内容')
+  if (!response.body) throw new Error(locale.value === 'en' ? 'AI work brief returned no stream content' : 'AI 工作简报未返回流式内容')
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()

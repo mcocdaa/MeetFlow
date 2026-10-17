@@ -4,8 +4,11 @@ import { computed, ref, watch } from 'vue'
 
 import { api } from '../api/client'
 import type { ProjectDetail } from '../domain/projects'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import { priorityLabel } from '../utils/labels'
+
+const { tr } = useI18n()
 
 type Kind = 'decision' | 'action'
 const props = defineProps<{ show: boolean; kind: Kind; project: ProjectDetail }>()
@@ -21,17 +24,17 @@ const priority = ref('normal')
 const saving = ref(false)
 const error = ref('')
 
-const drawerTitle = computed(() => ({ decision: '添加决策', action: '添加行动项' }[props.kind]))
+const drawerTitle = computed(() => (props.kind === 'decision' ? tr('添加决策', 'Add Decision') : tr('添加行动项', 'Add Action Item')))
 const memberOptions = computed(() => props.project.memberships.map((row) => ({
   label: row.user.display_name || row.user.username,
   value: row.user.id,
 })))
-const priorityOptions = (['low', 'normal', 'high', 'urgent'] as const)
-  .map((value) => ({ label: priorityLabel(value), value }))
+const priorityOptions = computed(() => (['low', 'normal', 'high', 'urgent'] as const)
+  .map((value) => ({ label: priorityLabel(value), value })))
 const canSubmit = computed(() => (
   props.kind === 'action' ? Boolean(content.value.trim()) : Boolean(title.value.trim())
 ))
-const label = computed(() => ({ decision: '决策', action: '行动项' }[props.kind]))
+const label = computed(() => (props.kind === 'decision' ? tr('决策', 'Decision') : tr('行动项', 'Action item')))
 
 function resetForm() {
   title.value = ''
@@ -84,7 +87,7 @@ async function save() {
     }
     emit('created', props.kind, entity)
   } catch (reason) {
-    error.value = errorMessage(reason, `${label.value}创建失败`)
+    error.value = errorMessage(reason, tr(`${label.value}创建失败`, `Failed to create ${label.value.toLowerCase()}`))
   } finally {
     saving.value = false
   }
@@ -102,52 +105,52 @@ async function save() {
     <NDrawerContent :title="drawerTitle" closable>
       <NForm label-placement="top" :show-require-mark="false">
         <template v-if="kind === 'decision'">
-          <NFormItem label="决策标题">
-            <NInput v-model:value="title" :input-props="{ 'aria-label': '决策标题' }" placeholder="例如：采用项目工作区方案" />
+          <NFormItem :label="tr('决策标题', 'Decision Title')">
+            <NInput v-model:value="title" :input-props="{ 'aria-label': tr('决策标题', 'Decision Title') }" :placeholder="tr('例如：采用项目工作区方案', 'e.g., Adopt project workspace layout')" />
           </NFormItem>
-          <NFormItem label="决策内容">
-            <NInput v-model:value="content" type="textarea" :autosize="{ minRows: 4 }" :input-props="{ 'aria-label': '决策内容' }" />
+          <NFormItem :label="tr('决策内容', 'Decision Statement')">
+            <NInput v-model:value="content" type="textarea" :autosize="{ minRows: 4 }" :input-props="{ 'aria-label': tr('决策内容', 'Decision Statement') }" />
           </NFormItem>
-          <p class="form-hint">内容为空时以标题作为决策内容。</p>
-          <NFormItem label="决策理由">
-            <NInput v-model:value="rationale" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': '决策理由' }" />
+          <p class="form-hint">{{ tr('内容为空时以标题作为决策内容。', 'Defaults to the title when left empty.') }}</p>
+          <NFormItem :label="tr('决策理由', 'Rationale')">
+            <NInput v-model:value="rationale" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': tr('决策理由', 'Rationale') }" />
           </NFormItem>
-          <NFormItem label="评审人">
+          <NFormItem :label="tr('评审人', 'Reviewers')">
             <NSelect
               v-model:value="reviewerIds"
               class="project-decision-reviewer-select"
               :options="memberOptions"
               :virtual-scroll="false"
               multiple
-              placeholder="选择评审人"
+              :placeholder="tr('选择评审人', 'Select reviewers')"
             />
           </NFormItem>
         </template>
         <template v-else>
-          <NFormItem label="行动项内容">
-            <NInput v-model:value="content" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': '行动项内容' }" placeholder="要完成什么？" />
+          <NFormItem :label="tr('行动项内容', 'Action Content')">
+            <NInput v-model:value="content" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': tr('行动项内容', 'Action Content') }" :placeholder="tr('要完成什么？', 'What needs to be done?')" />
           </NFormItem>
-          <NFormItem label="负责人">
+          <NFormItem :label="tr('负责人', 'Owner')">
             <NSelect
               v-model:value="ownerUserId"
               class="project-action-owner-select"
               :options="memberOptions"
               :virtual-scroll="false"
               clearable
-              placeholder="选择负责人"
+              :placeholder="tr('选择负责人', 'Select owner')"
             />
           </NFormItem>
-          <NFormItem label="截止日期">
-            <input v-model="dueDate" class="native-date-input" type="date" aria-label="截止日期" />
+          <NFormItem :label="tr('截止日期', 'Due Date')">
+            <input v-model="dueDate" class="native-date-input" type="date" :aria-label="tr('截止日期', 'Due Date')" />
           </NFormItem>
-          <NFormItem label="优先级">
+          <NFormItem :label="tr('优先级', 'Priority')">
             <NSelect v-model:value="priority" class="project-action-priority-select" :options="priorityOptions" :virtual-scroll="false" />
           </NFormItem>
         </template>
       </NForm>
       <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
       <template #footer>
-        <NButton quaternary :disabled="saving" @click="close">取消</NButton>
+        <NButton quaternary :disabled="saving" @click="close">{{ tr('取消', 'Cancel') }}</NButton>
         <NButton type="primary" :loading="saving" :disabled="saving || !canSubmit" @click="save">{{ drawerTitle }}</NButton>
       </template>
     </NDrawerContent>

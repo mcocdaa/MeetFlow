@@ -8,13 +8,13 @@ export function parseUtcTimestamp(value: string): Date {
 export function formatDateTime(value: string, options?: Intl.DateTimeFormatOptions) {
   const date = parseUtcTimestamp(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('zh-CN', options)
+  return date.toLocaleString(locale.value === 'en' ? 'en-US' : 'zh-CN', options)
 }
 
 export function formatDate(value: string) {
   const date = parseUtcTimestamp(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('zh-CN')
+  return date.toLocaleDateString(locale.value === 'en' ? 'en-US' : 'zh-CN')
 }
 
 /** Shared duration formatting for agenda items and completed-meeting summaries. */

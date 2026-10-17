@@ -3,10 +3,13 @@ import { Crepe } from '@milkdown/crepe'
 
 export type MarkdownEditorHandle = { flush: () => string }
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from '../i18n'
 
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
+
+const { tr } = useI18n()
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -14,7 +17,9 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   label?: string
   registerEditor?: (writer: ((markdown: string) => void) | null) => void
-}>(), { disabled: false, placeholder: '输入 Markdown…', label: 'Markdown 编辑器' })
+}>(), { disabled: false })
+const effectivePlaceholder = computed(() => props.placeholder ?? tr('输入 Markdown…', 'Enter Markdown…'))
+const effectiveLabel = computed(() => props.label ?? tr('Markdown 编辑器', 'Markdown Editor'))
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const root = ref<HTMLElement | null>(null)
@@ -52,7 +57,7 @@ onMounted(async () => {
       [Crepe.Feature.Latex]: false,
     },
     featureConfigs: {
-      [Crepe.Feature.Placeholder]: { text: props.placeholder, mode: 'block' },
+      [Crepe.Feature.Placeholder]: { text: effectivePlaceholder.value, mode: 'block' },
     },
   })
   editor.on((listener) => {
@@ -91,7 +96,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="markdown-editor" :data-disabled="disabled || undefined">
-    <div ref="root" class="markdown-editor-root markdown-editor-top-aligned" role="textbox" :aria-label="label" :aria-readonly="disabled" />
-    <textarea v-if="failed" :value="modelValue" :disabled="disabled" :aria-label="label" rows="8" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" />
+    <div ref="root" class="markdown-editor-root markdown-editor-top-aligned" role="textbox" :aria-label="effectiveLabel" :aria-readonly="disabled" />
+    <textarea v-if="failed" :value="modelValue" :disabled="disabled" :aria-label="effectiveLabel" rows="8" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" />
   </div>
 </template>

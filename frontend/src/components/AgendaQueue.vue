@@ -69,7 +69,7 @@ async function dropOn(targetId: string) {
     emit('changed')
   } catch (caught) {
     ordered.value = previous
-    error.value = errorMessage(caught, '议题排序失败')
+    error.value = errorMessage(caught, tr('议题排序失败', 'Failed to reorder agenda items'))
     emit('changed')
   } finally {
     saving.value = false
@@ -91,7 +91,7 @@ async function addAgenda() {
     emit('select', item.id)
     emit('changed')
   } catch (caught) {
-    error.value = errorMessage(caught, '议题添加失败')
+    error.value = errorMessage(caught, tr('议题添加失败', 'Failed to add agenda item'))
   } finally {
     saving.value = false
   }
@@ -106,7 +106,7 @@ async function command(item: AgendaItem, action: 'cancel') {
     guardedId.value = ''
     emit('changed')
   } catch (caught) {
-    error.value = errorMessage(caught, '议题操作失败')
+    error.value = errorMessage(caught, tr('议题操作失败', 'Agenda action failed'))
   } finally {
     saving.value = false
   }
@@ -121,7 +121,7 @@ async function skip(item: AgendaItem) {
     skipTargetId.value = ''
     emit('changed')
   } catch (caught) {
-    error.value = errorMessage(caught, '议题操作失败')
+    error.value = errorMessage(caught, tr('议题操作失败', 'Agenda action failed'))
   } finally {
     saving.value = false
   }
@@ -140,8 +140,8 @@ async function remove(item: AgendaItem) {
   } catch (caught) {
     if (caught instanceof ApiError && caught.code === 'agenda_has_outcomes') {
       guardedId.value = item.id
-      error.value = '议题已有产出，请先迁移产出，或将议题标记为取消。'
-    } else error.value = errorMessage(caught, '议题删除失败')
+      error.value = tr('议题已有产出，请先迁移产出，或将议题标记为取消。', 'This agenda item already has outcomes. Please migrate its outcomes or cancel the item first.')
+    } else error.value = errorMessage(caught, tr('议题删除失败', 'Failed to delete agenda item'))
   } finally {
     saving.value = false
   }
@@ -158,7 +158,7 @@ async function openMove(item: AgendaItem) {
     const page = await api<Page<MeetingOption>>(`/api/meetings?project_id=${props.meeting.project.id}&limit=200`)
     moveOptions.value = (page.items ?? []).filter((row) => row.id !== props.meeting.id)
   } catch (caught) {
-    moveError.value = errorMessage(caught, '目标会议加载失败')
+    moveError.value = errorMessage(caught, tr('目标会议加载失败', 'Failed to load target meetings'))
   } finally {
     moveLoading.value = false
   }
@@ -167,7 +167,7 @@ async function openMove(item: AgendaItem) {
 async function submitMove() {
   if (!moveTarget.value || moveSaving.value) return
   if (!moveForm.value.target_meeting_id) {
-    moveError.value = '请选择目标会议'
+    moveError.value = tr('请选择目标会议', 'Please select a target meeting')
     return
   }
   moveSaving.value = true
@@ -192,7 +192,7 @@ async function submitMove() {
     moveTarget.value = null
     emit('changed')
   } catch (caught) {
-    moveError.value = errorMessage(caught, '议题移动失败')
+    moveError.value = errorMessage(caught, tr('议题移动失败', 'Failed to move agenda item'))
   } finally {
     moveSaving.value = false
   }

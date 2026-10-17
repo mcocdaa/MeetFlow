@@ -105,7 +105,7 @@ async function load() {
     focusHighlight()
   } catch (caught) {
     if (token !== loadToken) return
-    error.value = errorMessage(caught, '行动项加载失败')
+    error.value = errorMessage(caught, tr('行动项加载失败', 'Failed to load action items'))
   } finally {
     if (token === loadToken) loading.value = false
   }
@@ -138,7 +138,7 @@ async function transitionStatus(row: ActionRow, status: string) {
     })
     await load()
   } catch (caught) {
-    error.value = errorMessage(caught, '行动项更新失败')
+    error.value = errorMessage(caught, tr('行动项更新失败', 'Failed to update action item'))
   } finally {
     actionBusy.value = ''
   }

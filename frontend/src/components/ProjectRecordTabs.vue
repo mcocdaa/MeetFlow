@@ -2,6 +2,7 @@
 import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, NPopconfirm } from 'naive-ui'
 import { computed, onMounted, ref, watch } from 'vue'
 import StatusPill from './StatusPill.vue'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import { RouterLink } from 'vue-router'
 
@@ -16,6 +17,8 @@ import type { MeetingSeriesDetail } from '../domain/meetings'
 import type { ActionStatus, Decision } from '../domain/outcomes'
 import type { Page } from '../api/contracts'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
+
+const { tr } = useI18n()
 
 type Tab = 'meetings' | 'actions' | 'decisions' | 'files'
 type MeetingRow = { id: string; title: string; scheduled_start: string; status: string }
@@ -67,7 +70,7 @@ async function load() {
     const value = await api<Page<typeof rows.value[number]>>(endpoint())
     rows.value = Array.isArray(value?.items) ? value.items : []
   } catch (reason) {
-    error.value = errorMessage(reason, '记录加载失败')
+    error.value = errorMessage(reason, tr('记录加载失败', 'Failed to load records'))
   } finally {
     loading.value = false
   }
@@ -84,9 +87,9 @@ function seriesSaved() {
 }
 
 function ownerName(userId: string | null) {
-  if (!userId) return '未指派'
+  if (!userId) return tr('未指派', 'Unassigned')
   const row = props.project.memberships.find((item) => item.user.id === userId)
-  return row?.user.display_name || row?.user.username || '未指派'
+  return row?.user.display_name || row?.user.username || tr('未指派', 'Unassigned')
 }
 
 function openActionEdit(item: ProjectActionSummary) {
@@ -125,7 +128,7 @@ async function transitionAction(item: ProjectActionSummary, status: ActionStatus
     await load()
     emit('changed')
   } catch (reason) {
-    error.value = errorMessage(reason, '行动项更新失败')
+    error.value = errorMessage(reason, tr('行动项更新失败', 'Failed to update action item'))
   } finally {
     actionBusy.value = ''
   }
@@ -143,7 +146,7 @@ async function archiveSeries(series: SeriesRow) {
     })
     emit('changed')
   } catch (reason) {
-    error.value = errorMessage(reason, '系列归档失败')
+    error.value = errorMessage(reason, tr('系列归档失败', 'Failed to archive series'))
   } finally {
     archivingId.value = ''
   }
@@ -152,7 +155,7 @@ async function archiveSeries(series: SeriesRow) {
 function openOccurrence(series: SeriesRow) {
   if (!props.canContribute) return
   occurrenceSeries.value = series
-  occurrenceTitle.value = `${series.title} · 临时会议`
+  occurrenceTitle.value = `${series.title} · ${tr('临时会议', 'Ad-hoc Meeting')}`
   occurrenceStart.value = ''
   occurrenceEnd.value = ''
   occurrenceError.value = ''
@@ -174,7 +177,7 @@ async function createOccurrence() {
     occurrenceSeries.value = null
     await load()
   } catch (reason) {
-    occurrenceError.value = errorMessage(reason, '临时会议添加失败')
+    occurrenceError.value = errorMessage(reason, tr('临时会议添加失败', 'Failed to add ad-hoc meeting'))
   } finally {
     occurrenceSaving.value = false
   }
@@ -188,76 +191,76 @@ onMounted(load)
   <section class="workspace-section tab-content project-record-tabs">
     <template v-if="tab === 'meetings'">
       <header class="section-heading">
-        <h2>会议与系列</h2>
+        <h2>{{ tr('会议与系列', 'Meetings & Series') }}</h2>
         <div v-if="canContribute" class="row-actions">
-          <button class="button button-primary" @click="emit('create', 'meeting')">添加会议</button>
-          <button class="button button-quiet" @click="emit('create', 'series')">添加系列</button>
+          <button class="button button-primary" @click="emit('create', 'meeting')">{{ tr('添加会议', 'Add Meeting') }}</button>
+          <button class="button button-quiet" @click="emit('create', 'series')">{{ tr('添加系列', 'Add Series') }}</button>
         </div>
       </header>
       <div v-if="project.series_summaries.length" class="project-dashboard-list">
         <div v-for="series in project.series_summaries as SeriesRow[]" :key="series.id" class="compact-row series-row">
           <RouterLink :to="`/meetings?series_id=${series.id}`"><strong>{{ series.title }}</strong><span>{{ series.recurrence_description || series.status }}</span></RouterLink>
           <div v-if="canContribute" class="row-actions">
-            <button class="button button-quiet" type="button" :aria-label="`编辑系列“${series.title}”`" @click="openSeriesEdit(series)">编辑</button>
-            <n-popconfirm positive-text="确认" negative-text="取消" @positive-click="archiveSeries(series)">
+            <button class="button button-quiet" type="button" :aria-label="tr(`编辑系列“${series.title}”`, `Edit series &quot;${series.title}&quot;`)" @click="openSeriesEdit(series)">{{ tr('编辑', 'Edit') }}</button>
+            <n-popconfirm :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="archiveSeries(series)">
               <template #trigger>
-                <button class="button button-quiet" type="button" :aria-label="`归档系列“${series.title}”`" :disabled="archivingId === series.id">归档</button>
+                <button class="button button-quiet" type="button" :aria-label="tr(`归档系列“${series.title}”`, `Archive series &quot;${series.title}&quot;`)" :disabled="archivingId === series.id">{{ tr('归档', 'Archive') }}</button>
               </template>
-              确定归档系列“{{ series.title }}”吗？
+              {{ tr(`确定归档系列“${series.title}”吗？`, `Archive series "${series.title}"?`) }}
             </n-popconfirm>
-            <button class="button button-quiet" type="button" :aria-label="`临时添加会议“${series.title}”`" @click="openOccurrence(series)">临时添加会议</button>
+            <button class="button button-quiet" type="button" :aria-label="tr(`临时添加会议“${series.title}”`, `Add ad-hoc meeting to &quot;${series.title}&quot;`)" @click="openOccurrence(series)">{{ tr('临时添加会议', 'Add Occurrence') }}</button>
           </div>
         </div>
       </div>
-      <p v-if="loading" class="muted">正在加载会议…</p>
+      <p v-if="loading" class="muted">{{ tr('正在加载会议…', 'Loading meetings…') }}</p>
       <div class="project-record-list">
         <RouterLink v-for="item in rows as MeetingRow[]" :key="item.id" class="project-record-row" :to="`/meetings/${item.id}`"><strong>{{ item.title }}</strong><span>{{ formatDateTime(item.scheduled_start) }} · <StatusPill :status="item.status" kind="meeting" /></span></RouterLink>
       </div>
     </template>
 
     <template v-else-if="tab === 'actions'">
-      <header class="section-heading"><h2>项目行动项</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'action')">添加行动项</button></header>
-      <p v-if="loading" class="muted">正在加载行动项…</p>
+      <header class="section-heading"><h2>{{ tr('项目行动项', 'Project Actions') }}</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'action')">{{ tr('添加行动项', 'Add Action') }}</button></header>
+      <p v-if="loading" class="muted">{{ tr('正在加载行动项…', 'Loading actions…') }}</p>
       <div class="project-record-list action-list">
         <div v-for="item in rows as ProjectActionSummary[]" :key="item.id" class="project-record-row action-row">
           <div class="action-row-main">
             <strong>{{ item.content }}</strong>
-            <span><StatusPill :status="item.status" kind="action" /> · {{ ownerName(item.owner_user_id) }} · {{ item.due_date ?? '未设期限' }} · {{ priorityLabel(item.priority) }}</span>
-            <span v-if="item.completed_at" class="muted">完成于 {{ formatDateTime(item.completed_at) }}</span>
+            <span><StatusPill :status="item.status" kind="action" /> · {{ ownerName(item.owner_user_id) }} · {{ item.due_date ?? tr('未设期限', 'No due date') }} · {{ priorityLabel(item.priority) }}</span>
+            <span v-if="item.completed_at" class="muted">{{ tr('完成于 ', 'Completed ') }}{{ formatDateTime(item.completed_at) }}</span>
           </div>
           <div v-if="canContribute && !item.is_derived" class="row-actions">
-            <button class="button button-quiet" type="button" :aria-label="`编辑行动项“${item.content}”`" :disabled="actionBusy === item.id" @click="openActionEdit(item)">编辑</button>
-            <button v-if="item.status === 'open'" class="button button-primary" type="button" :aria-label="`开始行动项“${item.content}”`" :disabled="actionBusy === item.id" @click="transitionAction(item, 'in_progress')">开始</button>
-            <button v-if="item.status === 'in_progress'" class="button button-primary" type="button" :aria-label="`完成行动项“${item.content}”`" :disabled="actionBusy === item.id" @click="transitionAction(item, 'done')">完成</button>
-            <n-popconfirm v-if="item.status === 'open' || item.status === 'in_progress'" positive-text="确认" negative-text="取消" @positive-click="transitionAction(item, 'canceled')">
+            <button class="button button-quiet" type="button" :aria-label="tr(`编辑行动项“${item.content}”`, `Edit action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id" @click="openActionEdit(item)">{{ tr('编辑', 'Edit') }}</button>
+            <button v-if="item.status === 'open'" class="button button-primary" type="button" :aria-label="tr(`开始行动项“${item.content}”`, `Start action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id" @click="transitionAction(item, 'in_progress')">{{ tr('开始', 'Start') }}</button>
+            <button v-if="item.status === 'in_progress'" class="button button-primary" type="button" :aria-label="tr(`完成行动项“${item.content}”`, `Complete action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id" @click="transitionAction(item, 'done')">{{ tr('完成', 'Complete') }}</button>
+            <n-popconfirm v-if="item.status === 'open' || item.status === 'in_progress'" :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="transitionAction(item, 'canceled')">
               <template #trigger>
-                <button class="button button-quiet" type="button" :aria-label="`取消行动项“${item.content}”`" :disabled="actionBusy === item.id">取消</button>
+                <button class="button button-quiet" type="button" :aria-label="tr(`取消行动项“${item.content}”`, `Cancel action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id">{{ tr('取消', 'Cancel') }}</button>
               </template>
-              确定取消行动项“{{ item.content }}”吗？
+              {{ tr(`确定取消行动项“${item.content}”吗？`, `Cancel action item "${item.content}"?`) }}
             </n-popconfirm>
           </div>
         </div>
       </div>
-      <p v-if="!loading && !rows.length" class="muted">当前没有行动项。</p>
+      <p v-if="!loading && !rows.length" class="muted">{{ tr('当前没有行动项。', 'No action items.') }}</p>
     </template>
 
     <template v-else-if="tab === 'decisions'">
-      <header class="section-heading"><h2>项目决策</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'decision')">添加决策</button></header>
-      <p v-if="loading" class="muted">正在加载决策…</p>
+      <header class="section-heading"><h2>{{ tr('项目决策', 'Project Decisions') }}</h2><button v-if="canContribute" class="button button-primary" @click="emit('create', 'decision')">{{ tr('添加决策', 'Add Decision') }}</button></header>
+      <p v-if="loading" class="muted">{{ tr('正在加载决策…', 'Loading decisions…') }}</p>
       <div class="project-record-list">
         <div v-for="item in rows as Decision[]" :key="item.id" class="project-record-row decision-row">
-          <button type="button" class="decision-open" :aria-label="`查看决策“${item.title}”`" @click="openDecision(item)">
+          <button type="button" class="decision-open" :aria-label="tr(`查看决策“${item.title}”`, `View decision &quot;${item.title}&quot;`)" @click="openDecision(item)">
             <strong>{{ item.title }}</strong>
             <span><StatusPill :status="item.status" kind="decision" /></span>
           </button>
-          <RouterLink v-if="item.meeting_id" class="decision-source" :to="`/meetings/${item.meeting_id}`">来源会议</RouterLink>
+          <RouterLink v-if="item.meeting_id" class="decision-source" :to="`/meetings/${item.meeting_id}`">{{ tr('来源会议', 'Source Meeting') }}</RouterLink>
         </div>
       </div>
-      <p v-if="!loading && !rows.length" class="muted">尚未形成项目决策。</p>
+      <p v-if="!loading && !rows.length" class="muted">{{ tr('尚未形成项目决策。', 'No project decisions recorded yet.') }}</p>
     </template>
 
     <template v-else>
-      <header class="section-heading"><h2>项目文件</h2></header>
+      <header class="section-heading"><h2>{{ tr('项目文件', 'Project Files') }}</h2></header>
       <AttachmentPanel target-type="project" :target-id="project.id" :attachments="project.attachments" :can-contribute="canContribute" @uploaded="emit('uploaded', $event)" @deleted="emit('deleted', $event)" />
     </template>
 
@@ -298,22 +301,22 @@ onMounted(load)
       :mask-closable="!occurrenceSaving"
       @update:show="(value: boolean) => { if (!value) occurrenceSeries = null }"
     >
-      <NDrawerContent :title="`临时添加 · ${occurrenceSeries?.title ?? ''}`" closable>
+      <NDrawerContent :title="`${tr('临时添加', 'Add Occurrence')} · ${occurrenceSeries?.title ?? ''}`" closable>
         <NForm label-placement="top" :show-require-mark="false">
-          <NFormItem label="会议标题">
-            <NInput v-model:value="occurrenceTitle" :input-props="{ 'aria-label': '临时会议标题' }" />
+          <NFormItem :label="tr('会议标题', 'Meeting Title')">
+            <NInput v-model:value="occurrenceTitle" :input-props="{ 'aria-label': tr('临时会议标题', 'Ad-hoc meeting title') }" />
           </NFormItem>
-          <NFormItem label="开始时间">
-            <input v-model="occurrenceStart" class="native-datetime-input" type="datetime-local" aria-label="临时会议开始时间" />
+          <NFormItem :label="tr('开始时间', 'Start Time')">
+            <input v-model="occurrenceStart" class="native-datetime-input" type="datetime-local" :aria-label="tr('临时会议开始时间', 'Ad-hoc meeting start time')" />
           </NFormItem>
-          <NFormItem label="结束时间">
-            <input v-model="occurrenceEnd" class="native-datetime-input" type="datetime-local" aria-label="临时会议结束时间" />
+          <NFormItem :label="tr('结束时间', 'End Time')">
+            <input v-model="occurrenceEnd" class="native-datetime-input" type="datetime-local" :aria-label="tr('临时会议结束时间', 'Ad-hoc meeting end time')" />
           </NFormItem>
         </NForm>
         <p v-if="occurrenceError" class="notice notice-error" role="alert">{{ occurrenceError }}</p>
         <template #footer>
-          <NButton quaternary :disabled="occurrenceSaving" @click="occurrenceSeries = null">取消</NButton>
-          <NButton type="primary" :loading="occurrenceSaving" :disabled="occurrenceSaving" @click="createOccurrence">添加临时会议</NButton>
+          <NButton quaternary :disabled="occurrenceSaving" @click="occurrenceSeries = null">{{ tr('取消', 'Cancel') }}</NButton>
+          <NButton type="primary" :loading="occurrenceSaving" :disabled="occurrenceSaving" @click="createOccurrence">{{ tr('添加临时会议', 'Add Occurrence') }}</NButton>
         </template>
       </NDrawerContent>
     </NDrawer>
