@@ -268,13 +268,13 @@ onMounted(load)
 <template>
   <main class="page">
     <header class="page-heading">
-      <div><p class="eyebrow">Administration</p><h1>{{ tr('用户管理', 'User Management') }}</h1><p>{{ tr('审批申请并管理共享工作区成员。', 'Approve requests and manage workspace members.') }}</p></div>
+      <div><p class="eyebrow">{{ tr('系统管理', 'Administration') }}</p><h1>{{ tr('用户管理', 'User Management') }}</h1><p>{{ tr('审批申请并管理共享工作区成员。', 'Approve requests and manage workspace members.') }}</p></div>
       <span class="metric"><strong>{{ pendingCount }}</strong> {{ tr('待审批', 'Pending') }}</span>
     </header>
     <n-alert v-if="error" type="error">{{ error }}</n-alert>
     <section class="panel split-panel">
       <div>
-        <p class="eyebrow">Fixed account</p><h2>{{ tr('创建固定账号', 'Create Fixed Account') }}</h2>
+        <p class="eyebrow">{{ tr('内部开通', 'Fixed account') }}</p><h2>{{ tr('创建固定账号', 'Create Fixed Account') }}</h2>
         <p class="muted">{{ tr('账号创建后立即启用，适合作为演示或内部成员账号。', 'Accounts are enabled immediately upon creation.') }}</p>
       </div>
       <form class="compact-form" @submit.prevent="createFixedAccount">

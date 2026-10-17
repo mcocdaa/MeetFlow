@@ -55,7 +55,7 @@ async function submit() {
 <template>
   <main class="auth-layout">
     <section class="auth-intro">
-      <p class="eyebrow">Shared meeting archive</p>
+      <p class="eyebrow">{{ tr('共享会议档案', 'Shared meeting archive') }}</p>
       <h1 v-if="tr('zh', 'en') === 'zh'">让每次讨论<br />都有清晰的去向。</h1>
       <h1 v-else>Turn every discussion<br />into clear next steps.</h1>
       <p>{{ tr('集中整理会议记录、关键结论、行动项与会后进展。', 'Organize meeting notes, key decisions, action items, and follow-up progress in one place.') }}</p>

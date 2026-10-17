@@ -208,7 +208,7 @@ onMounted(() => {
 
 <template>
   <section class="workspace-section project-activity-tab">
-    <header class="section-heading"><div><p class="eyebrow">Activity</p><h2>{{ tr('项目动态', 'Project Activity') }}</h2></div></header>
+    <header class="section-heading"><div><p class="eyebrow">{{ tr('动态流', 'Activity') }}</p><h2>{{ tr('项目动态', 'Project Activity') }}</h2></div></header>
 
     <ProjectUpdateComposer v-if="canContribute" :project-id="project.id" :health="project.health" @saved="onComposerSaved" />
 

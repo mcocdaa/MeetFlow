@@ -145,7 +145,7 @@ async function addAmendment() {
   <div class="completed-chain">
     <n-card class="completed-summary">
       <header class="section-heading">
-        <div><p class="eyebrow">Trusted record</p><h2>{{ tr('会议完成链条', 'Completed Meeting Record') }}</h2></div>
+        <div><p class="eyebrow">{{ tr('可信档案', 'Trusted record') }}</p><h2>{{ tr('会议完成链条', 'Completed Meeting Record') }}</h2></div>
         <div v-if="canContribute" class="page-header-actions"><button class="button button-quiet" @click="amendmentOpen = !amendmentOpen">{{ tr('添加更正', 'Add Amendment') }}</button></div>
       </header>
       <p class="snapshot-meta">{{ tr(`快照 #${meeting.current_snapshot?.completion_number ?? '—'} · 原始记录保持只读`, `Snapshot #${meeting.current_snapshot?.completion_number ?? '—'} · Original record is read-only`) }}</p>

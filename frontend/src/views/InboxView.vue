@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Inbox</p><h1>{{ tr('收件箱', 'Inbox') }}</h1><p>{{ tr('评论提及、指派和评审请求都会汇总到这里。', 'Mentions, assignments, and review requests are collected here.') }}</p></div>
+      <div><p class="eyebrow">{{ tr('通知中心', 'Inbox') }}</p><h1>{{ tr('收件箱', 'Inbox') }}</h1><p>{{ tr('评论提及、指派和评审请求都会汇总到这里。', 'Mentions, assignments, and review requests are collected here.') }}</p></div>
       <n-button secondary :disabled="!unreadCount" :loading="readAllBusy" @click="readAll">{{ tr('全部已读', 'Mark All Read') }}</n-button>
     </header>
     <n-alert v-if="error" type="error" class="workspace-section">{{ error }}</n-alert>

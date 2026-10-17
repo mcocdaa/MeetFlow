@@ -1,4 +1,5 @@
 import { locale } from '../i18n'
+import { translateBackendError } from '../utils/errors'
 import { apiErrorMessage, dispatchAuthExpired } from './client'
 
 function consumeEvent(block: string, onDelta: (text: string) => void): boolean {
@@ -24,7 +25,8 @@ function consumeEvent(block: string, onDelta: (text: string) => void): boolean {
   }
   if (event === 'error') {
     if (payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string') {
-      throw new Error(payload.message)
+      const code = 'code' in payload && typeof payload.code === 'string' ? payload.code : null
+      throw new Error(translateBackendError(payload.message, code))
     }
     throw new Error(locale.value === 'en' ? 'Failed to generate AI work brief, please try again later' : 'AI 工作简报生成失败，请稍后重试')
   }

@@ -242,7 +242,7 @@ function onMenuSelect(item: AgendaItem, key: string) {
 
 <template>
   <aside class="agenda-queue" data-testid="agenda-queue">
-    <header class="section-heading"><div><p class="eyebrow">Agenda</p><h2>{{ tr('议题队列', 'Agenda Queue') }}</h2></div><button v-if="canContribute" class="button button-small button-primary" @click="adding = !adding">{{ adding ? tr('收起', 'Close') : tr('+ 议题', '+ Agenda') }}</button></header>
+    <header class="section-heading"><div><p class="eyebrow">{{ tr('议程编排', 'Agenda') }}</p><h2>{{ tr('议题队列', 'Agenda Queue') }}</h2></div><button v-if="canContribute" class="button button-small button-primary" @click="adding = !adding">{{ adding ? tr('收起', 'Close') : tr('+ 议题', '+ Agenda') }}</button></header>
     <form v-if="canContribute && adding" class="agenda-add-form" @submit.prevent="addAgenda">
       <label>{{ tr('议题标题', 'Agenda Title') }}<input v-model="title" required /></label>
       <label>{{ tr('类型', 'Type') }}<select v-model="agendaType"><option value="information">{{ tr('信息同步', 'Info Sync') }}</option><option value="discussion">{{ tr('讨论', 'Discussion') }}</option><option value="decision">{{ tr('决策', 'Decision') }}</option></select></label>

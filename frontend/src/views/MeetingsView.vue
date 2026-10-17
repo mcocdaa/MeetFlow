@@ -146,7 +146,7 @@ onMounted(load)
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Meeting workspace</p><h1>{{ tr('会议', 'Meetings') }}</h1><p>{{ tr('围绕项目组织准备、现场议题、产出和会后档案。', 'Organize prep, live agenda items, outcomes, and archives around projects.') }}</p></div>
+      <div><p class="eyebrow">{{ tr('会议工作区', 'Meeting workspace') }}</p><h1>{{ tr('会议', 'Meetings') }}</h1><p>{{ tr('围绕项目组织准备、现场议题、产出和会后档案。', 'Organize prep, live agenda items, outcomes, and archives around projects.') }}</p></div>
       <button class="button button-primary" @click="createOpen = true">{{ tr('新建会议', 'New Meeting') }}</button>
     </header>
     <MeetingCreateDrawer

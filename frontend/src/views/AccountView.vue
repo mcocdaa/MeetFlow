@@ -104,7 +104,7 @@ async function changePassword() {
 <template>
   <main class="page page-narrow account-page">
     <header class="page-heading">
-      <div><p class="eyebrow">Account</p><h1>{{ tr('账号设置', 'Account Settings') }}</h1></div>
+      <div><p class="eyebrow">{{ tr('个人账户', 'Account') }}</p><h1>{{ tr('账号设置', 'Account Settings') }}</h1></div>
     </header>
     <n-card :title="tr('修改密码', 'Change Password')">
       <p class="muted">{{ tr('修改后，其他设备上的旧会话也会立即失效。', 'Updating your password immediately invalidates existing sessions on other devices.') }}</p>

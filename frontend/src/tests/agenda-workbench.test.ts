@@ -138,7 +138,7 @@ describe('agenda workbench', () => {
     expect(workbench).toContainElement(detail)
     expect(workbench).toContainElement(queue)
     expect(detail).toHaveClass('agenda-empty-compact')
-    expect(within(detail).getByText('Current topic')).toBeVisible()
+    expect(within(detail).getByText('当前议题')).toBeVisible()
     expect(detail.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(queue).getByRole('button', { name: '+ 议题' })).toBeVisible()
     expect(within(detail).queryByRole('button', { name: '添加议题' })).not.toBeInTheDocument()

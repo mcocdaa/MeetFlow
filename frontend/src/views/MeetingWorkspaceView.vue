@@ -200,7 +200,7 @@ async function savePreparation() {
     acceptPreparation(saved)
     preparationOpen.value = false
   } catch (caught) {
-    if (caught instanceof ApiError && caught.code === 'meeting_locked') message.error(caught.message)
+    if (caught instanceof ApiError && caught.code === 'meeting_locked') message.error(errorMessage(caught, tr('已结束的会议不可直接修改', 'Meeting is locked')))
     else preparationError.value = errorMessage(caught, tr('准备信息保存失败', 'Failed to save preparation info'))
   } finally {
     preparationSaving.value = false
@@ -411,7 +411,7 @@ onBeforeUnmount(() => {
 
         <section class="workspace-section meeting-summary-section">
           <header class="section-heading">
-            <div><p class="eyebrow">Summary</p><h2>{{ tr('会议纪要', 'Meeting Summary') }}</h2></div>
+            <div><p class="eyebrow">{{ tr('纪要沉淀', 'Summary') }}</p><h2>{{ tr('会议纪要', 'Meeting Summary') }}</h2></div>
             <div class="row-actions">
               <span v-if="minutesSaved || saveState === 'saved'" class="muted" role="status">{{ tr('纪要已保存', 'Summary saved') }}</span>
               <button v-if="canContribute" class="button button-quiet" :disabled="busy || !dirty" @click="saveMinutes">{{ tr('保存会议纪要', 'Save Summary') }}</button>
@@ -426,13 +426,13 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="workspace-section meeting-raw-notes">
-          <header class="section-heading"><div><p class="eyebrow">Notes</p><h2>{{ tr('整场会议原始笔记', 'Raw Meeting Notes') }}</h2></div><SaveStateIndicator role="note" :state="saveState" /></header>
+          <header class="section-heading"><div><p class="eyebrow">{{ tr('会议笔记', 'Notes') }}</p><h2>{{ tr('整场会议原始笔记', 'Raw Meeting Notes') }}</h2></div><SaveStateIndicator role="note" :state="saveState" /></header>
           <MarkdownEditor ref="rawNotesEditor" v-model="draft.raw_notes_markdown" :label="tr('整场会议原始笔记', 'Raw Meeting Notes')" :placeholder="tr('记录整场会议的原始讨论内容…', 'Capture raw discussion notes for the entire meeting…')" :disabled="busy || !canContribute" />
           <p v-if="conflict" class="notice notice-error" role="alert">{{ tr('保存版本已变化，请刷新会议后重新确认本地笔记。', 'Version changed on server. Please refresh and verify local notes.') }}</p>
         </section>
 
         <div class="meeting-tools workspace-section">
-          <div><p class="eyebrow">Meeting tools</p><h2>{{ tr('材料与协作', 'Materials & Collab') }}</h2><p class="muted">{{ tr('材料、评论都可以在会议进行中持续添加，不会离开当前议题。', 'Add materials and comments anytime during the meeting without leaving the active topic.') }}</p></div>
+          <div><p class="eyebrow">{{ tr('会议工具', 'Meeting tools') }}</p><h2>{{ tr('材料与协作', 'Materials & Collab') }}</h2><p class="muted">{{ tr('材料、评论都可以在会议进行中持续添加，不会离开当前议题。', 'Add materials and comments anytime during the meeting without leaving the active topic.') }}</p></div>
           <div class="row-actions">
             <PluginSlot v-if="canContribute" slot="meeting.toolbar.action" target-type="meeting" :target-id="meeting.id" :metadata="{ projectId: meeting.project.id }" />
             <button class="button button-quiet" @click="materialsOpen = true">{{ tr('材料', 'Materials') }} ({{ materialItems.length }})</button>
@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
         <n-drawer :show="preparationOpen" placement="right" :width="'min(560px, 100vw)'" :mask-closable="!preparationSaving" @update:show="(value: boolean) => { if (!value) preparationOpen = false }">
           <n-drawer-content :title="tr('准备信息', 'Prep Info')" closable>
             <section class="meeting-preparation">
-              <header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>{{ tr('会议准备', 'Meeting Prep') }}</h2></div></header>
+              <header class="section-heading"><div><p class="eyebrow">{{ tr('会前准备', 'Preparation') }}</p><h2>{{ tr('会议准备', 'Meeting Prep') }}</h2></div></header>
               <n-form ref="preparationFormRef" :model="preparationForm" :rules="preparationRules" label-placement="top" :show-require-mark="false">
                 <n-form-item :label="tr('会议标题', 'Meeting Title')" path="title">
                   <n-input v-model:value="preparationForm.title" :input-props="{ 'aria-label': tr('会议标题', 'Meeting Title') }" :placeholder="tr('会议标题', 'Meeting Title')" />

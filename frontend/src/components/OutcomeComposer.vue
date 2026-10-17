@@ -6,6 +6,7 @@ import { api } from '../api/client'
 import type { AgendaItem, Meeting } from '../domain/meetings'
 import type { ActionPriority } from '../domain/outcomes'
 import { useI18n } from '../i18n'
+import { errorMessage } from '../utils/errors'
 import MarkdownEditor from './MarkdownEditor.vue'
 import PluginEditorSlot from './PluginEditorSlot.vue'
 
@@ -46,7 +47,7 @@ async function save() {
     emit('saved')
     emit('close')
   } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : tr(`${labels.value}保存失败`, `Failed to save ${labels.value}`)
+    error.value = errorMessage(caught, tr(`${labels.value}保存失败`, `Failed to save ${labels.value}`))
   } finally {
     saving.value = false
   }

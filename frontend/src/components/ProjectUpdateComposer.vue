@@ -39,7 +39,7 @@ async function submit() {
 <template>
   <form class="project-update-composer" @submit.prevent="submit">
     <div class="composer-heading">
-      <div><p class="eyebrow">Progress update</p><h3>{{ tr('追加项目进展', 'Post Project Update') }}</h3></div>
+      <div><p class="eyebrow">{{ tr('进展更新', 'Progress update') }}</p><h3>{{ tr('追加项目进展', 'Post Project Update') }}</h3></div>
       <label>{{ tr('健康度', 'Health') }}<select v-model="health"><option value="on_track">{{ tr('进展正常', 'On Track') }}</option><option value="at_risk">{{ tr('存在风险', 'At Risk') }}</option><option value="off_track">{{ tr('偏离计划', 'Off Track') }}</option><option value="unset">{{ tr('未设置', 'Unset') }}</option></select></label>
     </div>
     <PluginEditorSlot :editor-label="tr('进展记录', 'Progress Update')" v-model="content" data-testid="project-update-editor" target-type="project" :target-id="projectId" slot="project-update-editor" :metadata="{ projectId }" @notice="error = $event">
