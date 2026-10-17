@@ -2,6 +2,7 @@ import { ref } from 'vue'
 
 import { api } from '../api/client'
 import type { Project } from '../domain/projects'
+import { tr } from '../i18n'
 
 /**
  * Display-name dictionary aggregated from project memberships.
@@ -44,6 +45,6 @@ export async function loadUserNames(): Promise<Project[]> {
 
 /** Resolves a user id to a readable name, falling back to a shortened id. */
 export function nameOf(userId: string | null | undefined): string {
-  if (!userId) return '未指定'
-  return userNames.value[userId] ?? `用户·${userId.slice(0, 8)}`
+  if (!userId) return tr('未指定', 'Unassigned')
+  return userNames.value[userId] ?? tr(`用户·${userId.slice(0, 8)}`, `User·${userId.slice(0, 8)}`)
 }

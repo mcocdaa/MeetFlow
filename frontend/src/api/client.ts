@@ -1,3 +1,5 @@
+import { locale } from '../i18n'
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -10,7 +12,10 @@ export class ApiError extends Error {
   }
 }
 
-export function apiErrorMessage(payload: unknown, fallback = '请求失败，请稍后重试'): string {
+export function apiErrorMessage(
+  payload: unknown,
+  fallback = locale.value === 'en' ? 'Request failed, please try again later' : '请求失败，请稍后重试',
+): string {
   if (
     payload
     && typeof payload === 'object'

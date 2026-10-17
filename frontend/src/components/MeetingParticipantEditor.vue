@@ -5,7 +5,10 @@ import { computed } from 'vue'
 
 import type { UserRef } from '../api/contracts'
 import type { ParticipationRole } from '../domain/meetings'
-import { PARTICIPATION_ROLE_LABELS } from '../utils/labels'
+import { useI18n } from '../i18n'
+import { PARTICIPATION_ROLE_LABELS, participationRoleLabel } from '../utils/labels'
+
+const { tr } = useI18n()
 
 export type ParticipantValue = {
   user_id: string
@@ -20,10 +23,10 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ 'update:modelValue': [value: ParticipantValue[]] }>()
 
-const roleOptions = (Object.keys(PARTICIPATION_ROLE_LABELS) as ParticipationRole[]).map((role) => ({
-  label: PARTICIPATION_ROLE_LABELS[role],
+const roleOptions = computed(() => (Object.keys(PARTICIPATION_ROLE_LABELS) as ParticipationRole[]).map((role) => ({
+  label: participationRoleLabel(role),
   value: role,
-}))
+})))
 
 /** Options for one row: deduplicated members, excluding selections owned by other rows. */
 function optionsFor(index: number) {
@@ -67,7 +70,7 @@ function removeRow(index: number) {
         class="participant-member-select"
         :value="row.user_id || null"
         :options="optionsFor(index)"
-        :placeholder="'选择成员'"
+        :placeholder="tr('选择成员', 'Select member')"
         :disabled="disabled"
         :virtual-scroll="false"
         filterable
@@ -81,13 +84,13 @@ function removeRow(index: number) {
         :virtual-scroll="false"
         @update:value="(value: ParticipationRole) => updateRow(index, { participation_role: value })"
       />
-      <n-button v-if="!disabled" quaternary aria-label="移除参与人" @click="removeRow(index)">
+      <n-button v-if="!disabled" quaternary :aria-label="tr('移除参与人', 'Remove participant')" @click="removeRow(index)">
         <template #icon><n-icon><X :size="16" /></n-icon></template>
       </n-button>
     </div>
     <n-button v-if="!disabled" quaternary @click="addRow">
       <template #icon><n-icon><Plus :size="16" /></n-icon></template>
-      添加参与人
+      {{ tr('添加参与人', 'Add Participant') }}
     </n-button>
   </div>
 </template>

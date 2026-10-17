@@ -6,8 +6,11 @@ import { api } from '../api/client'
 import type { UserRef } from '../api/contracts'
 import { session } from '../auth/session'
 import type { AgendaType, MeetingSeriesDetail, RecurrenceFrequency } from '../domain/meetings'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import MeetingParticipantEditor, { type ParticipantValue } from './MeetingParticipantEditor.vue'
+
+const { isEn, tr } = useI18n()
 
 type StandingRow = {
   title: string
@@ -45,31 +48,42 @@ const defaultRecorderUserId = ref<string | null>(null)
 const participants = ref<ParticipantValue[]>([])
 const standingItems = ref<StandingRow[]>([])
 
-const drawerTitle = computed(() => (props.mode === 'create' ? '添加系列' : '编辑系列'))
+const drawerTitle = computed(() => (props.mode === 'create' ? tr('添加系列', 'New Series') : tr('编辑系列', 'Edit Series')))
 const memberOptions = computed(() => props.members.map((member) => ({
   label: member.display_name || member.username,
   value: member.id,
 })))
-const frequencyOptions = [
-  { label: '不设固定周期', value: '' },
-  { label: '每天', value: 'daily' },
-  { label: '每周', value: 'weekly' },
-  { label: '每月', value: 'monthly' },
-  { label: '每年', value: 'yearly' },
-]
-const weekdayOptions = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-  .map((label, value) => ({ label, value }))
-const agendaTypeOptions = [
-  { label: '信息同步', value: 'information' },
-  { label: '讨论', value: 'discussion' },
-  { label: '决策', value: 'decision' },
-]
+const frequencyOptions = computed(() => [
+  { label: tr('不设固定周期', 'No fixed cadence'), value: '' },
+  { label: tr('每天', 'Daily'), value: 'daily' },
+  { label: tr('每周', 'Weekly'), value: 'weekly' },
+  { label: tr('每月', 'Monthly'), value: 'monthly' },
+  { label: tr('每年', 'Yearly'), value: 'yearly' },
+])
+const weekdayOptions = computed(() => (
+  isEn.value
+    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    : ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+).map((label, value) => ({ label, value })))
+const agendaTypeOptions = computed(() => [
+  { label: tr('信息同步', 'Info Sync'), value: 'information' },
+  { label: tr('讨论', 'Discussion'), value: 'discussion' },
+  { label: tr('决策', 'Decision'), value: 'decision' },
+])
 
 const recurrenceDescription = computed(() => {
   const interval = recurrenceInterval.value
+  if (isEn.value) {
+    const prefix = interval === 1 ? 'Every' : `Every ${interval}`
+    if (recurrenceFrequency.value === 'daily') return `${prefix} day(s) at ${recurrenceLocalTime.value} (${recurrenceTimezone.value})`
+    if (recurrenceFrequency.value === 'weekly') return `${prefix} week(s) on ${weekdayOptions.value[recurrenceWeekday.value]?.label ?? ''} at ${recurrenceLocalTime.value} (${recurrenceTimezone.value})`
+    if (recurrenceFrequency.value === 'monthly') return `${prefix} month(s) on day ${recurrenceMonthDay.value} at ${recurrenceLocalTime.value} (${recurrenceTimezone.value})`
+    if (recurrenceFrequency.value === 'yearly') return `${prefix} year(s) on ${recurrenceMonth.value}/${recurrenceMonthDay.value} at ${recurrenceLocalTime.value} (${recurrenceTimezone.value})`
+    return 'Manual ad-hoc occurrences only'
+  }
   const prefix = interval === 1 ? '每' : `每 ${interval}`
   if (recurrenceFrequency.value === 'daily') return `${prefix} 天 ${recurrenceLocalTime.value}（${recurrenceTimezone.value}）`
-  if (recurrenceFrequency.value === 'weekly') return `${prefix} 周${weekdayOptions[recurrenceWeekday.value]?.label ?? ''} ${recurrenceLocalTime.value}（${recurrenceTimezone.value}）`
+  if (recurrenceFrequency.value === 'weekly') return `${prefix} 周${weekdayOptions.value[recurrenceWeekday.value]?.label ?? ''} ${recurrenceLocalTime.value}（${recurrenceTimezone.value}）`
   if (recurrenceFrequency.value === 'monthly') return `${prefix} 月 ${recurrenceMonthDay.value} 日 ${recurrenceLocalTime.value}（${recurrenceTimezone.value}）`
   if (recurrenceFrequency.value === 'yearly') return `${prefix} 年 ${recurrenceMonth.value} 月 ${recurrenceMonthDay.value} 日 ${recurrenceLocalTime.value}（${recurrenceTimezone.value}）`
   return '仅手动临时添加会议'
@@ -135,7 +149,7 @@ async function loadDetail() {
   try {
     applyDetail(await api<MeetingSeriesDetail>(`/api/meeting-series/${props.seriesId}`))
   } catch (reason) {
-    error.value = errorMessage(reason, '系列加载失败')
+    error.value = errorMessage(reason, tr('系列加载失败', 'Failed to load series'))
   } finally {
     loading.value = false
   }
@@ -293,7 +307,7 @@ async function save() {
     }
     emit('saved', result)
   } catch (reason) {
-    error.value = errorMessage(reason, '系列保存失败')
+    error.value = errorMessage(reason, tr('系列保存失败', 'Failed to save series'))
   } finally {
     saving.value = false
   }
@@ -309,15 +323,15 @@ async function save() {
     @update:show="(value: boolean) => { if (!value) close() }"
   >
     <NDrawerContent :title="drawerTitle" closable>
-      <p v-if="loading" class="muted">正在加载系列详情…</p>
+      <p v-if="loading" class="muted">{{ tr('正在加载系列详情…', 'Loading series details…') }}</p>
       <NForm v-else label-placement="top" :show-require-mark="false">
-        <NFormItem label="系列标题">
-          <NInput v-model:value="title" :input-props="{ 'aria-label': '系列标题' }" />
+        <NFormItem :label="tr('系列标题', 'Series Title')">
+          <NInput v-model:value="title" :input-props="{ 'aria-label': tr('系列标题', 'Series Title') }" />
         </NFormItem>
-        <NFormItem label="系列说明">
-          <NInput v-model:value="purpose" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': '系列说明' }" />
+        <NFormItem :label="tr('系列说明', 'Description')">
+          <NInput v-model:value="purpose" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': tr('系列说明', 'Description') }" />
         </NFormItem>
-        <NFormItem label="重复频率">
+        <NFormItem :label="tr('重复频率', 'Recurrence')">
           <NSelect
             v-model:value="recurrenceFrequency"
             class="series-recurrence-frequency"
@@ -326,10 +340,10 @@ async function save() {
           />
         </NFormItem>
         <template v-if="recurrenceFrequency">
-          <NFormItem label="重复间隔">
-            <NInputNumber v-model:value="recurrenceInterval" :min="1" :max="365" :input-props="{ 'aria-label': '重复间隔' }" />
+          <NFormItem :label="tr('重复间隔', 'Interval')">
+            <NInputNumber v-model:value="recurrenceInterval" :min="1" :max="365" :input-props="{ 'aria-label': tr('重复间隔', 'Interval') }" />
           </NFormItem>
-          <NFormItem v-if="recurrenceFrequency === 'weekly'" label="每周星期">
+          <NFormItem v-if="recurrenceFrequency === 'weekly'" :label="tr('每周星期', 'Day of Week')">
             <NSelect
               v-model:value="recurrenceWeekday"
               class="series-recurrence-weekday"
@@ -337,58 +351,58 @@ async function save() {
               :virtual-scroll="false"
             />
           </NFormItem>
-          <NFormItem v-if="recurrenceFrequency === 'monthly' || recurrenceFrequency === 'yearly'" label="每月日期">
-            <NInputNumber v-model:value="recurrenceMonthDay" :min="1" :max="31" :input-props="{ 'aria-label': '每月日期' }" />
+          <NFormItem v-if="recurrenceFrequency === 'monthly' || recurrenceFrequency === 'yearly'" :label="tr('每月日期', 'Day of Month')">
+            <NInputNumber v-model:value="recurrenceMonthDay" :min="1" :max="31" :input-props="{ 'aria-label': tr('每月日期', 'Day of Month') }" />
           </NFormItem>
-          <NFormItem v-if="recurrenceFrequency === 'yearly'" label="月份">
-            <NInputNumber v-model:value="recurrenceMonth" :min="1" :max="12" :input-props="{ 'aria-label': '月份' }" />
+          <NFormItem v-if="recurrenceFrequency === 'yearly'" :label="tr('月份', 'Month')">
+            <NInputNumber v-model:value="recurrenceMonth" :min="1" :max="12" :input-props="{ 'aria-label': tr('月份', 'Month') }" />
           </NFormItem>
-          <NFormItem label="开始时间">
-            <input v-model="recurrenceLocalTime" class="native-time-input" type="time" aria-label="开始时间" />
+          <NFormItem :label="tr('开始时间', 'Start Time')">
+            <input v-model="recurrenceLocalTime" class="native-time-input" type="time" :aria-label="tr('开始时间', 'Start Time')" />
           </NFormItem>
-          <NFormItem label="时区">
-            <NInput v-model:value="recurrenceTimezone" :input-props="{ 'aria-label': '时区' }" />
+          <NFormItem :label="tr('时区', 'Timezone')">
+            <NInput v-model:value="recurrenceTimezone" :input-props="{ 'aria-label': tr('时区', 'Timezone') }" />
           </NFormItem>
-          <NFormItem label="起始日期">
-            <input v-model="recurrenceAnchorDate" class="native-date-input" type="date" aria-label="起始日期" />
+          <NFormItem :label="tr('起始日期', 'Anchor Date')">
+            <input v-model="recurrenceAnchorDate" class="native-date-input" type="date" :aria-label="tr('起始日期', 'Anchor Date')" />
           </NFormItem>
           <p class="form-hint">{{ recurrenceDescription }}</p>
         </template>
-        <NFormItem label="默认会议时长（分钟）">
-          <NInputNumber v-model:value="defaultDurationMinutes" :min="1" :max="1440" :input-props="{ 'aria-label': '默认会议时长' }" />
+        <NFormItem :label="tr('默认会议时长（分钟）', 'Default Duration (minutes)')">
+          <NInputNumber v-model:value="defaultDurationMinutes" :min="1" :max="1440" :input-props="{ 'aria-label': tr('默认会议时长', 'Default Duration') }" />
         </NFormItem>
-        <NFormItem label="默认主持">
+        <NFormItem :label="tr('默认主持', 'Default Host')">
           <NSelect
             v-model:value="defaultHostUserId"
             class="series-default-host"
             :options="memberOptions"
             :virtual-scroll="false"
             clearable
-            placeholder="选择默认主持"
+            :placeholder="tr('选择默认主持', 'Select default host')"
           />
         </NFormItem>
-        <NFormItem label="默认记录">
+        <NFormItem :label="tr('默认记录', 'Default Recorder')">
           <NSelect
             v-model:value="defaultRecorderUserId"
             class="series-default-recorder"
             :options="memberOptions"
             :virtual-scroll="false"
             clearable
-            placeholder="选择默认记录"
+            :placeholder="tr('选择默认记录', 'Select default recorder')"
           />
         </NFormItem>
-        <NFormItem label="参与人">
+        <NFormItem :label="tr('参与人', 'Participants')">
           <MeetingParticipantEditor v-model="participants" :member-options="members" />
         </NFormItem>
       </NForm>
 
       <section v-if="!loading" class="series-standing-items">
         <header class="section-heading">
-          <h3>常设议题</h3>
-          <NButton size="small" @click="addStandingItem">添加常设议题</NButton>
+          <h3>{{ tr('常设议题', 'Standing Agenda Items') }}</h3>
+          <NButton size="small" @click="addStandingItem">{{ tr('添加常设议题', 'Add Standing Item') }}</NButton>
         </header>
         <div v-for="(row, index) in standingItems" :key="index" class="standing-item-row">
-          <NInput v-model:value="row.title" :input-props="{ 'aria-label': '常设议题标题' }" placeholder="议题标题" />
+          <NInput v-model:value="row.title" :input-props="{ 'aria-label': tr('常设议题标题', 'Standing item title') }" :placeholder="tr('议题标题', 'Topic title')" />
           <NSelect
             v-model:value="row.agenda_type"
             class="standing-agenda-type"
@@ -401,30 +415,30 @@ async function save() {
             :options="memberOptions"
             :virtual-scroll="false"
             clearable
-            placeholder="默认负责人"
+            :placeholder="tr('默认负责人', 'Default owner')"
           />
           <NInputNumber
             v-model:value="row.default_duration_minutes"
             :min="1"
             :max="1440"
-            :input-props="{ 'aria-label': '默认时长' }"
-            placeholder="默认时长"
+            :input-props="{ 'aria-label': tr('默认时长', 'Default duration') }"
+            :placeholder="tr('默认时长', 'Duration')"
           />
-          <NButton quaternary aria-label="移除常设议题" @click="removeStandingItem(index)">移除</NButton>
+          <NButton quaternary :aria-label="tr('移除常设议题', 'Remove standing item')" @click="removeStandingItem(index)">{{ tr('移除', 'Remove') }}</NButton>
         </div>
-        <p v-if="!standingItems.length" class="muted">尚未配置常设议题。</p>
+        <p v-if="!standingItems.length" class="muted">{{ tr('尚未配置常设议题。', 'No standing agenda items configured.') }}</p>
       </section>
 
       <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
       <template #footer>
-        <NButton quaternary :disabled="saving" @click="close">取消</NButton>
+        <NButton quaternary :disabled="saving" @click="close">{{ tr('取消', 'Cancel') }}</NButton>
         <NButton
           type="primary"
           :loading="saving"
           :disabled="saving || loading || (mode === 'edit' && !loaded) || !title.trim()"
           @click="save"
         >
-          保存系列
+          {{ tr('保存系列', 'Save Series') }}
         </NButton>
       </template>
     </NDrawerContent>

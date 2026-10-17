@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NInput, NList, NListItem, NPopconfirm } from 'naive-ui'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
@@ -9,6 +10,8 @@ import type { Meeting } from '../domain/meetings'
 import { formatDateTime } from '../utils/time'
 import AppAvatar from './AppAvatar.vue'
 import MentionTextarea from './MentionTextarea.vue'
+
+const { tr } = useI18n()
 
 const props = withDefaults(defineProps<{ meeting: Meeting; focusCommentId?: string | null }>(), { focusCommentId: null })
 const comments = ref<MeetingComment[]>([])
@@ -68,7 +71,7 @@ async function load() {
     const page = await api<CommentPage>(listQuery())
     comments.value = page.items
     nextCursor.value = page.next_cursor
-  } catch (reason) { error.value = errorMessage(reason, '评论加载失败') }
+  } catch (reason) { error.value = errorMessage(reason, tr('评论加载失败', 'Failed to load comments')) }
   finally {
     loading.value = false
     void focusComment()
@@ -83,7 +86,7 @@ async function loadMore() {
     const page = await api<CommentPage>(listQuery(nextCursor.value))
     comments.value = [...comments.value, ...page.items]
     nextCursor.value = page.next_cursor
-  } catch (reason) { error.value = errorMessage(reason, '评论加载失败') }
+  } catch (reason) { error.value = errorMessage(reason, tr('评论加载失败', 'Failed to load comments')) }
   finally { loadingMore.value = false }
 }
 
@@ -97,7 +100,7 @@ async function submit() {
     mentionIds.value = []
     replyTo.value = null
     await load()
-  } catch (reason) { error.value = errorMessage(reason, '评论提交失败') }
+  } catch (reason) { error.value = errorMessage(reason, tr('评论提交失败', 'Failed to post comment')) }
   finally { submitting.value = false }
 }
 
@@ -108,7 +111,7 @@ async function toggle(comment: MeetingComment) {
   try {
     await api(`/api/comments/${comment.id}/${comment.resolved_at ? 'reopen' : 'resolve'}`, { method: 'POST', body: JSON.stringify({ expected_version: comment.version }) })
     await load()
-  } catch (reason) { error.value = errorMessage(reason, '状态更新失败') }
+  } catch (reason) { error.value = errorMessage(reason, tr('状态更新失败', 'Failed to update status')) }
   finally { togglingId.value = null }
 }
 
@@ -125,7 +128,7 @@ async function saveEdit(comment: MeetingComment) {
     await api(`/api/comments/${comment.id}`, { method: 'PUT', body: JSON.stringify({ expected_version: comment.version, body_markdown: editBody.value, mention_user_ids: [] }) })
     editingId.value = null
     await load()
-  } catch (reason) { error.value = errorMessage(reason, '评论保存失败') }
+  } catch (reason) { error.value = errorMessage(reason, tr('评论保存失败', 'Failed to save comment')) }
   finally { savingEdit.value = false }
 }
 
@@ -136,7 +139,7 @@ async function remove(comment: MeetingComment) {
   try {
     await api(`/api/comments/${comment.id}`, { method: 'DELETE', body: JSON.stringify({ expected_version: comment.version }) })
     await load()
-  } catch (reason) { error.value = errorMessage(reason, '评论删除失败') }
+  } catch (reason) { error.value = errorMessage(reason, tr('评论删除失败', 'Failed to delete comment')) }
   finally { deletingId.value = null }
 }
 
@@ -168,7 +171,7 @@ async function loadReplies(comment: MeetingComment) {
     const page = await api<CommentPage>(`/api/comments/${comment.id}/replies?${params.toString()}`)
     comment.replies = [...comment.replies, ...page.items]
     comment.reply_next_cursor = page.next_cursor
-  } catch (reason) { error.value = errorMessage(reason, '回复加载失败') }
+  } catch (reason) { error.value = errorMessage(reason, tr('回复加载失败', 'Failed to load replies')) }
   finally { repliesLoadingId.value = null }
 }
 
@@ -182,7 +185,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="meeting-comments">
     <p v-if="error" class="notice notice-error">{{ error }}</p>
-    <p v-if="!focusFound && !loading" class="empty-inline" data-testid="comment-focus-missing">该评论在更早的讨论中</p>
+    <p v-if="!focusFound && !loading" class="empty-inline" data-testid="comment-focus-missing">{{ tr('该评论在更早的讨论中', 'This comment is in an earlier discussion') }}</p>
     <n-list :show-divider="false" class="comment-list">
       <n-list-item v-for="comment in comments" :key="comment.id" :data-comment-id="comment.id" :class="{ 'is-focused': isFocusedComment(comment) }">
         <article class="comment-thread" :class="{ resolved: Boolean(comment.resolved_at) }">
@@ -192,26 +195,26 @@ onBeforeUnmount(() => {
               <strong>{{ comment.creator.display_name }}</strong>
               <time v-if="comment.created_at">{{ formatDateTime(comment.created_at) }}</time>
             </div>
-            <n-button v-if="comment.can_resolve" class="comment-resolve" size="small" quaternary :loading="togglingId === comment.id" :disabled="Boolean(togglingId)" @click="toggle(comment)">{{ comment.resolved_at ? '重开' : '解决' }}</n-button>
+            <n-button v-if="comment.can_resolve" class="comment-resolve" size="small" quaternary :loading="togglingId === comment.id" :disabled="Boolean(togglingId)" @click="toggle(comment)">{{ comment.resolved_at ? tr('重开', 'Reopen') : tr('解决', 'Resolve') }}</n-button>
           </header>
-          <n-input v-if="editingId === comment.id" v-model:value="editBody" type="textarea" :autosize="{ minRows: 2 }" :input-props="{ 'aria-label': '编辑评论' }" />
+          <n-input v-if="editingId === comment.id" v-model:value="editBody" type="textarea" :autosize="{ minRows: 2 }" :input-props="{ 'aria-label': tr('编辑评论', 'Edit comment') }" />
           <template v-else>
             <p v-if="comment.body_markdown !== null" class="comment-body">{{ comment.body_markdown }}</p>
-            <p v-else class="comment-body comment-deleted">评论已删除</p>
-            <span v-if="comment.edited_at" class="comment-edited">已编辑</span>
+            <p v-else class="comment-body comment-deleted">{{ tr('评论已删除', 'Comment deleted') }}</p>
+            <span v-if="comment.edited_at" class="comment-edited">{{ tr('已编辑', 'Edited') }}</span>
             <div v-if="comment.mentions?.length" class="comment-mentions"><span v-for="mention in comment.mentions" :key="mention.id">@{{ mention.display_name }}</span></div>
           </template>
           <div class="row-actions">
             <template v-if="editingId === comment.id">
-              <n-button size="small" type="primary" :loading="savingEdit" :disabled="savingEdit" @click="saveEdit(comment)">保存</n-button>
-              <n-button size="small" quaternary :disabled="savingEdit" @click="editingId = null">取消</n-button>
+              <n-button size="small" type="primary" :loading="savingEdit" :disabled="savingEdit" @click="saveEdit(comment)">{{ tr('保存', 'Save') }}</n-button>
+              <n-button size="small" quaternary :disabled="savingEdit" @click="editingId = null">{{ tr('取消', 'Cancel') }}</n-button>
             </template>
             <template v-else-if="comment.body_markdown !== null">
-              <button class="text-link" @click="replyTo = comment.id">回复</button>
-              <button v-if="comment.can_edit" class="text-link" @click="beginEdit(comment)">编辑</button>
-              <n-popconfirm v-if="comment.can_delete" positive-text="确认" negative-text="取消" @positive-click="remove(comment)">
-                <template #trigger><n-button size="small" quaternary :loading="deletingId === comment.id" :disabled="Boolean(deletingId)">删除</n-button></template>
-                确定删除这条评论吗？
+              <button class="text-link" @click="replyTo = comment.id">{{ tr('回复', 'Reply') }}</button>
+              <button v-if="comment.can_edit" class="text-link" @click="beginEdit(comment)">{{ tr('编辑', 'Edit') }}</button>
+              <n-popconfirm v-if="comment.can_delete" :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="remove(comment)">
+                <template #trigger><n-button size="small" quaternary :loading="deletingId === comment.id" :disabled="Boolean(deletingId)">{{ tr('删除', 'Delete') }}</n-button></template>
+                {{ tr('确定删除这条评论吗？', 'Delete this comment?') }}
               </n-popconfirm>
             </template>
           </div>
@@ -226,17 +229,17 @@ onBeforeUnmount(() => {
                 <p>{{ reply.body_markdown }}</p>
               </div>
             </article>
-            <n-button v-if="hasMoreReplies(comment)" size="small" quaternary :loading="repliesLoadingId === comment.id" :disabled="Boolean(repliesLoadingId)" @click="loadReplies(comment)">查看全部回复（{{ replyTotalLabel(comment) }}）</n-button>
+            <n-button v-if="hasMoreReplies(comment)" size="small" quaternary :loading="repliesLoadingId === comment.id" :disabled="Boolean(repliesLoadingId)" @click="loadReplies(comment)">{{ tr(`查看全部回复（${replyTotalLabel(comment)}）`, `View all replies (${replyTotalLabel(comment)})`) }}</n-button>
           </div>
         </article>
       </n-list-item>
     </n-list>
-    <n-button v-if="nextCursor" quaternary :loading="loadingMore" :disabled="loadingMore" @click="loadMore">加载更多</n-button>
-    <p v-if="loading" class="muted">正在加载评论…</p>
+    <n-button v-if="nextCursor" quaternary :loading="loadingMore" :disabled="loadingMore" @click="loadMore">{{ tr('加载更多', 'Load More') }}</n-button>
+    <p v-if="loading" class="muted">{{ tr('正在加载评论…', 'Loading comments…') }}</p>
     <form class="comment-composer" @submit.prevent="submit">
-      <MentionTextarea v-model="body" v-model:mention-ids="mentionIds" label="评论内容" :participants="meeting.participants" />
-      <p class="comment-hint">输入 @ 可提及会议成员</p>
-      <div class="form-actions"><button v-if="replyTo" type="button" class="button button-quiet" @click="replyTo = null">取消回复</button><button class="button button-primary" :disabled="submitting">发送评论</button></div>
+      <MentionTextarea v-model="body" v-model:mention-ids="mentionIds" :label="tr('评论内容', 'Comment')" :participants="meeting.participants" />
+      <p class="comment-hint">{{ tr('输入 @ 可提及会议成员', 'Type @ to mention meeting participants') }}</p>
+      <div class="form-actions"><button v-if="replyTo" type="button" class="button button-quiet" @click="replyTo = null">{{ tr('取消回复', 'Cancel Reply') }}</button><button class="button button-primary" :disabled="submitting">{{ tr('发送评论', 'Post Comment') }}</button></div>
     </form>
   </section>
 </template>

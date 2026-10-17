@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, type TextareaHTMLAttributes } from 'vue'
 import { NInput } from 'naive-ui'
+import { useI18n } from '../i18n'
+
+const { tr } = useI18n()
 
 type Participant = { user: { id: string; username: string; display_name: string } }
 const props = defineProps<{ modelValue: string; participants: Participant[]; label: string }>()
@@ -61,7 +64,7 @@ function keydown(event: KeyboardEvent) {
       @update:value="update"
       @keydown="keydown"
     />
-    <ul v-if="open && matches.length" id="mention-listbox" role="listbox" aria-label="会议参与者">
+    <ul v-if="open && matches.length" id="mention-listbox" role="listbox" :aria-label="tr('会议参与者', 'Meeting Participants')">
       <li v-for="(participant, index) in matches" :id="`mention-${index}`" :key="participant.user.id" role="option" :aria-selected="index === active" @mousedown.prevent="insert(participant)">{{ participant.user.display_name }} @{{ participant.user.username }}</li>
     </ul>
   </div>

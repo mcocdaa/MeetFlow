@@ -6,8 +6,11 @@ import { api } from '../api/client'
 import type { UserRef } from '../api/contracts'
 import type { ActionPriority, ActionStatus } from '../domain/outcomes'
 import type { ProjectActionSummary } from '../domain/projects'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
-import { ACTION_STATUS_LABELS, PRIORITY_LABELS } from '../utils/labels'
+import { ACTION_STATUS_LABELS, PRIORITY_LABELS, actionStatusLabel, priorityLabel } from '../utils/labels'
+
+const { tr } = useI18n()
 
 const props = defineProps<{
   show: boolean
@@ -30,10 +33,10 @@ const memberOptions = computed(() => props.members.map((member) => ({
   label: member.display_name || member.username,
   value: member.id,
 })))
-const priorityOptions = (Object.keys(PRIORITY_LABELS) as ActionPriority[])
-  .map((value) => ({ label: PRIORITY_LABELS[value], value }))
-const statusOptions = (Object.keys(ACTION_STATUS_LABELS) as ActionStatus[])
-  .map((value) => ({ label: ACTION_STATUS_LABELS[value], value }))
+const priorityOptions = computed(() => (Object.keys(PRIORITY_LABELS) as ActionPriority[])
+  .map((value) => ({ label: priorityLabel(value), value })))
+const statusOptions = computed(() => (Object.keys(ACTION_STATUS_LABELS) as ActionStatus[])
+  .map((value) => ({ label: actionStatusLabel(value), value })))
 
 watch(() => [props.show, props.action?.id], () => {
   const action = props.action
@@ -72,7 +75,7 @@ async function save() {
     })
     emit('saved', saved)
   } catch (reason) {
-    error.value = errorMessage(reason, '行动项保存失败')
+    error.value = errorMessage(reason, tr('行动项保存失败', 'Failed to save action item'))
   } finally {
     saving.value = false
   }
@@ -87,41 +90,41 @@ async function save() {
     :mask-closable="!saving"
     @update:show="(value: boolean) => { if (!value) close() }"
   >
-    <NDrawerContent title="编辑行动项" closable>
+    <NDrawerContent :title="tr('编辑行动项', 'Edit Action Item')" closable>
       <NForm label-placement="top" :show-require-mark="false">
-        <NFormItem label="行动项内容">
-          <NInput v-model:value="form.content" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': '行动项内容' }" />
+        <NFormItem :label="tr('行动项内容', 'Action Content')">
+          <NInput v-model:value="form.content" type="textarea" :autosize="{ minRows: 3 }" :input-props="{ 'aria-label': tr('行动项内容', 'Action Content') }" />
         </NFormItem>
-        <NFormItem label="负责人">
+        <NFormItem :label="tr('负责人', 'Owner')">
           <NSelect
             v-model:value="form.owner_user_id"
             class="action-edit-owner"
             :options="memberOptions"
             :virtual-scroll="false"
             clearable
-            placeholder="选择负责人"
+            :placeholder="tr('选择负责人', 'Select owner')"
           />
         </NFormItem>
-        <NFormItem label="截止日期">
-          <input v-model="form.due_date" class="native-date-input" type="date" aria-label="截止日期" />
+        <NFormItem :label="tr('截止日期', 'Due Date')">
+          <input v-model="form.due_date" class="native-date-input" type="date" :aria-label="tr('截止日期', 'Due Date')" />
         </NFormItem>
-        <NFormItem label="优先级">
+        <NFormItem :label="tr('优先级', 'Priority')">
           <NSelect v-model:value="form.priority" class="action-edit-priority" :options="priorityOptions" :virtual-scroll="false" />
         </NFormItem>
-        <NFormItem label="状态">
+        <NFormItem :label="tr('状态', 'Status')">
           <NSelect v-model:value="form.status" class="action-edit-status" :options="statusOptions" :virtual-scroll="false" />
         </NFormItem>
       </NForm>
       <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
       <template #footer>
-        <NButton quaternary :disabled="saving" @click="close">取消</NButton>
+        <NButton quaternary :disabled="saving" @click="close">{{ tr('取消', 'Cancel') }}</NButton>
         <NButton
           type="primary"
           :loading="saving"
           :disabled="saving || !form.content.trim()"
           @click="save"
         >
-          保存行动项
+          {{ tr('保存行动项', 'Save Action Item') }}
         </NButton>
       </template>
     </NDrawerContent>

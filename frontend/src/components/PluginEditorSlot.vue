@@ -2,8 +2,11 @@
 import { computed, nextTick, ref } from 'vue'
 import { Sparkles } from '@lucide/vue'
 
+import { useI18n } from '../i18n'
 import type { PluginBusyState, PluginEditorContext } from '../plugins/contracts'
 import { assistantsForSlot } from '../plugins/registry'
+
+const { tr } = useI18n()
 
 type MarkdownWriter = (markdown: string) => void
 
@@ -49,7 +52,7 @@ function registerEditor(writer: MarkdownWriter | null) {
 function writeAssistantResult(markdown: string) {
   menuOpen.value = false
   if (!editorWriter.value) {
-    emit('notice', '编辑器尚未就绪，请稍后重试')
+    emit('notice', tr('编辑器尚未就绪，请稍后重试', 'Editor is not ready yet, please try again shortly'))
     return
   }
   editorWriter.value(markdown)
@@ -72,7 +75,7 @@ function writeAssistantResult(markdown: string) {
             type="button"
             class="editor-assistant-trigger"
             :class="{ 'is-active': menuOpen || busy.active }"
-            :aria-label="busy.active ? 'AI 工具，正在处理' : 'AI 工具'"
+            :aria-label="busy.active ? tr('AI 工具，正在处理', 'AI Tools, processing') : tr('AI 工具', 'AI Tools')"
             :aria-expanded="menuOpen"
             :disabled="busy.active"
             @click="menuOpen = !menuOpen"
@@ -82,7 +85,7 @@ function writeAssistantResult(markdown: string) {
             v-show="menuOpen"
             class="editor-assistant-menu"
             role="group"
-            aria-label="AI 操作"
+            :aria-label="tr('AI 操作', 'AI Actions')"
           >
             <component
               :is="assistant"
@@ -105,7 +108,7 @@ function writeAssistantResult(markdown: string) {
       <div class="plugin-editor-busy-activity">
         <span class="plugin-editor-busy-rail" aria-hidden="true"></span>
         <p>{{ busy.label }}</p>
-        <span class="plugin-editor-busy-hint">请稍候</span>
+        <span class="plugin-editor-busy-hint">{{ tr('请稍候', 'Please wait') }}</span>
       </div>
     </div>
   </section>

@@ -170,7 +170,7 @@ async function persistCurrentNotes(): Promise<boolean> {
     emit('reload')
     return true
   } catch (caught) {
-    message.error(errorMessage(caught, '议题笔记保存失败'))
+    message.error(errorMessage(caught, tr('议题笔记保存失败', 'Failed to save agenda notes')))
     return false
   } finally {
     saving.value = false
@@ -186,13 +186,17 @@ async function completeAndAdvance() {
       method: 'POST',
       body: JSON.stringify({ expected_version: localVersion.value }),
     })
-    message.success(`议题「${currentItem.value.title}」已完成`)
+    message.success(
+      locale.value === 'en'
+        ? `Agenda "${currentItem.value.title}" completed`
+        : `议题「${currentItem.value.title}」已完成`,
+    )
     emit('reload')
     if (result.next_agenda_item_id) {
       selectedAgendaId.value = result.next_agenda_item_id
     }
   } catch (caught) {
-    message.error(errorMessage(caught, '完成议题失败'))
+    message.error(errorMessage(caught, tr('完成议题失败', 'Failed to complete agenda item')))
   } finally {
     advancing.value = false
   }
@@ -231,7 +235,7 @@ async function smartExtractFocusNotes() {
     )
     emit('reload')
   } catch (caught) {
-    message.error(errorMessage(caught, 'AI 提炼失败，请检查笔记标签格式'))
+    message.error(errorMessage(caught, tr('AI 提炼失败，请检查笔记标签格式', 'AI extraction failed, please check notes format')))
   } finally {
     extracting.value = false
   }
@@ -269,7 +273,7 @@ async function toggleActionStatus(action: ActionItem, targetStatus?: ActionStatu
     )
     emit('reload')
   } catch (caught) {
-    message.error(errorMessage(caught, '更新行动项失败'))
+    message.error(errorMessage(caught, tr('更新行动项失败', 'Failed to update action item')))
   }
 }
 

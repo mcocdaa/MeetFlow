@@ -2,6 +2,7 @@
 import { NButton, NDropdown, NDrawer, NDrawerContent, NForm, NFormItem, NInput, NSelect, NTabPane, NTabs, NTag, useDialog } from 'naive-ui'
 import { computed, h, onMounted, ref, watch } from 'vue'
 import StatusPill from '../components/StatusPill.vue'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import { projectStatusLabel } from '../utils/labels'
 import { useRoute, useRouter } from 'vue-router'
@@ -29,6 +30,7 @@ import type {
 
 type Tab = 'overview' | 'meetings' | 'actions' | 'decisions' | 'questions' | 'files' | 'activity'
 
+const { tr } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const dialog = useDialog()
@@ -42,7 +44,10 @@ const drawerKind = ref<'meeting' | 'series' | 'decision' | 'action' | ''>('')
 const deleteTargetName = ref('')
 const deleteError = ref('')
 const editOpen = ref(false)
-const memberRoleLabels: Record<ProjectMemberRole, string> = { member: '成员', stakeholder: '干系人' }
+const memberRoleLabels = computed<Record<ProjectMemberRole, string>>(() => ({
+  member: tr('成员', 'Member'),
+  stakeholder: tr('干系人', 'Stakeholder'),
+}))
 const editForm = ref({
   name: '',
   summary: '',
@@ -56,16 +61,16 @@ const editForm = ref({
 const projectId = computed(() => String(route.params.id))
 const canManage = computed(() => project.value?.capabilities.can_manage ?? false)
 const canContribute = computed(() => project.value?.capabilities.can_contribute ?? false)
-const healthLabels: Record<ProjectHealth, string> = {
-  on_track: '进展正常',
-  at_risk: '存在风险',
-  off_track: '偏离计划',
-  unset: '未设置',
-}
-const statusOptions = (['planned', 'active', 'paused', 'completed', 'canceled'] as ProjectStatus[])
-  .map((status) => ({ label: projectStatusLabel(status), value: status }))
-const healthOptions = (['on_track', 'at_risk', 'off_track', 'unset'] as ProjectHealth[])
-  .map((health) => ({ label: healthLabels[health], value: health }))
+const healthLabels = computed<Record<ProjectHealth, string>>(() => ({
+  on_track: tr('进展正常', 'On Track'),
+  at_risk: tr('存在风险', 'At Risk'),
+  off_track: tr('偏离计划', 'Off Track'),
+  unset: tr('未设置', 'Unset'),
+}))
+const statusOptions = computed(() => (['planned', 'active', 'paused', 'completed', 'canceled'] as ProjectStatus[])
+  .map((status) => ({ label: projectStatusLabel(status), value: status })))
+const healthOptions = computed(() => (['on_track', 'at_risk', 'off_track', 'unset'] as ProjectHealth[])
+  .map((health) => ({ label: healthLabels.value[health], value: health })))
 const memberOptions = computed(() => (project.value?.memberships ?? []).map((row) => ({
   label: row.user.display_name || row.user.username,
   value: row.user.id,
@@ -73,34 +78,34 @@ const memberOptions = computed(() => (project.value?.memberships ?? []).map((row
 const panelKind = computed(() => (
   drawerKind.value === 'decision' || drawerKind.value === 'action' ? drawerKind.value : null
 ))
-const tabs: Array<{ id: Tab; label: string }> = [
-  { id: 'overview', label: '概览' },
-  { id: 'meetings', label: '会议' },
-  { id: 'actions', label: '行动项' },
-  { id: 'decisions', label: '决策' },
-  { id: 'questions', label: '开放问题' },
-  { id: 'files', label: '文件' },
-  { id: 'activity', label: '动态' },
-]
+const tabs = computed<Array<{ id: Tab; label: string }>>(() => [
+  { id: 'overview', label: tr('概览', 'Overview') },
+  { id: 'meetings', label: tr('会议', 'Meetings') },
+  { id: 'actions', label: tr('行动项', 'Actions') },
+  { id: 'decisions', label: tr('决策', 'Decisions') },
+  { id: 'questions', label: tr('开放问题', 'Questions') },
+  { id: 'files', label: tr('文件', 'Files') },
+  { id: 'activity', label: tr('动态', 'Activity') },
+])
 function menuOption(key: string, label: string) {
   return { key, label: () => h('button', { type: 'button', class: 'project-new-menu-item' }, label) }
 }
 
-const createOptions = [
-  menuOption('meeting', '会议'),
-  menuOption('series', '系列会议'),
-  menuOption('decision', '决策'),
-  menuOption('action', '行动项'),
-  menuOption('activity', '进展'),
-  menuOption('files', '文件'),
-]
+const createOptions = computed(() => [
+  menuOption('meeting', tr('会议', 'Meeting')),
+  menuOption('series', tr('系列会议', 'Meeting Series')),
+  menuOption('decision', tr('决策', 'Decision')),
+  menuOption('action', tr('行动项', 'Action Item')),
+  menuOption('activity', tr('进展', 'Update')),
+  menuOption('files', tr('文件', 'File')),
+])
 
 function tabA11y(id: Tab) {
   return { role: 'tab', 'aria-selected': tab.value === id }
 }
 
 function isTab(value: unknown): value is Tab {
-  return typeof value === 'string' && tabs.some((item) => item.id === value)
+  return typeof value === 'string' && tabs.value.some((item) => item.id === value)
 }
 
 const initialTab = route.query.tab
@@ -180,32 +185,32 @@ watch(projectConflict, async (value) => {
 })
 
 function displayName(userId: string | null): string {
-  if (!userId) return '未指定'
+  if (!userId) return tr('未指定', 'Unassigned')
   const row = project.value?.memberships.find((item) => item.user.id === userId)
   return row?.user.display_name || row?.user.username || userId
 }
 
 const conflictLocalText = computed(() => [
-  `名称：${editForm.value.name}`,
-  `摘要：${editForm.value.summary || '（空）'}`,
-  `状态：${projectStatusLabel(editForm.value.status)}`,
-  `健康度：${healthLabels[editForm.value.health]}`,
-  `目标日期：${editForm.value.target_date || '未设置'}`,
-  `负责人：${displayName(editForm.value.lead_user_id)}`,
-  `成员：${editForm.value.member_ids.map((id) => displayName(id)).join('、') || '无'}`,
+  `${tr('名称：', 'Name: ')}${editForm.value.name}`,
+  `${tr('摘要：', 'Summary: ')}${editForm.value.summary || tr('（空）', '(Empty)')}`,
+  `${tr('状态：', 'Status: ')}${projectStatusLabel(editForm.value.status)}`,
+  `${tr('健康度：', 'Health: ')}${healthLabels.value[editForm.value.health]}`,
+  `${tr('目标日期：', 'Target Date: ')}${editForm.value.target_date || tr('未设置', 'Unset')}`,
+  `${tr('负责人：', 'Lead: ')}${displayName(editForm.value.lead_user_id)}`,
+  `${tr('成员：', 'Members: ')}${editForm.value.member_ids.map((id) => displayName(id)).join(tr('、', ', ')) || tr('无', 'None')}`,
 ].join('\n'))
 
 const conflictServerText = computed(() => {
   const value = conflictServer.value
-  if (!value) return '（服务器版本加载中…）'
+  if (!value) return tr('（服务器版本加载中…）', '(Loading server version…)')
   return [
-    `名称：${value.name}`,
-    `摘要：${value.summary || '（空）'}`,
-    `状态：${projectStatusLabel(value.status)}`,
-    `健康度：${healthLabels[value.health]}`,
-    `目标日期：${value.target_date ?? '未设置'}`,
-    `负责人：${value.lead?.display_name ?? '未指定'}`,
-    `成员：${value.memberships.map((row) => row.user.display_name || row.user.username).join('、') || '无'}`,
+    `${tr('名称：', 'Name: ')}${value.name}`,
+    `${tr('摘要：', 'Summary: ')}${value.summary || tr('（空）', '(Empty)')}`,
+    `${tr('状态：', 'Status: ')}${projectStatusLabel(value.status)}`,
+    `${tr('健康度：', 'Health: ')}${healthLabels.value[value.health]}`,
+    `${tr('目标日期：', 'Target Date: ')}${value.target_date ?? tr('未设置', 'Unset')}`,
+    `${tr('负责人：', 'Lead: ')}${value.lead?.display_name ?? tr('未指定', 'Unassigned')}`,
+    `${tr('成员：', 'Members: ')}${value.memberships.map((row) => row.user.display_name || row.user.username).join(tr('、', ', ')) || tr('无', 'None')}`,
   ].join('\n')
 })
 
@@ -253,7 +258,7 @@ async function load() {
     attention.value = attentionValue.items
     openActions.value = Array.isArray(actionValue?.items) ? actionValue.items : []
   } catch (reason) {
-    error.value = errorMessage(reason, '项目加载失败')
+    error.value = errorMessage(reason, tr('项目加载失败', 'Failed to load project'))
   } finally {
     loading.value = false
   }
@@ -278,32 +283,32 @@ function confirmDelete() {
   deleteTargetName.value = ''
   deleteError.value = ''
   dialog.warning({
-    title: '删除项目',
+    title: tr('删除项目', 'Delete Project'),
     content: () => h('div', { class: 'project-delete-confirm' }, [
-      h('p', '仅当项目下没有会议且没有项目附件时才能删除；删除不会级联清理项目下的记录，请先自行处理相关数据。'),
-      h('p', `请输入项目名称“${target.name}”以确认：`),
+      h('p', tr('仅当项目下没有会议且没有项目附件时才能删除；删除不会级联清理项目下的记录，请先自行处理相关数据。', 'Projects can only be deleted when they have no meetings or attachments; deletion does not cascade-delete project records.')),
+      h('p', tr(`请输入项目名称“${target.name}”以确认：`, `Type project name "${target.name}" to confirm:`)),
       h(NInput, {
         value: deleteTargetName.value,
         'onUpdate:value': (value: string) => { deleteTargetName.value = value },
-        inputProps: { 'aria-label': '输入项目名称确认' },
+        inputProps: { 'aria-label': tr('输入项目名称确认', 'Confirm project name') },
         placeholder: target.name,
       }),
       deleteError.value
         ? h('p', { class: 'notice notice-error', role: 'alert' }, deleteError.value)
         : null,
     ]),
-    positiveText: '确认删除',
-    negativeText: '取消',
+    positiveText: tr('确认删除', 'Delete'),
+    negativeText: tr('取消', 'Cancel'),
     onPositiveClick: async () => {
       if (deleteTargetName.value.trim() !== target.name) {
-        deleteError.value = '请输入完整项目名称以确认删除'
+        deleteError.value = tr('请输入完整项目名称以确认删除', 'Please enter the exact project name to confirm deletion')
         return false
       }
       try {
         await api(`/api/projects/${target.id}`, { method: 'DELETE' })
         await router.push('/projects')
       } catch (reason) {
-        deleteError.value = errorMessage(reason, '项目删除失败')
+        deleteError.value = errorMessage(reason, tr('项目删除失败', 'Failed to delete project'))
         return false
       }
       return true
@@ -334,7 +339,7 @@ onMounted(load)
 
 <template>
   <main class="workspace-page project-workspace">
-    <p v-if="loading" class="empty-state">正在加载项目工作区…</p>
+    <p v-if="loading" class="empty-state">{{ tr('正在加载项目工作区…', 'Loading project workspace…') }}</p>
     <p v-else-if="error && !project" class="notice notice-error">{{ error }}</p>
     <template v-else-if="project">
       <PageHeader eyebrow="Project workspace" :title="project.name" :summary="project.summary">
@@ -342,17 +347,17 @@ onMounted(load)
           <div class="project-context">
             <StatusPill :status="project.status" kind="project" />
             <span><i class="health-dot" :data-health="project.health"></i>{{ healthLabels[project.health] }}</span>
-            <span>负责人：{{ project.lead?.display_name ?? '未指定' }}</span>
-            <span>成员：{{ project.memberships.length }}</span>
-            <span>目标：{{ project.target_date ?? '未设置' }}</span>
+            <span>{{ tr('负责人：', 'Lead: ') }}{{ project.lead?.display_name ?? tr('未指定', 'Unassigned') }}</span>
+            <span>{{ tr('成员：', 'Members: ') }}{{ project.memberships.length }}</span>
+            <span>{{ tr('目标：', 'Target: ') }}{{ project.target_date ?? tr('未设置', 'Unset') }}</span>
           </div>
         </template>
         <template #actions>
           <NDropdown v-if="canContribute" trigger="click" :options="createOptions" @select="onCreateSelect">
-            <NButton type="primary">新建</NButton>
+            <NButton type="primary">{{ tr('新建', 'New') }}</NButton>
           </NDropdown>
-          <NButton v-if="canManage" quaternary @click="openEdit">编辑项目</NButton>
-          <NButton v-if="canManage" quaternary type="error" @click="confirmDelete">删除项目</NButton>
+          <NButton v-if="canManage" quaternary @click="openEdit">{{ tr('编辑项目', 'Edit Project') }}</NButton>
+          <NButton v-if="canManage" quaternary type="error" @click="confirmDelete">{{ tr('删除项目', 'Delete Project') }}</NButton>
         </template>
       </PageHeader>
 
@@ -363,51 +368,51 @@ onMounted(load)
         :mask-closable="!projectSaving"
         @update:show="(value: boolean) => { if (!value) closeEdit() }"
       >
-        <NDrawerContent title="编辑项目" closable>
+        <NDrawerContent :title="tr('编辑项目', 'Edit Project')" closable>
           <NForm label-placement="top" :show-require-mark="false">
-            <NFormItem label="名称">
-              <NInput v-model:value="editForm.name" :input-props="{ 'aria-label': '名称' }" />
+            <NFormItem :label="tr('名称', 'Name')">
+              <NInput v-model:value="editForm.name" :input-props="{ 'aria-label': tr('名称', 'Name') }" />
             </NFormItem>
-            <NFormItem label="摘要">
+            <NFormItem :label="tr('摘要', 'Summary')">
               <NInput
                 v-model:value="editForm.summary"
                 type="textarea"
                 :autosize="{ minRows: 3 }"
-                :input-props="{ 'aria-label': '摘要' }"
+                :input-props="{ 'aria-label': tr('摘要', 'Summary') }"
               />
             </NFormItem>
-            <NFormItem label="状态">
+            <NFormItem :label="tr('状态', 'Status')">
               <NSelect v-model:value="editForm.status" class="project-edit-status" :options="statusOptions" :virtual-scroll="false" />
             </NFormItem>
-            <NFormItem label="健康度">
+            <NFormItem :label="tr('健康度', 'Health')">
               <NSelect v-model:value="editForm.health" class="project-edit-health" :options="healthOptions" :virtual-scroll="false" />
             </NFormItem>
-            <NFormItem label="目标日期">
-              <input v-model="editForm.target_date" class="native-date-input" type="date" aria-label="目标日期" />
+            <NFormItem :label="tr('目标日期', 'Target Date')">
+              <input v-model="editForm.target_date" class="native-date-input" type="date" :aria-label="tr('目标日期', 'Target Date')" />
             </NFormItem>
-            <NFormItem label="负责人">
+            <NFormItem :label="tr('负责人', 'Lead')">
               <NSelect
                 v-model:value="editForm.lead_user_id"
                 class="project-edit-lead-select"
                 :options="memberOptions"
                 :virtual-scroll="false"
                 clearable
-                placeholder="选择负责人"
+                :placeholder="tr('选择负责人', 'Select lead')"
               />
             </NFormItem>
-            <NFormItem label="成员">
+            <NFormItem :label="tr('成员', 'Members')">
               <NSelect
                 v-model:value="editForm.member_ids"
                 class="project-edit-member-select"
                 :options="memberOptions"
                 :virtual-scroll="false"
                 multiple
-                placeholder="选择成员"
+                :placeholder="tr('选择成员', 'Select members')"
               />
             </NFormItem>
           </NForm>
-          <p class="form-hint">移除成员会立即撤销其项目访问，但不会删除其历史记录。</p>
-          <p class="form-hint">干系人可查看不可编辑；当前没有成员角色指引入口。</p>
+          <p class="form-hint">{{ tr('移除成员会立即撤销其项目访问，但不会删除其历史记录。', 'Removing a member immediately revokes their project access without deleting their history.') }}</p>
+          <p class="form-hint">{{ tr('干系人可查看不可编辑；当前没有成员角色指引入口。', 'Stakeholders have view-only access.') }}</p>
           <div class="project-member-roles">
             <NTag v-for="row in project.memberships" :key="row.user.id" size="small">
               {{ row.user.display_name || row.user.username }} · {{ memberRoleLabels[row.role] }}
@@ -415,14 +420,14 @@ onMounted(load)
           </div>
           <p v-if="projectSaveError" class="notice notice-error" role="alert">{{ projectSaveError }}</p>
           <template #footer>
-            <NButton quaternary :disabled="projectSaving" @click="closeEdit">取消</NButton>
+            <NButton quaternary :disabled="projectSaving" @click="closeEdit">{{ tr('取消', 'Cancel') }}</NButton>
             <NButton
               type="primary"
               :loading="projectSaving"
               :disabled="projectSaving || !editForm.name.trim()"
               @click="submitEdit"
             >
-              保存项目
+              {{ tr('保存项目', 'Save Project') }}
             </NButton>
           </template>
         </NDrawerContent>
@@ -439,27 +444,27 @@ onMounted(load)
       />
 
       <p v-if="error" class="notice notice-error">{{ error }}</p>
-      <nav class="project-tabs" aria-label="项目内容">
+      <nav class="project-tabs" :aria-label="tr('项目内容', 'Project tabs')">
         <NTabs :value="tab" type="line" @update:value="selectTab">
-          <NTabPane name="overview" tab="概览" :tab-props="tabA11y('overview')">
+          <NTabPane name="overview" :tab="tr('概览', 'Overview')" :tab-props="tabA11y('overview')">
             <ProjectOverview :project="project" :attention="attention" :open-actions="openActions" :can-contribute="canContribute" @schedule-meeting="openCreate('meeting')" @open-tab="selectTab" />
           </NTabPane>
-          <NTabPane name="meetings" tab="会议" :tab-props="tabA11y('meetings')">
+          <NTabPane name="meetings" :tab="tr('会议', 'Meetings')" :tab-props="tabA11y('meetings')">
             <ProjectRecordTabs :project="project" tab="meetings" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
-          <NTabPane name="actions" tab="行动项" :tab-props="tabA11y('actions')">
+          <NTabPane name="actions" :tab="tr('行动项', 'Actions')" :tab-props="tabA11y('actions')">
             <ProjectRecordTabs :project="project" tab="actions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
-          <NTabPane name="decisions" tab="决策" :tab-props="tabA11y('decisions')">
+          <NTabPane name="decisions" :tab="tr('决策', 'Decisions')" :tab-props="tabA11y('decisions')">
             <ProjectRecordTabs :project="project" tab="decisions" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" @changed="load" />
           </NTabPane>
-          <NTabPane name="questions" tab="开放问题" :tab-props="tabA11y('questions')">
+          <NTabPane name="questions" :tab="tr('开放问题', 'Questions')" :tab-props="tabA11y('questions')">
             <ProjectQuestionsTab :project="project" :can-contribute="canContribute" @reload="load" />
           </NTabPane>
-          <NTabPane name="files" tab="文件" :tab-props="tabA11y('files')">
+          <NTabPane name="files" :tab="tr('文件', 'Files')" :tab-props="tabA11y('files')">
             <ProjectRecordTabs :project="project" tab="files" :can-contribute="canContribute" @create="openCreate" @uploaded="addAttachment" @deleted="removeAttachment" />
           </NTabPane>
-          <NTabPane name="activity" tab="动态" :tab-props="tabA11y('activity')">
+          <NTabPane name="activity" :tab="tr('动态', 'Activity')" :tab-props="tabA11y('activity')">
             <ProjectActivityTab :project="project" :can-contribute="canContribute" @reload="load" />
           </NTabPane>
         </NTabs>

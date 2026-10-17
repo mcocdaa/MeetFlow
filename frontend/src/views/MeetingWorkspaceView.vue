@@ -89,10 +89,10 @@ const liveElapsed = computed(() => {
   return `${hours ? `${hours}:` : ''}${String(minutes).padStart(hours ? 2 : 1, '0')}:${String(seconds).padStart(2, '0')}`
 })
 const hostOptions = computed(() => memberOptions.value.map((member) => ({ label: member.display_name, value: member.id })))
-const preparationRules: FormRules = {
+const preparationRules = computed<FormRules>(() => ({
   title: {
     required: true,
-    message: '请输入会议标题',
+    message: tr('请输入会议标题', 'Please enter a meeting title'),
     trigger: ['input', 'blur'],
     transform: (value: string) => value.trim(),
   },
@@ -104,10 +104,10 @@ const preparationRules: FormRules = {
       if (Number.isNaN(start) || Number.isNaN(end)) return true
       return end > start
     },
-    message: '结束时间必须晚于开始时间',
+    message: tr('结束时间必须晚于开始时间', 'End time must be after start time'),
     trigger: ['change', 'blur'],
   },
-}
+}))
 /** Participants plus host/recorder, deduplicated: the fallback member list when the project cannot be read. */
 function currentMemberRefs(value: Meeting): UserRef[] {
   const seen = new Set<string>()
@@ -181,7 +181,7 @@ async function savePreparation() {
     const start = new Date(preparationForm.value.scheduled_start)
     const end = new Date(preparationForm.value.scheduled_end)
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-      preparationError.value = '结束时间必须晚于开始时间'
+      preparationError.value = tr('结束时间必须晚于开始时间', 'End time must be after start time')
       return
     }
     const saved = await api<Meeting>(`/api/meetings/${meeting.value.id}`, {
@@ -201,7 +201,7 @@ async function savePreparation() {
     preparationOpen.value = false
   } catch (caught) {
     if (caught instanceof ApiError && caught.code === 'meeting_locked') message.error(caught.message)
-    else preparationError.value = errorMessage(caught, '准备信息保存失败')
+    else preparationError.value = errorMessage(caught, tr('准备信息保存失败', 'Failed to save preparation info'))
   } finally {
     preparationSaving.value = false
   }
@@ -244,7 +244,7 @@ async function load() {
     const value = await getMeeting(String(route.params.id))
     acceptMeeting(value, true)
     await loadMemberOptions(value)
-  } catch (caught) { error.value = errorMessage(caught, '会议加载失败') }
+  } catch (caught) { error.value = errorMessage(caught, tr('会议加载失败', 'Failed to load meeting')) }
   finally { loading.value = false }
 }
 
@@ -255,7 +255,7 @@ async function saveMeeting() {
   try {
     await persistMeetingDraft()
     return true
-  } catch (caught) { error.value = errorMessage(caught, '会议保存失败') }
+  } catch (caught) { error.value = errorMessage(caught, tr('会议保存失败', 'Failed to save meeting')) }
   finally { saving.value = false }
   return false
 }
@@ -287,7 +287,7 @@ function syncCommentDeepLink() {
 }
 
 function confirmLeave() {
-  return window.confirm('会议草稿尚未保存，确定离开吗？')
+  return window.confirm(tr('会议草稿尚未保存，确定离开吗？', 'Meeting draft has unsaved changes. Leave anyway?'))
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -312,7 +312,7 @@ async function lifecycle(action: LifecycleAction) {
     const value = await runMeetingLifecycle(meeting.value.id, action, meeting.value.version)
     acceptMeeting(value, true)
   } catch (caught) {
-    error.value = errorMessage(caught, '会议状态更新失败')
+    error.value = errorMessage(caught, tr('会议状态更新失败', 'Failed to update meeting status'))
   } finally { lifecycleAction.value = null }
 }
 
@@ -323,7 +323,7 @@ async function refreshAgenda(): Promise<boolean> {
     acceptMeeting(value, false)
     return true
   } catch (caught) {
-    error.value = errorMessage(caught, '议题刷新失败')
+    error.value = errorMessage(caught, tr('议题刷新失败', 'Failed to refresh agenda'))
     return false
   }
 }
@@ -344,7 +344,7 @@ async function downloadExport(exporterId: string) {
     anchor.remove()
     URL.revokeObjectURL(url)
   } catch (caught) {
-    error.value = errorMessage(caught, '会议导出失败')
+    error.value = errorMessage(caught, tr('会议导出失败', 'Failed to export meeting'))
   } finally { exportAction.value = null }
 }
 
