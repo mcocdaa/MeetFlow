@@ -11,10 +11,10 @@ import StatusPill from '../components/StatusPill.vue'
 import { loadUserNames, nameOf, userNames } from '../composables/useUserNameMap'
 import type { Project } from '../domain/projects'
 import { useI18n } from '../i18n'
-import { errorMessage } from '../utils/errors'
+import { errorMessage, translateBackendError } from '../utils/errors'
 import { formatDateTime } from '../utils/time'
 
-const { tr } = useI18n()
+const { locale, tr, translateSeededText } = useI18n()
 
 type ActionRow = {
   id: string
@@ -39,6 +39,10 @@ const total = ref(0)
 const page = ref(1)
 const loading = ref(true)
 const error = ref('')
+
+watch(locale, () => {
+  if (error.value) error.value = translateBackendError(error.value)
+})
 const filters = reactive({ owner: 'me', status: 'open', project: '', due: '' })
 const editTarget = ref<ActionRow | null>(null)
 const actionBusy = ref('')
@@ -52,7 +56,7 @@ let appliedHighlight = ''
 const memberOptions = computed<UserRef[]>(() => Object.entries(userNames.value).map(([id, displayName]) => ({
   id,
   username: displayName,
-  display_name: displayName,
+  display_name: translateSeededText(displayName),
 })))
 const pagination = computed(() => ({ page: page.value, pageSize: PAGE_SIZE, itemCount: total.value }))
 
@@ -205,8 +209,8 @@ function actionButtons(row: ActionRow): VNodeChild[] {
 }
 
 const columns = computed<DataTableColumns<ActionRow>>(() => [
-  { title: tr('内容', 'Action'), key: 'content', minWidth: 120, ellipsis: { tooltip: true } },
-  { title: tr('负责人', 'Owner'), key: 'owner', width: 76, render: (row) => nameOf(row.owner_user_id) },
+  { title: tr('内容', 'Action'), key: 'content', minWidth: 120, ellipsis: { tooltip: true }, render: (row) => translateSeededText(row.content) },
+  { title: tr('负责人', 'Owner'), key: 'owner', width: 76, render: (row) => translateSeededText(nameOf(row.owner_user_id)) },
   {
     title: tr('优先级', 'Priority'),
     key: 'priority',

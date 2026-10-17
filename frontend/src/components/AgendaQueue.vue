@@ -3,14 +3,14 @@ import { computed, ref, watch, h } from 'vue'
 import { MoreHorizontal } from '@lucide/vue'
 import { NButton, NDrawer, NDrawerContent, NDropdown, NIcon, NInputNumber, NPopconfirm, NSelect } from 'naive-ui'
 import { statusLabel } from '../utils/labels'
-import { errorMessage } from '../utils/errors'
+import { errorMessage, translateBackendError } from '../utils/errors'
 
 import { api, ApiError } from '../api/client'
 import type { Page } from '../api/contracts'
 import type { AgendaItem, AgendaType, Meeting } from '../domain/meetings'
 import { useI18n } from '../i18n'
 
-const { tr } = useI18n()
+const { locale, tr, translateSeededText } = useI18n()
 
 type MeetingOption = { id: string; title: string; version: number }
 
@@ -44,6 +44,11 @@ const moveForm = ref<{ target_meeting_id: string | null; position: number | null
 watch(() => props.meeting.agenda_items, (items) => {
   ordered.value = [...items].sort((a, b) => a.position - b.position)
 }, { deep: true })
+
+watch(locale, () => {
+  if (error.value) error.value = translateBackendError(error.value)
+  if (moveError.value) moveError.value = translateBackendError(moveError.value)
+})
 
 function startDrag(id: string) {
   if (props.canContribute && !meetingLocked.value && !saving.value) draggingId.value = id
@@ -252,7 +257,7 @@ function onMenuSelect(item: AgendaItem, key: string) {
     <p v-if="error || openError" class="notice notice-error">{{ error || openError }}</p>
     <div class="agenda-queue-list">
       <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" :draggable="canContribute && !meetingLocked" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
-        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} {{ tr('分钟', 'min') }}</small></span></button>
+        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ translateSeededText(item.title) }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} {{ tr('分钟', 'min') }}</small></span></button>
         <div v-if="canContribute && !meetingLocked" class="agenda-menu">
           <n-dropdown
             trigger="click"

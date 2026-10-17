@@ -17,14 +17,14 @@ import {
   NTag,
   type DataTableColumns,
 } from 'naive-ui'
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 
 import { api } from '../api/client'
 import StatusPill from '../components/StatusPill.vue'
 import { useI18n } from '../i18n'
 import { errorMessage, translateBackendError } from '../utils/errors'
 
-const { tr } = useI18n()
+const { locale, tr } = useI18n()
 
 type ConfigField = { key: string; type: 'string' | 'number' | 'boolean' | 'secret'; required?: boolean; label?: string; description?: string }
 type PluginInfo = {
@@ -55,6 +55,10 @@ const failedEvents = ref<PluginEvent[]>([])
 const unmatchedErrors = computed(() => pluginErrors.value.filter(
   (item) => !plugins.value.some((plugin) => plugin.id === item.plugin_id),
 ))
+
+watch(locale, () => {
+  if (error.value) error.value = translateBackendError(error.value)
+})
 
 function hydrate(plugin: PluginInfo) {
   const values: Record<string, string | number | boolean | null> = {}
@@ -175,13 +179,55 @@ function secretConfigured(plugin: PluginInfo, key: string) {
   return !!value && typeof value === 'object' && 'configured' in value && (value as { configured: boolean }).configured
 }
 
+const FIELD_LABEL_MAP: Record<string, { zh: string; en: string }> = {
+  'API 地址': { zh: 'API 地址', en: 'API URL' },
+  '数量': { zh: '数量', en: 'Limit' },
+  '包含已完成': { zh: '包含已完成', en: 'Include Completed' },
+  '服务地址': { zh: '服务地址', en: 'Base URL' },
+  '服务地址 (Base URL)': { zh: '服务地址 (Base URL)', en: 'Base URL' },
+  '模型名称': { zh: '模型名称', en: 'Model' },
+  '模型名称 (Model)': { zh: '模型名称 (Model)', en: 'Model' },
+  '超时时间': { zh: '超时时间', en: 'Timeout (s)' },
+  '超时时间 (秒)': { zh: '超时时间 (秒)', en: 'Timeout (s)' },
+  'API 密钥': { zh: 'API 密钥', en: 'API Key' },
+  'API 密钥 (API Key)': { zh: 'API 密钥 (API Key)', en: 'API Key' },
+}
+
+const FIELD_DESC_MAP: Record<string, { zh: string; en: string }> = {
+  'OpenAI 兼容接口地址': { zh: 'OpenAI 兼容接口地址', en: 'OpenAI-compatible endpoint URL' },
+  '模型名称': { zh: '模型名称', en: 'Model identifier' },
+  '请求超时时间（秒）': { zh: '请求超时时间（秒）', en: 'Request timeout in seconds' },
+}
+
 function fieldLabel(field: ConfigField): string {
-  if (field.label) return field.label
+  if (field.label) {
+    const mapped = FIELD_LABEL_MAP[field.label]
+    if (mapped) return tr(mapped.zh, mapped.en)
+    if (locale.value === 'en') {
+      if (field.key === 'base_url') return 'Base URL'
+      if (field.key === 'model') return 'Model'
+      if (field.key === 'timeout_seconds') return 'Timeout (s)'
+      if (field.key === 'api_key') return 'API Key'
+    }
+    return field.label
+  }
   if (field.key === 'base_url') return tr('服务地址 (Base URL)', 'Base URL')
   if (field.key === 'model') return tr('模型名称 (Model)', 'Model')
   if (field.key === 'timeout_seconds') return tr('超时时间 (秒)', 'Timeout (s)')
   if (field.key === 'api_key') return tr('API 密钥 (API Key)', 'API Key')
   return field.key
+}
+
+function fieldDescription(field: ConfigField): string {
+  if (!field.description) return ''
+  const mapped = FIELD_DESC_MAP[field.description]
+  if (mapped) return tr(mapped.zh, mapped.en)
+  if (locale.value === 'en') {
+    if (field.key === 'base_url') return 'OpenAI-compatible endpoint URL'
+    if (field.key === 'model') return 'Model identifier'
+    if (field.key === 'timeout_seconds') return 'Request timeout in seconds'
+  }
+  return field.description
 }
 
 function pluginDisplayName(plugin: PluginInfo): string {
@@ -206,6 +252,9 @@ function pluginDisplayDescription(plugin: PluginInfo): string {
       '将会议上下文导出为结构化 Markdown 或 JSON',
       'Export bounded meeting context as Markdown or JSON',
     )
+  }
+  if (plugin.description === '生成会议纪要草稿') {
+    return tr('生成会议纪要草稿', 'Generate meeting minutes draft')
   }
   return plugin.description || plugin.id
 }
@@ -284,7 +333,7 @@ onMounted(() => { void load() })
                 :input-props="{ 'aria-label': fieldLabel(field), required: field.required }"
                 @update:value="(value: string) => setDraft(plugin, field.key, value)"
               />
-              <template #feedback><span v-if="field.description">{{ field.description }}</span></template>
+              <template #feedback><span v-if="field.description">{{ fieldDescription(field) }}</span></template>
             </n-form-item>
             <n-form-item v-for="field in plugin.config_schema.secrets ?? []" :key="field.key" :label="fieldLabel(field)">
               <n-input

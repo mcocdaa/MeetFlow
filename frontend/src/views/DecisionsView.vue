@@ -11,11 +11,11 @@ import { loadUserNames, nameOf, userNames } from '../composables/useUserNameMap'
 import type { Decision } from '../domain/outcomes'
 import type { Project } from '../domain/projects'
 import { useI18n } from '../i18n'
-import { errorMessage } from '../utils/errors'
+import { errorMessage, translateBackendError } from '../utils/errors'
 import { reviewStatusLabel } from '../utils/labels'
 import { formatDateTime } from '../utils/time'
 
-const { tr } = useI18n()
+const { locale, tr, translateSeededText } = useI18n()
 
 const PAGE_SIZE = 50
 
@@ -32,6 +32,10 @@ const total = ref(0)
 const page = ref(1)
 const loading = ref(true)
 const error = ref('')
+
+watch(locale, () => {
+  if (error.value) error.value = translateBackendError(error.value)
+})
 const filters = reactive({ project: '', status: '', reviewer: '' })
 const target = ref<Decision | null>(null)
 const highlightedId = ref<string | null>(null)
@@ -41,12 +45,12 @@ let loadToken = 0
 let appliedHighlight = ''
 
 const projectNames = computed(() => Object.fromEntries(projects.value.map((project) => [project.id, project.name])))
-const reviewerOptions = computed(() => Object.entries(userNames.value).map(([id, name]) => ({ label: name, value: id })))
+const reviewerOptions = computed(() => Object.entries(userNames.value).map(([id, name]) => ({ label: translateSeededText(name), value: id })))
 /** The global list carries no capabilities payload; the backend stays the write authority (403/409). */
 const memberOptions = computed<UserRef[]>(() => Object.entries(userNames.value).map(([id, displayName]) => ({
   id,
   username: displayName,
-  display_name: displayName,
+  display_name: translateSeededText(displayName),
 })))
 const pagination = computed(() => ({ page: page.value, pageSize: PAGE_SIZE, itemCount: total.value }))
 
@@ -130,18 +134,18 @@ function reviewerBadges(row: Decision) {
     type: REVIEW_STATUS_TYPES[reviewer.status] ?? 'default',
     class: 'reviewer-badge',
   }, {
-    default: () => `${nameOf(reviewer.user_id)}·${reviewStatusLabel(reviewer.status)}`,
+    default: () => `${translateSeededText(nameOf(reviewer.user_id))}·${reviewStatusLabel(reviewer.status)}`,
   })))
 }
 
 const columns = computed<DataTableColumns<Decision>>(() => [
-  { title: tr('标题', 'Title'), key: 'title', minWidth: 120, ellipsis: { tooltip: true } },
+  { title: tr('标题', 'Title'), key: 'title', minWidth: 120, ellipsis: { tooltip: true }, render: (row) => translateSeededText(row.title) },
   {
     title: tr('项目', 'Project'),
     key: 'project',
     width: 124,
     ellipsis: { tooltip: true },
-    render: (row) => projectNames.value[row.project_id] ?? row.project_id,
+    render: (row) => translateSeededText(projectNames.value[row.project_id] ?? row.project_id),
   },
   {
     title: tr('状态', 'Status'),

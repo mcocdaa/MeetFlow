@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, NPopconfirm, NSelect, useMessage, type FormInst, type FormRules } from 'naive-ui'
 import StatusPill from '../components/StatusPill.vue'
-import { errorMessage } from '../utils/errors'
+import { errorMessage, translateBackendError } from '../utils/errors'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
 import { api, ApiError } from '../api/client'
@@ -29,7 +29,7 @@ import { useI18n } from '../i18n'
 import { formatDateTime, parseUtcTimestamp, toLocalInput } from '../utils/time'
 
 
-const { tr } = useI18n()
+const { locale, tr, translateSeededText } = useI18n()
 const route = useRoute()
 const loading = ref(true)
 const lifecycleAction = ref<LifecycleAction | null>(null)
@@ -209,8 +209,23 @@ async function savePreparation() {
 
 function acceptMeeting(value: Meeting, resetDraft: boolean) {
   workspace.accept(value, resetDraft)
-  if (resetDraft) materialItems.value = value.attachments ?? []
+  if (resetDraft) {
+    materialItems.value = value.attachments ?? []
+    draft.value.summary_markdown = translateSeededText(draft.value.summary_markdown, locale.value)
+    acceptedDraft.value.summary_markdown = translateSeededText(acceptedDraft.value.summary_markdown, locale.value)
+    draft.value.raw_notes_markdown = translateSeededText(draft.value.raw_notes_markdown, locale.value)
+    acceptedDraft.value.raw_notes_markdown = translateSeededText(acceptedDraft.value.raw_notes_markdown, locale.value)
+  }
 }
+
+watch(locale, (nextLocale) => {
+  if (error.value) error.value = translateBackendError(error.value)
+  if (preparationError.value) preparationError.value = translateBackendError(preparationError.value)
+  draft.value.summary_markdown = translateSeededText(draft.value.summary_markdown, nextLocale)
+  acceptedDraft.value.summary_markdown = translateSeededText(acceptedDraft.value.summary_markdown, nextLocale)
+  draft.value.raw_notes_markdown = translateSeededText(draft.value.raw_notes_markdown, nextLocale)
+  acceptedDraft.value.raw_notes_markdown = translateSeededText(acceptedDraft.value.raw_notes_markdown, nextLocale)
+})
 
 /**
  * Replaces the prep-owned meeting fields after a preparation save without resetting the
@@ -366,13 +381,13 @@ onBeforeUnmount(() => {
   <main class="workspace-page meeting-workspace" :class="{ 'meeting-live': meeting?.status === 'in_progress' }">
     <p v-if="loading" class="empty-state">{{ tr('正在打开会议工作区…', 'Opening meeting workspace…') }}</p>
     <template v-else-if="meeting">
-      <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${formatDateTime(meeting.scheduled_start)} · ${meeting.participants.length} ${tr('位参与者', 'participants')}`">
+      <PageHeader :eyebrow="translateSeededText(meeting.project.name)" :title="translateSeededText(meeting.title)" :summary="`${formatDateTime(meeting.scheduled_start)} · ${meeting.participants.length} ${tr('位参与者', 'participants')}`">
         <template #meta>
           <div class="project-context">
             <StatusPill :status="meeting.status" kind="meeting" />
             <span v-if="meeting.status === 'in_progress' && liveElapsed" class="meeting-live-clock">{{ tr('进行', 'Live') }} {{ liveElapsed }}</span>
-            <span>{{ tr('主持：', 'Host: ') }}{{ meeting.host?.display_name ?? tr('未指定', 'Unassigned') }}</span>
-            <span>{{ tr('记录：', 'Recorder: ') }}{{ meeting.recorder?.display_name ?? tr('未指定', 'Unassigned') }}</span>
+            <span>{{ tr('主持：', 'Host: ') }}{{ meeting.host ? translateSeededText(meeting.host.display_name) : tr('未指定', 'Unassigned') }}</span>
+            <span>{{ tr('记录：', 'Recorder: ') }}{{ meeting.recorder ? translateSeededText(meeting.recorder.display_name) : tr('未指定', 'Unassigned') }}</span>
             <span v-if="meeting.series_slot_at">{{ tr('系列槽位', 'Series slot') }} {{ formatDateTime(meeting.series_slot_at) }}</span>
             <span v-if="meeting.status === 'completed' && meeting.started_at" class="meeting-actual-window">{{ tr('开始：', 'Start: ') }}{{ formatDateTime(meeting.started_at) }}</span>
             <span v-if="meeting.status === 'completed' && meeting.completed_at" class="meeting-actual-window">{{ tr('完成：', 'End: ') }}{{ formatDateTime(meeting.completed_at) }}</span>
