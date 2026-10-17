@@ -4,8 +4,8 @@ import {
   NBadge, NConfigProvider, NDialogProvider, NDropdown, NIcon, NLayout, NLayoutContent,
   NMessageProvider, dateZhCN, zhCN,
 } from 'naive-ui'
-import { onBeforeUnmount, onMounted, watch } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { RouterView, useRouter } from 'vue-router'
 
 import { api } from './api/client'
 import { clearSession, session, type SessionUser } from './auth/session'
@@ -13,15 +13,17 @@ import AppAvatar from './components/AppAvatar.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import { resetUnread, startUnreadPolling, unreadCount } from './composables/useInboxUnread'
 import { resetUserNames } from './composables/useUserNameMap'
+import { useI18n } from './i18n'
 import { loadPluginFrontendModules } from './plugins/runtime'
 import { naiveThemeOverrides } from './theme/naive'
 
 const router = useRouter()
+const { locale, toggleLocale, tr } = useI18n()
 
-const accountOptions = [
-  { key: 'account', label: '账号设置' },
-  { key: 'logout', label: '退出登录' },
-]
+const accountOptions = computed(() => [
+  { key: 'account', label: tr('账号设置', 'Account Settings') },
+  { key: 'logout', label: tr('退出登录', 'Sign Out') },
+])
 
 function onLoggedIn(user: SessionUser) {
   session.user = user
@@ -78,7 +80,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <NConfigProvider :theme-overrides="naiveThemeOverrides" :locale="zhCN" :date-locale="dateZhCN">
+  <NConfigProvider
+    :theme-overrides="naiveThemeOverrides"
+    :locale="locale === 'zh' ? zhCN : null"
+    :date-locale="locale === 'zh' ? dateZhCN : null"
+  >
     <NMessageProvider>
       <NDialogProvider>
         <div class="app-shell">
@@ -87,15 +93,24 @@ onBeforeUnmount(() => {
               <AppSidebar />
               <NLayoutContent class="workspace-main">
                 <header class="workspace-topbar">
-                  <span class="workspace-label">共享工作区</span>
-                  <div class="topbar-actions">
+                  <span class="workspace-label">{{ tr('共享工作区', 'Shared Workspace') }}</span>
+                  <div class="topbar-actions topbar-right">
+                    <button
+                      type="button"
+                      class="lang-toggle-btn"
+                      data-testid="lang-toggle-btn"
+                      :aria-label="locale === 'zh' ? 'Switch to English' : '切换到中文'"
+                      @click="toggleLocale"
+                    >
+                      {{ locale === 'zh' ? '🌐 EN' : '🌐 中文' }}
+                    </button>
                     <NBadge :value="unreadCount" :show="unreadCount > 0">
-                      <button type="button" class="icon-button" aria-label="收件箱" @click="router.push('/inbox')">
+                      <button type="button" class="icon-button" :aria-label="tr('收件箱', 'Inbox')" @click="router.push('/inbox')">
                         <NIcon :size="18"><Bell :size="18" aria-hidden="true" /></NIcon>
                       </button>
                     </NBadge>
                     <NDropdown :options="accountOptions" trigger="click" @select="onAccountSelect">
-                      <button type="button" class="account-menu-trigger" aria-label="账户菜单">
+                      <button type="button" class="account-menu-trigger" :aria-label="tr('账户菜单', 'Account menu')">
                         <AppAvatar :name="session.user.display_name" :color="session.user.avatar_color" :size="30" />
                         <span>{{ session.user.display_name }}</span>
                       </button>
@@ -112,3 +127,4 @@ onBeforeUnmount(() => {
     </NMessageProvider>
   </NConfigProvider>
 </template>
+

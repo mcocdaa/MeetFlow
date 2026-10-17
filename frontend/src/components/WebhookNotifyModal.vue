@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { NButton, NForm, NFormItem, NInput, NModal, NRadio, NRadioGroup, useMessage } from 'naive-ui'
 import { api } from '../api/client'
 import type { Meeting } from '../domain/meetings'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 
 const props = defineProps<{
@@ -10,6 +11,7 @@ const props = defineProps<{
   meeting: Meeting
 }>()
 const emit = defineEmits<{ 'update:show': [value: boolean] }>()
+const { tr } = useI18n()
 
 const platform = ref<'feishu' | 'dingtalk' | 'generic'>('feishu')
 const webhookUrl = ref('')
@@ -31,10 +33,10 @@ async function sendNotification() {
         secret: secret.value.trim() || undefined,
       }),
     })
-    message.success('会议纪要已成功推送至群聊卡片！')
+    message.success(tr('会议纪要已成功推送至群聊卡片！', 'Meeting summary pushed to group chat card!'))
     emit('update:show', false)
   } catch (caught) {
-    error.value = errorMessage(caught, '推送失败，请检查 Webhook 地址与签名配置')
+    error.value = errorMessage(caught, tr('推送失败，请检查 Webhook 地址与签名配置', 'Push failed; check Webhook URL and secret'))
   } finally {
     sending.value = false
   }
@@ -42,46 +44,46 @@ async function sendNotification() {
 </script>
 
 <template>
-  <n-modal :show="props.show" preset="card" title="推送会议通知卡片" style="width: min(540px, 94vw);" :mask-closable="!sending" @update:show="(val: boolean) => emit('update:show', val)">
+  <n-modal :show="props.show" preset="card" :title="tr('推送会议通知卡片', 'Push Meeting Notification Card')" style="width: min(540px, 94vw);" :mask-closable="!sending" @update:show="(val: boolean) => emit('update:show', val)">
     <div class="webhook-modal-content">
       <p class="webhook-intro">
-        将当前会议结论、决议与待办一键格式化为富文本卡片，推送到指定企业即时通讯群组机器人。
+        {{ tr('将当前会议结论、决议与待办一键格式化为富文本卡片，推送到指定企业即时通讯群组机器人。', 'Format current meeting conclusions, decisions, and action items as a rich card and push to your team chat bot.') }}
       </p>
 
       <n-form label-placement="top" :show-require-mark="false">
-        <n-form-item label="目标平台">
+        <n-form-item :label="tr('目标平台', 'Target Platform')">
           <n-radio-group v-model:value="platform">
-            <n-radio value="feishu">飞书 (交互式卡片)</n-radio>
-            <n-radio value="dingtalk">钉钉 (Markdown卡片)</n-radio>
-            <n-radio value="generic">通用 Webhook</n-radio>
+            <n-radio value="feishu">{{ tr('飞书 (交互式卡片)', 'Feishu (Interactive Card)') }}</n-radio>
+            <n-radio value="dingtalk">{{ tr('钉钉 (Markdown卡片)', 'DingTalk (Markdown Card)') }}</n-radio>
+            <n-radio value="generic">{{ tr('通用 Webhook', 'Generic Webhook') }}</n-radio>
           </n-radio-group>
         </n-form-item>
 
-        <n-form-item label="Webhook 机器人地址" required>
+        <n-form-item :label="tr('Webhook 机器人地址', 'Webhook Bot URL')" required>
           <n-input
             v-model:value="webhookUrl"
             :placeholder="platform === 'feishu' ? 'https://open.feishu.cn/open-apis/bot/v2/hook/...' : 'https://oapi.dingtalk.com/robot/send?access_token=...'"
-            :input-props="{ 'aria-label': 'Webhook 地址' }"
+            :input-props="{ 'aria-label': tr('Webhook 地址', 'Webhook URL') }"
           />
         </n-form-item>
 
-        <n-form-item :label="platform === 'dingtalk' ? '安全加签 Secret (推荐配置)' : '加签密钥 (可选)'">
+        <n-form-item :label="platform === 'dingtalk' ? tr('安全加签 Secret (推荐配置)', 'Signing Secret (Recommended)') : tr('加签密钥 (可选)', 'Signing Secret (Optional)')">
           <n-input
             v-model:value="secret"
             type="password"
             show-password-on="click"
             placeholder="SEC..."
-            :input-props="{ 'aria-label': '加签密钥' }"
+            :input-props="{ 'aria-label': tr('加签密钥', 'Signing Secret') }"
           />
         </n-form-item>
       </n-form>
 
       <div class="card-preview-box">
-        <span class="preview-tag">推送内容预览</span>
-        <div class="preview-title">📋 会议纪要：{{ meeting.title }}</div>
+        <span class="preview-tag">{{ tr('推送内容预览', 'Card Preview') }}</span>
+        <div class="preview-title">📋 {{ tr('会议纪要：', 'Meeting Summary: ') }}{{ meeting.title }}</div>
         <div class="preview-meta">
-          <span>状态：{{ meeting.status === 'completed' ? '已完成' : '进行中' }}</span> ·
-          <span>议题数：{{ meeting.agenda_items.length }}</span>
+          <span>{{ tr('状态：', 'Status: ') }}{{ meeting.status === 'completed' ? tr('已完成', 'Completed') : tr('进行中', 'In Progress') }}</span> ·
+          <span>{{ tr('议题数：', 'Agendas: ') }}{{ meeting.agenda_items.length }}</span>
         </div>
       </div>
 
@@ -90,9 +92,9 @@ async function sendNotification() {
 
     <template #footer>
       <div class="row-actions">
-        <n-button quaternary :disabled="sending" @click="emit('update:show', false)">取消</n-button>
+        <n-button quaternary :disabled="sending" @click="emit('update:show', false)">{{ tr('取消', 'Cancel') }}</n-button>
         <n-button type="primary" :loading="sending" :disabled="!webhookUrl.trim() || sending" @click="sendNotification">
-          立即推送
+          {{ tr('立即推送', 'Push Now') }}
         </n-button>
       </div>
     </template>

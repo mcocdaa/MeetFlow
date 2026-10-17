@@ -4,6 +4,7 @@ import { NIcon, NThing } from 'naive-ui'
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import { useI18n } from '../i18n'
 import { subjectHref } from '../utils/links'
 
 export type AttentionItem = {
@@ -18,27 +19,31 @@ export type AttentionItem = {
 }
 
 const props = defineProps<{ item: AttentionItem }>()
+const { tr } = useI18n()
 
-const reasonLabels: Record<string, string> = {
-  action_overdue: '已逾期',
-  action_due_soon: '即将到期',
-  action_assigned: '分配给我',
-  decision_review_pending: '等待我的评审',
-  decision_review_requested: '请求我评审',
-  comment_mention: '提到了我',
-  comment_reply: '有新回复',
-  meeting_needs_preparation: '需要准备',
-  meeting_upcoming: '即将开始',
+const reasonLabel = (reason: string) => {
+  const map: Record<string, string> = {
+    action_overdue: tr('已逾期', 'Overdue'),
+    action_due_soon: tr('即将到期', 'Due soon'),
+    action_assigned: tr('分配给我', 'Assigned to me'),
+    decision_review_pending: tr('等待我的评审', 'Awaiting my review'),
+    decision_review_requested: tr('请求我评审', 'Review requested'),
+    comment_mention: tr('提到了我', 'Mentioned me'),
+    comment_reply: tr('有新回复', 'New reply'),
+    meeting_needs_preparation: tr('需要准备', 'Needs prep'),
+    meeting_upcoming: tr('即将开始', 'Upcoming'),
+  }
+  return map[reason] ?? reason
 }
 
 const href = computed(() => subjectHref(props.item.subject_type, props.item.subject_id))
 
 const kindLabel = computed(() =>
-  props.item.subject_type === 'meeting' ? '会议' : props.item.subject_type === 'decision' ? '决策' : '行动',
+  props.item.subject_type === 'meeting' ? tr('会议', 'Meeting') : props.item.subject_type === 'decision' ? tr('决策', 'Decision') : tr('行动', 'Action'),
 )
 
 const reasonText = computed(() =>
-  props.item.reasons.map((reason) => reasonLabels[reason] ?? reason).join(' · '),
+  props.item.reasons.map((reason) => reasonLabel(reason)).join(' · '),
 )
 </script>
 

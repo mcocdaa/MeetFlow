@@ -1,3 +1,5 @@
+import { locale } from '../i18n'
+
 export function parseUtcTimestamp(value: string): Date {
   const normalized = /Z$|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`
   return new Date(normalized)
@@ -22,6 +24,11 @@ export function formatDuration(seconds: number | null): string {
   const remainingSeconds = seconds % 3600
   const minutes = Math.floor(remainingSeconds / 60)
   const remainder = remainingSeconds % 60
+  if (locale.value === 'en') {
+    if (hours) return `${hours}h${minutes ? ` ${minutes}m` : ''}${remainder ? ` ${remainder}s` : ''}`
+    if (!minutes) return `${remainder}s`
+    return remainder ? `${minutes}m ${remainder}s` : `${minutes} min`
+  }
   if (hours) return `${hours} 小时${minutes ? ` ${minutes} 分` : ''}${remainder ? ` ${remainder} 秒` : ''}`
   if (!minutes) return `${remainder} 秒`
   return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`

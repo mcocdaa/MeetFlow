@@ -151,3 +151,21 @@ it('loads plugin frontend modules after a successful login', async () => {
   expect(loadPluginFrontendModulesMock).toHaveBeenCalledTimes(1)
   expect(pushMock).toHaveBeenCalledWith('/')
 })
+
+it('toggles language between Chinese and English via the topbar switcher', async () => {
+  render(App)
+
+  const toggleBtn = screen.getByTestId('lang-toggle-btn')
+  expect(toggleBtn).toHaveTextContent('EN')
+  expect(screen.getByRole('link', { name: '会议' })).toBeInTheDocument()
+
+  await fireEvent.click(toggleBtn)
+  expect(toggleBtn).toHaveTextContent('中文')
+  expect(screen.getByRole('link', { name: 'Meetings' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Actions' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Decisions' })).toBeInTheDocument()
+
+  await fireEvent.click(toggleBtn)
+  expect(toggleBtn).toHaveTextContent('EN')
+  expect(screen.getByRole('link', { name: '会议' })).toBeInTheDocument()
+})

@@ -1,3 +1,5 @@
+import { locale } from '../i18n'
+
 export function subjectHref(
   subjectType: string,
   subjectId: string,
@@ -27,6 +29,13 @@ export function notificationHref(item: {
 }
 
 export function subjectLabel(subjectType: string): string {
+  if (locale.value === 'en') {
+    if (subjectType === 'meeting') return 'Meeting'
+    if (subjectType === 'agenda_item') return 'Agenda'
+    if (subjectType === 'decision') return 'Decision'
+    if (subjectType === 'project') return 'Project'
+    return 'Action'
+  }
   if (subjectType === 'meeting') return '会议'
   if (subjectType === 'agenda_item') return '议题'
   if (subjectType === 'decision') return '决策'

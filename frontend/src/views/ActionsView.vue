@@ -10,8 +10,11 @@ import ActionEditDrawer from '../components/ActionEditDrawer.vue'
 import StatusPill from '../components/StatusPill.vue'
 import { loadUserNames, nameOf, userNames } from '../composables/useUserNameMap'
 import type { Project } from '../domain/projects'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import { formatDateTime } from '../utils/time'
+
+const { tr } = useI18n()
 
 type ActionRow = {
   id: string
@@ -159,9 +162,9 @@ function actionButtons(row: ActionRow): VNodeChild[] {
       size: 'small',
       quaternary: true,
       disabled: busy,
-      'aria-label': `编辑行动项“${row.content}”`,
+      'aria-label': tr(`编辑行动项“${row.content}”`, `Edit action "${row.content}"`),
       onClick: () => openEdit(row),
-    }, { default: () => '编辑' }),
+    }, { default: () => tr('编辑', 'Edit') }),
   ]
   if (row.status === 'open') {
     buttons.push(h(NButton, {
@@ -169,9 +172,9 @@ function actionButtons(row: ActionRow): VNodeChild[] {
       type: 'primary',
       loading: busy,
       disabled: busy,
-      'aria-label': `开始行动项“${row.content}”`,
+      'aria-label': tr(`开始行动项“${row.content}”`, `Start action "${row.content}"`),
       onClick: () => void transitionStatus(row, 'in_progress'),
-    }, { default: () => '开始' }))
+    }, { default: () => tr('开始', 'Start') }))
   }
   if (row.status === 'in_progress') {
     buttons.push(h(NButton, {
@@ -179,71 +182,71 @@ function actionButtons(row: ActionRow): VNodeChild[] {
       type: 'primary',
       loading: busy,
       disabled: busy,
-      'aria-label': `完成行动项“${row.content}”`,
+      'aria-label': tr(`完成行动项“${row.content}”`, `Complete action "${row.content}"`),
       onClick: () => void transitionStatus(row, 'done'),
-    }, { default: () => '完成' }))
+    }, { default: () => tr('完成', 'Done') }))
   }
   if (row.status === 'open' || row.status === 'in_progress') {
     buttons.push(h(NPopconfirm, {
-      positiveText: '确认',
-      negativeText: '取消',
+      positiveText: tr('确认', 'Confirm'),
+      negativeText: tr('取消', 'Cancel'),
       onPositiveClick: () => void transitionStatus(row, 'canceled'),
     }, {
       trigger: () => h(NButton, {
         size: 'small',
         quaternary: true,
         disabled: busy,
-        'aria-label': `取消行动项“${row.content}”`,
-      }, { default: () => '取消' }),
-      default: () => `确定取消行动项“${row.content}”吗？`,
+        'aria-label': tr(`取消行动项“${row.content}”`, `Cancel action "${row.content}"`),
+      }, { default: () => tr('取消', 'Cancel') }),
+      default: () => tr(`确定取消行动项“${row.content}”吗？`, `Cancel action "${row.content}"?`),
     }))
   }
   return buttons
 }
 
-const columns: DataTableColumns<ActionRow> = [
-  { title: '内容', key: 'content', minWidth: 160, ellipsis: { tooltip: true } },
-  { title: '负责人', key: 'owner', width: 72, render: (row) => nameOf(row.owner_user_id) },
+const columns = computed<DataTableColumns<ActionRow>>(() => [
+  { title: tr('内容', 'Action'), key: 'content', minWidth: 120, ellipsis: { tooltip: true } },
+  { title: tr('负责人', 'Owner'), key: 'owner', width: 76, render: (row) => nameOf(row.owner_user_id) },
   {
-    title: '优先级',
+    title: tr('优先级', 'Priority'),
     key: 'priority',
-    width: 72,
+    width: 84,
     render: (row) => h(StatusPill, { status: row.priority, kind: 'priority' }),
   },
   {
-    title: '状态',
+    title: tr('状态', 'Status'),
     key: 'status',
-    width: 148,
+    width: 156,
     render: (row) => h('div', { class: 'action-status-cell' }, [
       h(StatusPill, { status: row.status, kind: 'action' }),
       row.is_derived
-        ? h('span', { class: 'muted' }, '由议题派生')
+        ? h('span', { class: 'muted' }, tr('由议题派生', 'From Agenda'))
         : h('div', { class: 'row-actions action-row-actions' }, actionButtons(row)),
     ]),
   },
   {
-    title: '截止日期',
+    title: tr('截止日期', 'Due Date'),
     key: 'due_date',
-    width: 124,
+    width: 120,
     render: (row) => {
       const lines: VNodeChild[] = [
         row.due_date
-          ? h('span', { class: isOverdue(row) ? 'action-due-overdue' : undefined }, `截止 ${row.due_date}`)
-          : h('span', { class: 'muted' }, '未设截止日期'),
+          ? h('span', { class: isOverdue(row) ? 'action-due-overdue' : undefined }, `${tr('截止', 'Due')} ${row.due_date}`)
+          : h('span', { class: 'muted' }, tr('未设截止日期', 'No due date')),
       ]
-      if (row.completed_at) lines.push(h('span', { class: 'muted' }, `完成于 ${formatDateTime(row.completed_at)}`))
+      if (row.completed_at) lines.push(h('span', { class: 'muted' }, `${tr('完成于', 'Done')} ${formatDateTime(row.completed_at)}`))
       return h('div', { class: 'action-due-cell' }, lines)
     },
   },
   {
-    title: '来源会议',
+    title: tr('来源会议', 'Meeting'),
     key: 'meeting',
-    width: 80,
+    width: 84,
     render: (row) => (row.meeting_id
-      ? h(RouterLink, { to: `/meetings/${row.meeting_id}` }, { default: () => '来源会议' })
+      ? h(RouterLink, { to: `/meetings/${row.meeting_id}` }, { default: () => tr('来源会议', 'Meeting') })
       : h('span', { class: 'muted' }, '—')),
   },
-]
+])
 
 watch(() => [filters.owner, filters.status, filters.project, filters.due], () => {
   if (firstRun) return
@@ -265,14 +268,14 @@ onBeforeUnmount(() => {
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Action hub</p><h1>行动项</h1><p>会议产生的行动在这里汇总、筛选并持续跟踪。</p></div>
-      <span class="metric"><strong>{{ total }}</strong>项</span>
+      <div><p class="eyebrow">Action hub</p><h1>{{ tr('行动项', 'Actions') }}</h1><p>{{ tr('会议产生的行动在这里汇总、筛选并持续跟踪。', 'Track, filter, and follow up on action items across all meetings.') }}</p></div>
+      <span class="metric"><strong>{{ total }}</strong>{{ tr('项', ' items') }}</span>
     </header>
     <section class="workspace-section filter-panel">
-      <label>负责人<select v-model="filters.owner"><option value="me">分配给我</option><option value="all">所有负责人</option></select></label>
-      <label>状态<select v-model="filters.status"><option value="open">待开始</option><option value="in_progress">进行中</option><option value="done">已完成</option><option value="canceled">已取消</option><option value="">全部状态</option></select></label>
-      <label>项目<select v-model="filters.project"><option value="">全部项目</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
-      <label>期限<select v-model="filters.due"><option value="">全部期限</option><option value="overdue">已逾期</option><option value="upcoming">今天及以后</option></select></label>
+      <label>{{ tr('负责人', 'Owner') }}<select v-model="filters.owner"><option value="me">{{ tr('分配给我', 'Assigned to Me') }}</option><option value="all">{{ tr('所有负责人', 'All Owners') }}</option></select></label>
+      <label>{{ tr('状态', 'Status') }}<select v-model="filters.status"><option value="open">{{ tr('待开始', 'Open') }}</option><option value="in_progress">{{ tr('进行中', 'In Progress') }}</option><option value="done">{{ tr('已完成', 'Done') }}</option><option value="canceled">{{ tr('已取消', 'Canceled') }}</option><option value="">{{ tr('全部状态', 'All Statuses') }}</option></select></label>
+      <label>{{ tr('项目', 'Project') }}<select v-model="filters.project"><option value="">{{ tr('全部项目', 'All Projects') }}</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
+      <label>{{ tr('期限', 'Due') }}<select v-model="filters.due"><option value="">{{ tr('全部期限', 'All Dates') }}</option><option value="overdue">{{ tr('已逾期', 'Overdue') }}</option><option value="upcoming">{{ tr('今天及以后', 'Upcoming') }}</option></select></label>
     </section>
     <n-alert v-if="error" type="error" class="workspace-section">{{ error }}</n-alert>
     <section class="workspace-section action-table-section">
@@ -284,7 +287,7 @@ onBeforeUnmount(() => {
         :row-key="rowKey"
         :row-props="rowProps"
         :pagination="pagination"
-        :scroll-x="656"
+        :scroll-x="624"
         :bordered="false"
         @update:page="changePage"
       />

@@ -320,3 +320,38 @@ def test_reconcile_outcomes_preserves_final_decision_clears_metadata_and_handles
         )
         assert session.get(Decision, final_dec.id) is not None
         assert session.get(Decision, final_dec.id).status.value == "final"
+
+
+def test_parse_and_rewrite_english_outcome_tags():
+    md = """# Meeting Notes
+@Decision: Adopt canonical REST API contract
+@Action:[todo][@alice][2026-10-18] Ship bilingual UI toggle
+@Question: Should we preserve legacy webhook aliases?
+"""
+    tags = parse_outcome_tags(md)
+    assert len(tags) == 3
+    assert tags[0].kind == "decision"
+    assert tags[0].source_tag_key == "decision:0"
+    assert tags[0].content == "Adopt canonical REST API contract"
+
+    assert tags[1].kind == "action"
+    assert tags[1].source_tag_key == "action:0"
+    assert tags[1].status == ActionStatus.open
+    assert tags[1].owner_name == "alice"
+    assert tags[1].due_date == date(2026, 10, 18)
+    assert tags[1].content == "Ship bilingual UI toggle"
+
+    assert tags[2].kind == "question"
+    assert tags[2].source_tag_key == "question:0"
+    assert tags[2].content == "Should we preserve legacy webhook aliases?"
+
+    # Rewriting an English @Action: tag preserves the @Action: prefix
+    new_tag = format_action_tag(
+        content="Ship bilingual UI toggle",
+        status=ActionStatus.done,
+        owner="alice",
+        due_date=date(2026, 10, 18),
+    )
+    rewritten = rewrite_action_in_notes(md, "action:0", new_tag)
+    assert "@Action:[done][@alice][2026-10-18] Ship bilingual UI toggle" in rewritten
+

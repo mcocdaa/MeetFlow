@@ -10,9 +10,12 @@ import StatusPill from '../components/StatusPill.vue'
 import { loadUserNames, nameOf, userNames } from '../composables/useUserNameMap'
 import type { Decision } from '../domain/outcomes'
 import type { Project } from '../domain/projects'
+import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
-import { REVIEW_STATUS_LABELS } from '../utils/labels'
+import { reviewStatusLabel } from '../utils/labels'
 import { formatDateTime } from '../utils/time'
+
+const { tr } = useI18n()
 
 const PAGE_SIZE = 50
 
@@ -127,49 +130,49 @@ function reviewerBadges(row: Decision) {
     type: REVIEW_STATUS_TYPES[reviewer.status] ?? 'default',
     class: 'reviewer-badge',
   }, {
-    default: () => `${nameOf(reviewer.user_id)}·${REVIEW_STATUS_LABELS[reviewer.status] ?? reviewer.status}`,
+    default: () => `${nameOf(reviewer.user_id)}·${reviewStatusLabel(reviewer.status)}`,
   })))
 }
 
-const columns: DataTableColumns<Decision> = [
-  { title: '标题', key: 'title', minWidth: 160, ellipsis: { tooltip: true } },
+const columns = computed<DataTableColumns<Decision>>(() => [
+  { title: tr('标题', 'Title'), key: 'title', minWidth: 120, ellipsis: { tooltip: true } },
   {
-    title: '项目',
+    title: tr('项目', 'Project'),
     key: 'project',
-    width: 148,
+    width: 124,
     ellipsis: { tooltip: true },
     render: (row) => projectNames.value[row.project_id] ?? row.project_id,
   },
   {
-    title: '状态',
+    title: tr('状态', 'Status'),
     key: 'status',
-    width: 82,
+    width: 90,
     render: (row) => h(StatusPill, { status: row.status, kind: 'decision' }),
   },
   {
-    title: '评审人',
+    title: tr('评审人', 'Reviewers'),
     key: 'reviewers',
-    width: 80,
+    width: 98,
     render: (row) => reviewerBadges(row),
   },
   {
-    title: '更新时间',
+    title: tr('更新时间', 'Updated'),
     key: 'updated_at',
-    width: 144,
+    width: 132,
     render: (row) => formatDateTime(row.updated_at),
   },
   {
-    title: '来源会议',
+    title: tr('来源会议', 'Meeting'),
     key: 'meeting',
-    width: 80,
+    width: 86,
     render: (row) => (row.meeting_id
       ? h(RouterLink, {
         to: `/meetings/${row.meeting_id}`,
         onClick: (event: MouseEvent) => event.stopPropagation(),
-      }, { default: () => '来源会议' })
+      }, { default: () => tr('来源会议', 'Meeting') })
       : h('span', { class: 'muted' }, '—')),
   },
-]
+])
 
 watch(() => [filters.project, filters.status, filters.reviewer], () => {
   if (firstRun) return
@@ -191,13 +194,13 @@ onBeforeUnmount(() => {
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Decision log</p><h1>决策日志</h1><p>跨项目查看提案、最终决策及其评审状态。</p></div>
-      <span class="metric"><strong>{{ total }}</strong>项</span>
+      <div><p class="eyebrow">Decision log</p><h1>{{ tr('决策日志', 'Decisions') }}</h1><p>{{ tr('跨项目查看提案、最终决策及其评审状态。', 'Browse proposals, final decisions, and review status across projects.') }}</p></div>
+      <span class="metric"><strong>{{ total }}</strong>{{ tr('项', ' items') }}</span>
     </header>
     <section class="workspace-section filter-panel">
-      <label>项目<select v-model="filters.project"><option value="">全部项目</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
-      <label>状态<select v-model="filters.status"><option value="">全部状态</option><option value="proposed">待确认</option><option value="final">已生效</option><option value="superseded">已替代</option><option value="withdrawn">已撤回</option></select></label>
-      <label>评审人<n-select v-model:value="filters.reviewer" class="decision-reviewer-filter" :options="reviewerOptions" :virtual-scroll="false" clearable placeholder="全部评审人" /></label>
+      <label>{{ tr('项目', 'Project') }}<select v-model="filters.project"><option value="">{{ tr('全部项目', 'All Projects') }}</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
+      <label>{{ tr('状态', 'Status') }}<select v-model="filters.status"><option value="">{{ tr('全部状态', 'All Statuses') }}</option><option value="proposed">{{ tr('待确认', 'Proposed') }}</option><option value="final">{{ tr('已生效', 'Final') }}</option><option value="superseded">{{ tr('已替代', 'Superseded') }}</option><option value="withdrawn">{{ tr('已撤回', 'Withdrawn') }}</option></select></label>
+      <label>{{ tr('评审人', 'Reviewer') }}<n-select v-model:value="filters.reviewer" class="decision-reviewer-filter" :options="reviewerOptions" :virtual-scroll="false" clearable :placeholder="tr('全部评审人', 'All Reviewers')" /></label>
     </section>
     <n-alert v-if="error" type="error" class="workspace-section">{{ error }}</n-alert>
     <section class="workspace-section decision-table-section">
@@ -209,7 +212,7 @@ onBeforeUnmount(() => {
         :row-key="(row: Decision) => row.id"
         :row-props="rowProps"
         :pagination="pagination"
-        :scroll-x="694"
+        :scroll-x="650"
         :bordered="false"
         @update:page="changePage"
       />

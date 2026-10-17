@@ -8,6 +8,9 @@ import { errorMessage } from '../utils/errors'
 import { api, ApiError } from '../api/client'
 import type { Page } from '../api/contracts'
 import type { AgendaItem, AgendaType, Meeting } from '../domain/meetings'
+import { useI18n } from '../i18n'
+
+const { tr } = useI18n()
 
 type MeetingOption = { id: string; title: string; version: number }
 
@@ -210,15 +213,15 @@ function menuOptions(item: AgendaItem) {
       class: ['agenda-menu-item', danger && 'agenda-menu-item--danger'],
     }, label),
   })
-  const options = [option('edit', '编辑详情')]
+  const options = [option('edit', tr('编辑详情', 'Edit Details'))]
   if (canRunFlowCommand(item)) {
     options.push(
-      option('skip', '跳过'),
-      option('cancel', '取消议题'),
-      option('move', '移动议题'),
+      option('skip', tr('跳过', 'Skip')),
+      option('cancel', tr('取消议题', 'Cancel Agenda')),
+      option('move', tr('移动议题', 'Move Agenda')),
     )
   }
-  options.push(option('delete', '删除议题', true))
+  options.push(option('delete', tr('删除议题', 'Delete Agenda'), true))
   return options
 }
 
@@ -239,17 +242,17 @@ function onMenuSelect(item: AgendaItem, key: string) {
 
 <template>
   <aside class="agenda-queue" data-testid="agenda-queue">
-    <header class="section-heading"><div><p class="eyebrow">Agenda</p><h2>议题队列</h2></div><button v-if="canContribute" class="button button-small button-primary" @click="adding = !adding">{{ adding ? '收起' : '+ 议题' }}</button></header>
+    <header class="section-heading"><div><p class="eyebrow">Agenda</p><h2>{{ tr('议题队列', 'Agenda Queue') }}</h2></div><button v-if="canContribute" class="button button-small button-primary" @click="adding = !adding">{{ adding ? tr('收起', 'Close') : tr('+ 议题', '+ Agenda') }}</button></header>
     <form v-if="canContribute && adding" class="agenda-add-form" @submit.prevent="addAgenda">
-      <label>议题标题<input v-model="title" required /></label>
-      <label>类型<select v-model="agendaType"><option value="information">信息同步</option><option value="discussion">讨论</option><option value="decision">决策</option></select></label>
-      <label>预计时长（分钟）<input v-model.number="estimatedMinutes" type="number" min="1" max="480" required /></label>
-      <button class="button button-small button-primary" :disabled="saving">插入队尾</button>
+      <label>{{ tr('议题标题', 'Agenda Title') }}<input v-model="title" required /></label>
+      <label>{{ tr('类型', 'Type') }}<select v-model="agendaType"><option value="information">{{ tr('信息同步', 'Info Sync') }}</option><option value="discussion">{{ tr('讨论', 'Discussion') }}</option><option value="decision">{{ tr('决策', 'Decision') }}</option></select></label>
+      <label>{{ tr('预计时长（分钟）', 'Duration (min)') }}<input v-model.number="estimatedMinutes" type="number" min="1" max="480" required /></label>
+      <button class="button button-small button-primary" :disabled="saving">{{ tr('插入队尾', 'Add to Queue') }}</button>
     </form>
     <p v-if="error || openError" class="notice notice-error">{{ error || openError }}</p>
     <div class="agenda-queue-list">
       <article v-for="(item, index) in ordered" :key="item.id" :data-testid="`agenda-row-${item.id}`" class="agenda-queue-row" :class="[{ selected: item.id === selectedId }, `agenda-status-${item.status}`]" :draggable="canContribute && !meetingLocked" @dragstart="startDrag(item.id)" @dragover.prevent @drop.prevent="dropOn(item.id)">
-        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} 分钟</small></span></button>
+        <button class="agenda-select" :disabled="Boolean(openingId)" @click="emit('select', item.id)"><span class="agenda-index">{{ index + 1 }}</span><span><strong>{{ item.title }}</strong><small>{{ statusLabel('agenda', item.status) }} · {{ item.estimated_minutes ?? '—' }} {{ tr('分钟', 'min') }}</small></span></button>
         <div v-if="canContribute && !meetingLocked" class="agenda-menu">
           <n-dropdown
             trigger="click"
@@ -258,31 +261,31 @@ function onMenuSelect(item: AgendaItem, key: string) {
             @update:show="(value: boolean) => onMenuShow(item, value)"
             @select="(key: string | number) => onMenuSelect(item, String(key))"
           >
-            <button class="agenda-menu-trigger" :aria-label="`议题“${item.title}”的更多操作`" :aria-expanded="menuId === item.id">
+            <button class="agenda-menu-trigger" :aria-label="tr(`议题“${item.title}”的更多操作`, `More actions for ${item.title}`)" :aria-expanded="menuId === item.id">
               <n-icon><MoreHorizontal :size="18" /></n-icon>
             </button>
           </n-dropdown>
           <n-popconfirm
             v-if="skipTargetId === item.id"
             :show="true"
-            positive-text="确认"
-            negative-text="取消"
+            :positive-text="tr('确认', 'Confirm')"
+            :negative-text="tr('取消', 'Cancel')"
             @positive-click="skip(item)"
             @negative-click="skipTargetId = ''"
           >
             <template #trigger><span class="agenda-menu-anchor" aria-hidden="true" /></template>
-            确定跳过议题“{{ item.title }}”吗？
+            {{ tr(`确定跳过议题“${item.title}”吗？`, `Skip agenda item "${item.title}"?`) }}
           </n-popconfirm>
         </div>
-        <div v-if="canContribute && guardedId === item.id" class="agenda-guard"><button class="button button-small button-danger" @click="command(item, 'cancel')">改为取消</button><span>产出迁移将在会议工作台中处理</span></div>
+        <div v-if="canContribute && guardedId === item.id" class="agenda-guard"><button class="button button-small button-danger" @click="command(item, 'cancel')">{{ tr('改为取消', 'Cancel Instead') }}</button><span>{{ tr('产出迁移将在会议工作台中处理', 'Outcome migration is handled in the workbench') }}</span></div>
       </article>
     </div>
-    <p v-if="!ordered.length" class="empty-inline">队列为空</p>
+    <p v-if="!ordered.length" class="empty-inline">{{ tr('队列为空', 'Queue is empty') }}</p>
 
     <n-drawer :show="moveOpen" placement="right" :width="'min(560px, 100vw)'" :mask-closable="!moveSaving" @update:show="(value: boolean) => { if (!value && !moveSaving) moveOpen = false }">
-      <n-drawer-content title="移动议题" closable>
-        <p class="muted">把“{{ moveTarget?.title ?? '' }}”移动到同项目的另一场会议。</p>
-        <label class="move-field">目标会议
+      <n-drawer-content :title="tr('移动议题', 'Move Agenda')" closable>
+        <p class="muted">{{ tr(`把“${moveTarget?.title ?? ''}”移动到同项目的另一场会议。`, `Move "${moveTarget?.title ?? ''}" to another meeting in this project.`) }}</p>
+        <label class="move-field">{{ tr('目标会议', 'Target Meeting') }}
           <n-select
             v-model:value="moveForm.target_meeting_id"
             class="move-target-select"
@@ -290,17 +293,17 @@ function onMenuSelect(item: AgendaItem, key: string) {
             :loading="moveLoading"
             :disabled="moveSaving"
             :virtual-scroll="false"
-            :input-props="{ 'aria-label': '目标会议' }"
-            placeholder="选择目标会议"
+            :input-props="{ 'aria-label': tr('目标会议', 'Target Meeting') }"
+            :placeholder="tr('选择目标会议', 'Select target meeting')"
           />
         </label>
-        <label class="move-field">位置（可选，从 0 开始）
-          <n-input-number v-model:value="moveForm.position" :min="0" :max="500" :disabled="moveSaving" :input-props="{ 'aria-label': '位置' }" placeholder="留空则排在队尾" />
+        <label class="move-field">{{ tr('位置（可选，从 0 开始）', 'Position (optional, 0-based)') }}
+          <n-input-number v-model:value="moveForm.position" :min="0" :max="500" :disabled="moveSaving" :input-props="{ 'aria-label': tr('位置', 'Position') }" :placeholder="tr('留空则排在队尾', 'Leave empty to append')" />
         </label>
         <p v-if="moveError" class="notice notice-error" role="alert">{{ moveError }}</p>
         <template #footer>
-          <n-button quaternary :disabled="moveSaving" @click="moveOpen = false">取消</n-button>
-          <n-button type="primary" :loading="moveSaving" :disabled="moveSaving || moveLoading" @click="submitMove">确认移动</n-button>
+          <n-button quaternary :disabled="moveSaving" @click="moveOpen = false">{{ tr('取消', 'Cancel') }}</n-button>
+          <n-button type="primary" :loading="moveSaving" :disabled="moveSaving || moveLoading" @click="submitMove">{{ tr('确认移动', 'Confirm Move') }}</n-button>
         </template>
       </n-drawer-content>
     </n-drawer>

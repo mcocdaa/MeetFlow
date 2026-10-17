@@ -1,5 +1,6 @@
 import { api, apiDownload } from './client'
 import type { Meeting, MeetingParticipantWrite } from '../domain/meetings'
+import { locale, type Locale } from '../i18n'
 
 export type LifecycleAction = 'start' | 'finish' | 'cancel' | 'reopen'
 
@@ -75,11 +76,23 @@ export function rotateApiKey() {
   })
 }
 
-export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: string): string {
-  const title = agendaTitle.trim() || '当前议题'
+const OUTCOME_TAG_LINE_RE = /^@(?:决策|行动|开放问题|问题|Decision|decision|Action|action|Question|question|OpenQuestion):/
+const BULLET_OUTCOME_TAG_RE = /^\s*[-*•]\s*(@(?:决策|行动|开放问题|问题|Decision|decision|Action|action|Question|question|OpenQuestion):.+)$/
+
+export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: string, lang: Locale = locale.value): string {
+  const useEn = lang === 'en'
+  const title = agendaTitle.trim() || (useEn ? 'Current Agenda' : '当前议题')
   const trimmed = rawMarkdown.trim()
 
   if (!trimmed) {
+    if (useEn) {
+      return [
+        `### ${title} · Key Discussion Points`,
+        `@Decision: Confirm core implementation plan and rollout path for "${title}"`,
+        `@Action:[open] Complete API integration and automated regression tests for "${title}"`,
+        `@Question: Does the legacy data migration window for "${title}" require canary verification?`,
+      ].join('\n')
+    }
     return [
       `### ${title} · 讨论要点`,
       `@决策: 确认「${title}」核心实施方案与演进路径`,
@@ -93,9 +106,13 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
   const existingTags = new Set<string>()
   const extractedTags: string[] = []
 
+  const decPrefix = useEn ? '@Decision:' : '@决策:'
+  const actPrefix = useEn ? '@Action:' : '@行动:'
+  const qPrefix = useEn ? '@Question:' : '@开放问题:'
+
   for (const originalLine of lines) {
     const rawLine = originalLine.replace(/\\([[\]])/g, '$1')
-    const bulletTagMatch = rawLine.match(/^\s*[-*•]\s*(@(?:决策|行动|开放问题|问题):.+)$/)
+    const bulletTagMatch = rawLine.match(BULLET_OUTCOME_TAG_RE)
     if (bulletTagMatch) {
       const tagLine = bulletTagMatch[1].trim()
       normalizedLines.push(tagLine)
@@ -104,7 +121,7 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
     }
 
     const stripped = rawLine.trim()
-    if (/^@(?:决策|行动|开放问题|问题):/.test(stripped)) {
+    if (OUTCOME_TAG_LINE_RE.test(stripped)) {
       normalizedLines.push(stripped)
       existingTags.add(stripped)
       continue
@@ -113,28 +130,62 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
     normalizedLines.push(rawLine)
 
     const cleanLine = stripped.replace(/^[-*•\d.)\s]+/, '').trim()
-    if (!cleanLine || cleanLine.startsWith('#') || cleanLine.startsWith('```')) {
+    if (
+      !cleanLine
+      || cleanLine.startsWith('#')
+      || cleanLine.startsWith('```')
+      || /[：:]$/.test(cleanLine)
+    ) {
       continue
     }
 
-    if (/(?:决定|确定|决议|统一采用|采用|拍板|一致同意|定稿|结论[：:])/.test(cleanLine)) {
-      const content = cleanLine.replace(/^(?:团队一致决定|一致决定|决定|确定|决议|结论[：:])\s*/, '').trim()
+    if (
+      /(?:待确认|疑问|是否|如何|待评估|[？?]$)/.test(cleanLine)
+      || /\b(?:question|tbd|whether|how to|need to confirm|open question)\b/i.test(cleanLine)
+    ) {
+      const content = cleanLine
+        .replace(/^(?:待确认[：:]?|疑问[：:]?|问题[：:]?|open question[：:]?|question[：:]?|tbd[：:]?)\s*/i, '')
+        .trim()
       if (content) {
-        const tag = `@决策: ${content}`
+        const tag = `${qPrefix} ${content}`
         if (!existingTags.has(tag)) extractedTags.push(tag)
       }
-    } else if (/(?:待确认|疑问|是否|如何|待评估|[？?]$)/.test(cleanLine)) {
-      const content = cleanLine.replace(/^(?:待确认[：:]?|疑问[：:]?|问题[：:]?)\s*/, '').trim()
-      if (content) {
-        const tag = `@开放问题: ${content}`
-        if (!existingTags.has(tag)) extractedTags.push(tag)
-      }
-    } else if (/(?:负责|跟进|待办|完成|推进|输出|补充|联调|验证|编写|提交)/.test(cleanLine)) {
-      const content = cleanLine.replace(/^(?:待办[：:]?|行动[：:]?)\s*/, '').trim()
+    } else if (
+      /^(?:请\s*@|待办|行动|action|todo)/i.test(cleanLine)
+      || (/@[a-zA-Z0-9_-]+/.test(cleanLine) && /(?:请|负责|跟进|待办|完成|完善|推进|输出|补充|联调|验证|编写|提交)/.test(cleanLine))
+    ) {
+      const content = cleanLine
+        .replace(/^(?:待办[：:]?|行动[：:]?|action[：:]?|todo[：:]?)\s*/i, '')
+        .trim()
       if (content) {
         const ownerMatch = content.match(/@([a-zA-Z0-9_-]+)/)
         const ownerTag = ownerMatch ? `[@${ownerMatch[1]}]` : ''
-        const tag = `@行动:[open]${ownerTag} ${content}`
+        const tag = `${actPrefix}[open]${ownerTag} ${content}`
+        if (!existingTags.has(tag)) extractedTags.push(tag)
+      }
+    } else if (
+      /(?:决定|确定|决议|统一采用|采用|拍板|一致同意|定稿|结论[：:])/.test(cleanLine)
+      || /\b(?:decided|decide|agreed|agree|approved|approve|adopted|adopt|concluded|decision)\b/i.test(cleanLine)
+      || /^(?:decision|conclusion)[：:]/i.test(cleanLine)
+    ) {
+      const content = cleanLine
+        .replace(/^(?:团队一致决定|一致决定|决定|确定|决议|结论[：:]|decision[：:]|conclusion[：:])\s*/i, '')
+        .trim()
+      if (content) {
+        const tag = `${decPrefix} ${content}`
+        if (!existingTags.has(tag)) extractedTags.push(tag)
+      }
+    } else if (
+      /(?:负责|跟进|待办|完成|完善|推进|输出|补充|联调|验证|编写|提交)/.test(cleanLine)
+      || /\b(?:will|todo|action|follow up|implement|complete|verify|test|prepare|submit|assign)\b/i.test(cleanLine)
+    ) {
+      const content = cleanLine
+        .replace(/^(?:待办[：:]?|行动[：:]?|action[：:]?|todo[：:]?)\s*/i, '')
+        .trim()
+      if (content) {
+        const ownerMatch = content.match(/@([a-zA-Z0-9_-]+)/)
+        const ownerTag = ownerMatch ? `[@${ownerMatch[1]}]` : ''
+        const tag = `${actPrefix}[open]${ownerTag} ${content}`
         if (!existingTags.has(tag)) extractedTags.push(tag)
       }
     }
@@ -146,6 +197,17 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
   }
 
   if (existingTags.size === 0) {
+    if (useEn) {
+      return [
+        normalizedLines.join('\n'),
+        '',
+        `@Decision: Confirm rollout plan for "${title}"`,
+        '',
+        `@Action:[open] Follow up on implementation and integration testing for "${title}"`,
+        '',
+        `@Question: Cross-module boundary details for "${title}" pending final confirmation`,
+      ].join('\n')
+    }
     return [
       normalizedLines.join('\n'),
       '',
@@ -159,4 +221,5 @@ export function smartStructureAgendaNotes(rawMarkdown: string, agendaTitle: stri
 
   return normalizedLines.join('\n')
 }
+
 

@@ -25,9 +25,11 @@ import WebhookNotifyModal from '../components/WebhookNotifyModal.vue'
 import type { Attachment, Meeting, MeetingParticipantWrite } from '../domain/meetings'
 import type { Project } from '../domain/projects'
 import { useMeetingWorkspace } from '../composables/useMeetingWorkspace'
+import { useI18n } from '../i18n'
 import { formatDateTime, parseUtcTimestamp, toLocalInput } from '../utils/time'
 
 
+const { tr } = useI18n()
 const route = useRoute()
 const loading = ref(true)
 const lifecycleAction = ref<LifecycleAction | null>(null)
@@ -362,45 +364,45 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="workspace-page meeting-workspace" :class="{ 'meeting-live': meeting?.status === 'in_progress' }">
-    <p v-if="loading" class="empty-state">正在打开会议工作区…</p>
+    <p v-if="loading" class="empty-state">{{ tr('正在打开会议工作区…', 'Opening meeting workspace…') }}</p>
     <template v-else-if="meeting">
-      <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${formatDateTime(meeting.scheduled_start)} · ${meeting.participants.length} 位参与者`">
+      <PageHeader :eyebrow="meeting.project.name" :title="meeting.title" :summary="`${formatDateTime(meeting.scheduled_start)} · ${meeting.participants.length} ${tr('位参与者', 'participants')}`">
         <template #meta>
           <div class="project-context">
             <StatusPill :status="meeting.status" kind="meeting" />
-            <span v-if="meeting.status === 'in_progress' && liveElapsed" class="meeting-live-clock">进行 {{ liveElapsed }}</span>
-            <span>主持：{{ meeting.host?.display_name ?? '未指定' }}</span>
-            <span>记录：{{ meeting.recorder?.display_name ?? '未指定' }}</span>
-            <span v-if="meeting.series_slot_at">系列槽位 {{ formatDateTime(meeting.series_slot_at) }}</span>
-            <span v-if="meeting.status === 'completed' && meeting.started_at" class="meeting-actual-window">开始：{{ formatDateTime(meeting.started_at) }}</span>
-            <span v-if="meeting.status === 'completed' && meeting.completed_at" class="meeting-actual-window">完成：{{ formatDateTime(meeting.completed_at) }}</span>
+            <span v-if="meeting.status === 'in_progress' && liveElapsed" class="meeting-live-clock">{{ tr('进行', 'Live') }} {{ liveElapsed }}</span>
+            <span>{{ tr('主持：', 'Host: ') }}{{ meeting.host?.display_name ?? tr('未指定', 'Unassigned') }}</span>
+            <span>{{ tr('记录：', 'Recorder: ') }}{{ meeting.recorder?.display_name ?? tr('未指定', 'Unassigned') }}</span>
+            <span v-if="meeting.series_slot_at">{{ tr('系列槽位', 'Series slot') }} {{ formatDateTime(meeting.series_slot_at) }}</span>
+            <span v-if="meeting.status === 'completed' && meeting.started_at" class="meeting-actual-window">{{ tr('开始：', 'Start: ') }}{{ formatDateTime(meeting.started_at) }}</span>
+            <span v-if="meeting.status === 'completed' && meeting.completed_at" class="meeting-actual-window">{{ tr('完成：', 'End: ') }}{{ formatDateTime(meeting.completed_at) }}</span>
           </div>
         </template>
         <template #actions>
-          <n-button quaternary @click="calendarOpen = true">日历订阅</n-button>
-          <n-button v-if="canContribute && (meeting.status === 'in_progress' || meeting.status === 'completed')" quaternary @click="webhookOpen = true">推送群聊</n-button>
-          <n-button v-if="meeting.status === 'in_progress' || meeting.status === 'ready'" quaternary @click="focusModeOpen = true">专注模式</n-button>
-          <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.markdown')">{{ exportAction === 'meeting-export.markdown' ? '导出中…' : '导出 Markdown' }}</n-button>
-          <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.json')">{{ exportAction === 'meeting-export.json' ? '导出中…' : '导出 JSON' }}</n-button>
-          <n-button v-if="canContribute && isPreparationStatus" quaternary :disabled="busy" @click="openPreparation">准备信息</n-button>
-          <n-button v-if="canContribute && isPreparationStatus" type="primary" :loading="lifecycleAction === 'start'" :disabled="busy" @click="lifecycle('start')">开始会议</n-button>
-          <n-button v-else-if="canContribute && meeting.status === 'in_progress'" type="primary" :loading="lifecycleAction === 'finish'" :disabled="busy" @click="lifecycle('finish')">结束会议</n-button>
-          <n-popconfirm v-if="canContribute && canCancelMeeting" positive-text="确认" negative-text="取消" @positive-click="lifecycle('cancel')">
+          <n-button quaternary @click="calendarOpen = true">{{ tr('日历订阅', 'Calendar') }}</n-button>
+          <n-button v-if="canContribute && (meeting.status === 'in_progress' || meeting.status === 'completed')" quaternary @click="webhookOpen = true">{{ tr('推送群聊', 'Webhook') }}</n-button>
+          <n-button v-if="meeting.status === 'in_progress' || meeting.status === 'ready'" quaternary @click="focusModeOpen = true">{{ tr('专注模式', 'Focus Mode') }}</n-button>
+          <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.markdown')">{{ exportAction === 'meeting-export.markdown' ? tr('导出中…', 'Exporting…') : tr('导出 Markdown', 'Export Markdown') }}</n-button>
+          <n-button v-if="canContribute && canExportMeeting" quaternary :disabled="busy || exportAction !== null" @click="downloadExport('meeting-export.json')">{{ exportAction === 'meeting-export.json' ? tr('导出中…', 'Exporting…') : tr('导出 JSON', 'Export JSON') }}</n-button>
+          <n-button v-if="canContribute && isPreparationStatus" quaternary :disabled="busy" @click="openPreparation">{{ tr('准备信息', 'Prep Info') }}</n-button>
+          <n-button v-if="canContribute && isPreparationStatus" type="primary" :loading="lifecycleAction === 'start'" :disabled="busy" @click="lifecycle('start')">{{ tr('开始会议', 'Start Meeting') }}</n-button>
+          <n-button v-else-if="canContribute && meeting.status === 'in_progress'" type="primary" :loading="lifecycleAction === 'finish'" :disabled="busy" @click="lifecycle('finish')">{{ tr('结束会议', 'End Meeting') }}</n-button>
+          <n-popconfirm v-if="canContribute && canCancelMeeting" :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="lifecycle('cancel')">
             <template #trigger>
-              <n-button quaternary :loading="lifecycleAction === 'cancel'" :disabled="busy">取消会议</n-button>
+              <n-button quaternary :loading="lifecycleAction === 'cancel'" :disabled="busy">{{ tr('取消会议', 'Cancel') }}</n-button>
             </template>
-            <span data-testid="meeting-cancel-confirm">会议将标记为已取消且不可重开。</span>
+            <span data-testid="meeting-cancel-confirm">{{ tr('会议将标记为已取消且不可重开。', 'This meeting will be marked as canceled and cannot be reopened.') }}</span>
           </n-popconfirm>
-          <n-popconfirm v-if="canContribute && meeting.status === 'completed'" positive-text="确认" negative-text="取消" @positive-click="lifecycle('reopen')">
+          <n-popconfirm v-if="canContribute && meeting.status === 'completed'" :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="lifecycle('reopen')">
             <template #trigger>
-              <n-button quaternary :loading="lifecycleAction === 'reopen'" :disabled="busy">重新打开</n-button>
+              <n-button quaternary :loading="lifecycleAction === 'reopen'" :disabled="busy">{{ tr('重新打开', 'Reopen') }}</n-button>
             </template>
-            <span data-testid="meeting-reopen-confirm">重新打开后会议回到进行中，再次结束时生成新的历史快照。</span>
+            <span data-testid="meeting-reopen-confirm">{{ tr('重新打开后会议回到进行中，再次结束时生成新的历史快照。', 'Reopening returns the meeting to In Progress and creates a new snapshot when finished.') }}</span>
           </n-popconfirm>
         </template>
       </PageHeader>
 
-      <p v-if="meeting.status === 'in_progress' && unresolved.length" class="meeting-unresolved">还有 {{ unresolved.length }} 个议题未结束。结束后，未结束议题会记为跳过。</p>
+      <p v-if="meeting.status === 'in_progress' && unresolved.length" class="meeting-unresolved">{{ tr(`还有 ${unresolved.length} 个议题未结束。结束后，未结束议题会记为跳过。`, `${unresolved.length} agenda item(s) still open. Unfinished items will be marked skipped.`) }}</p>
       <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
 
       <CompletedMeetingChain v-if="meeting.status === 'completed'" :meeting="meeting" :can-contribute="canContribute" @reload="load" />
@@ -409,84 +411,84 @@ onBeforeUnmount(() => {
 
         <section class="workspace-section meeting-summary-section">
           <header class="section-heading">
-            <div><p class="eyebrow">Summary</p><h2>会议纪要</h2></div>
+            <div><p class="eyebrow">Summary</p><h2>{{ tr('会议纪要', 'Meeting Summary') }}</h2></div>
             <div class="row-actions">
-              <span v-if="minutesSaved || saveState === 'saved'" class="muted" role="status">纪要已保存</span>
-              <button v-if="canContribute" class="button button-quiet" :disabled="busy || !dirty" @click="saveMinutes">保存会议纪要</button>
+              <span v-if="minutesSaved || saveState === 'saved'" class="muted" role="status">{{ tr('纪要已保存', 'Summary saved') }}</span>
+              <button v-if="canContribute" class="button button-quiet" :disabled="busy || !dirty" @click="saveMinutes">{{ tr('保存会议纪要', 'Save Summary') }}</button>
             </div>
           </header>
-          <PluginEditorSlot v-if="canContribute" editor-label="会议纪要" v-model="draft.summary_markdown" data-testid="meeting-summary-editor" target-type="meeting" :target-id="meeting.id" slot="meeting-summary-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, participants: meeting.participants.map((participant) => participant.user) }" @notice="error = $event">
+          <PluginEditorSlot v-if="canContribute" :editor-label="tr('会议纪要', 'Meeting Summary')" v-model="draft.summary_markdown" data-testid="meeting-summary-editor" target-type="meeting" :target-id="meeting.id" slot="meeting-summary-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id, participants: meeting.participants.map((participant) => participant.user) }" @notice="error = $event">
             <template #editor="{ disabled, registerEditor }">
-              <MarkdownEditor ref="summaryEditor" v-model="draft.summary_markdown" label="会议纪要" placeholder="记录会议结论、行动项和后续安排…" :disabled="busy || disabled" :register-editor="registerEditor" />
+              <MarkdownEditor ref="summaryEditor" v-model="draft.summary_markdown" :label="tr('会议纪要', 'Meeting Summary')" :placeholder="tr('记录会议结论、行动项和后续安排…', 'Record meeting conclusions, action items, and next steps…')" :disabled="busy || disabled" :register-editor="registerEditor" />
             </template>
           </PluginEditorSlot>
-          <MarkdownEditor v-else v-model="draft.summary_markdown" label="会议纪要" placeholder="记录会议结论、行动项和后续安排…" :disabled="true" />
+          <MarkdownEditor v-else v-model="draft.summary_markdown" :label="tr('会议纪要', 'Meeting Summary')" :placeholder="tr('记录会议结论、行动项和后续安排…', 'Record meeting conclusions, action items, and next steps…')" :disabled="true" />
         </section>
 
         <section class="workspace-section meeting-raw-notes">
-          <header class="section-heading"><div><p class="eyebrow">Notes</p><h2>整场会议原始笔记</h2></div><SaveStateIndicator role="note" :state="saveState" /></header>
-          <MarkdownEditor ref="rawNotesEditor" v-model="draft.raw_notes_markdown" label="整场会议原始笔记" placeholder="记录整场会议的原始讨论内容…" :disabled="busy || !canContribute" />
-          <p v-if="conflict" class="notice notice-error" role="alert">保存版本已变化，请刷新会议后重新确认本地笔记。</p>
+          <header class="section-heading"><div><p class="eyebrow">Notes</p><h2>{{ tr('整场会议原始笔记', 'Raw Meeting Notes') }}</h2></div><SaveStateIndicator role="note" :state="saveState" /></header>
+          <MarkdownEditor ref="rawNotesEditor" v-model="draft.raw_notes_markdown" :label="tr('整场会议原始笔记', 'Raw Meeting Notes')" :placeholder="tr('记录整场会议的原始讨论内容…', 'Capture raw discussion notes for the entire meeting…')" :disabled="busy || !canContribute" />
+          <p v-if="conflict" class="notice notice-error" role="alert">{{ tr('保存版本已变化，请刷新会议后重新确认本地笔记。', 'Version changed on server. Please refresh and verify local notes.') }}</p>
         </section>
 
         <div class="meeting-tools workspace-section">
-          <div><p class="eyebrow">Meeting tools</p><h2>材料与协作</h2><p class="muted">材料、评论都可以在会议进行中持续添加，不会离开当前议题。</p></div>
+          <div><p class="eyebrow">Meeting tools</p><h2>{{ tr('材料与协作', 'Materials & Collab') }}</h2><p class="muted">{{ tr('材料、评论都可以在会议进行中持续添加，不会离开当前议题。', 'Add materials and comments anytime during the meeting without leaving the active topic.') }}</p></div>
           <div class="row-actions">
             <PluginSlot v-if="canContribute" slot="meeting.toolbar.action" target-type="meeting" :target-id="meeting.id" :metadata="{ projectId: meeting.project.id }" />
-            <button class="button button-quiet" @click="materialsOpen = true">材料 ({{ materialItems.length }})</button>
-            <button v-if="canComment" class="button button-primary" @click="commentsOpen = true">评论</button>
+            <button class="button button-quiet" @click="materialsOpen = true">{{ tr('材料', 'Materials') }} ({{ materialItems.length }})</button>
+            <button v-if="canComment" class="button button-primary" @click="commentsOpen = true">{{ tr('评论', 'Comments') }}</button>
           </div>
         </div>
 
         <n-drawer :show="preparationOpen" placement="right" :width="'min(560px, 100vw)'" :mask-closable="!preparationSaving" @update:show="(value: boolean) => { if (!value) preparationOpen = false }">
-          <n-drawer-content title="准备信息" closable>
+          <n-drawer-content :title="tr('准备信息', 'Prep Info')" closable>
             <section class="meeting-preparation">
-              <header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>会议准备</h2></div></header>
+              <header class="section-heading"><div><p class="eyebrow">Preparation</p><h2>{{ tr('会议准备', 'Meeting Prep') }}</h2></div></header>
               <n-form ref="preparationFormRef" :model="preparationForm" :rules="preparationRules" label-placement="top" :show-require-mark="false">
-                <n-form-item label="会议标题" path="title">
-                  <n-input v-model:value="preparationForm.title" :input-props="{ 'aria-label': '会议标题' }" placeholder="会议标题" />
+                <n-form-item :label="tr('会议标题', 'Meeting Title')" path="title">
+                  <n-input v-model:value="preparationForm.title" :input-props="{ 'aria-label': tr('会议标题', 'Meeting Title') }" :placeholder="tr('会议标题', 'Meeting Title')" />
                 </n-form-item>
-                <n-form-item label="开始时间" path="scheduled_start">
-                  <input v-model="preparationForm.scheduled_start" class="native-datetime-input" type="datetime-local" aria-label="开始时间" />
+                <n-form-item :label="tr('开始时间', 'Start Time')" path="scheduled_start">
+                  <input v-model="preparationForm.scheduled_start" class="native-datetime-input" type="datetime-local" :aria-label="tr('开始时间', 'Start Time')" />
                 </n-form-item>
-                <n-form-item label="结束时间" path="scheduled_end">
-                  <input v-model="preparationForm.scheduled_end" class="native-datetime-input" type="datetime-local" aria-label="结束时间" />
+                <n-form-item :label="tr('结束时间', 'End Time')" path="scheduled_end">
+                  <input v-model="preparationForm.scheduled_end" class="native-datetime-input" type="datetime-local" :aria-label="tr('结束时间', 'End Time')" />
                 </n-form-item>
-                <n-form-item label="会议目的" path="purpose_markdown">
-                  <PluginEditorSlot v-model="preparationForm.purpose_markdown" editor-label="会议目的" target-type="meeting" :target-id="meeting.id" slot="meeting-purpose-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id }" @notice="preparationError = $event">
+                <n-form-item :label="tr('会议目的', 'Purpose')" path="purpose_markdown">
+                  <PluginEditorSlot v-model="preparationForm.purpose_markdown" :editor-label="tr('会议目的', 'Purpose')" target-type="meeting" :target-id="meeting.id" slot="meeting-purpose-editor" :metadata="{ projectId: meeting.project.id, meetingId: meeting.id }" @notice="preparationError = $event">
                     <template #editor="{ disabled, registerEditor }">
-                      <MarkdownEditor ref="purposeEditor" v-model="preparationForm.purpose_markdown" label="会议目的" placeholder="这次会议要解决什么问题？" :disabled="preparationSaving || disabled" :register-editor="registerEditor" />
+                      <MarkdownEditor ref="purposeEditor" v-model="preparationForm.purpose_markdown" :label="tr('会议目的', 'Purpose')" :placeholder="tr('这次会议要解决什么问题？', 'What problems will this meeting solve?')" :disabled="preparationSaving || disabled" :register-editor="registerEditor" />
                     </template>
                   </PluginEditorSlot>
                 </n-form-item>
-                <n-form-item label="主持" path="host_user_id">
-                  <n-select v-model:value="preparationForm.host_user_id" :options="hostOptions" :virtual-scroll="false" :input-props="{ 'aria-label': '主持' }" filterable clearable placeholder="未指定" />
+                <n-form-item :label="tr('主持', 'Host')" path="host_user_id">
+                  <n-select v-model:value="preparationForm.host_user_id" :options="hostOptions" :virtual-scroll="false" :input-props="{ 'aria-label': tr('主持', 'Host') }" filterable clearable :placeholder="tr('未指定', 'Unassigned')" />
                 </n-form-item>
-                <n-form-item label="记录" path="recorder_user_id">
-                  <n-select v-model:value="preparationForm.recorder_user_id" :options="hostOptions" :virtual-scroll="false" :input-props="{ 'aria-label': '记录' }" filterable clearable placeholder="未指定" />
+                <n-form-item :label="tr('记录', 'Recorder')" path="recorder_user_id">
+                  <n-select v-model:value="preparationForm.recorder_user_id" :options="hostOptions" :virtual-scroll="false" :input-props="{ 'aria-label': tr('记录', 'Recorder') }" filterable clearable :placeholder="tr('未指定', 'Unassigned')" />
                 </n-form-item>
-                <n-form-item label="参与人">
+                <n-form-item :label="tr('参与人', 'Participants')">
                   <MeetingParticipantEditor v-model="preparationForm.participants" :member-options="memberOptions" :disabled="preparationSaving" />
                 </n-form-item>
               </n-form>
-              <p v-if="membersUnavailable" class="empty-inline">成员列表不可用，仅显示当前参与人</p>
+              <p v-if="membersUnavailable" class="empty-inline">{{ tr('成员列表不可用，仅显示当前参与人', 'Member list unavailable; showing current participants only') }}</p>
               <p v-if="preparationError" class="notice notice-error" role="alert">{{ preparationError }}</p>
             </section>
             <template #footer>
-              <n-button quaternary :disabled="preparationSaving" @click="preparationOpen = false">取消</n-button>
-              <n-button type="primary" :loading="preparationSaving" :disabled="preparationSaving" @click="savePreparation">保存准备信息</n-button>
+              <n-button quaternary :disabled="preparationSaving" @click="preparationOpen = false">{{ tr('取消', 'Cancel') }}</n-button>
+              <n-button type="primary" :loading="preparationSaving" :disabled="preparationSaving" @click="savePreparation">{{ tr('保存准备信息', 'Save Prep') }}</n-button>
             </template>
           </n-drawer-content>
         </n-drawer>
         <n-drawer :show="materialsOpen" placement="right" :width="'min(560px, 100vw)'" @update:show="(value: boolean) => { if (!value) materialsOpen = false }">
-          <n-drawer-content title="会议材料" closable>
+          <n-drawer-content :title="tr('会议材料', 'Materials')" closable>
             <AttachmentPanel target-type="meeting" :target-id="meeting.id" :attachments="materialItems" :can-contribute="canContribute" @uploaded="addMaterial" @deleted="removeMaterial" />
           </n-drawer-content>
         </n-drawer>
       </template>
       <!-- Rendered outside the non-completed branch so `?comment=` deep links open on completed meetings too. -->
       <n-drawer v-if="canComment" :show="commentsOpen" placement="right" :width="'min(560px, 100vw)'" @update:show="(value: boolean) => { if (!value) commentsOpen = false }">
-        <n-drawer-content title="评论" closable>
+        <n-drawer-content :title="tr('评论', 'Comments')" closable>
           <MeetingCommentsPanel :meeting="meeting" :focus-comment-id="focusCommentId" />
         </n-drawer-content>
       </n-drawer>
@@ -495,6 +497,6 @@ onBeforeUnmount(() => {
       <CalendarSubscriptionModal :show="calendarOpen" @update:show="calendarOpen = $event" />
       <WebhookNotifyModal :show="webhookOpen" :meeting="meeting" @update:show="webhookOpen = $event" />
     </template>
-    <p v-else class="notice notice-error">{{ error || '会议不存在' }}</p>
+    <p v-else class="notice notice-error">{{ error || tr('会议不存在', 'Meeting not found') }}</p>
   </main>
 </template>

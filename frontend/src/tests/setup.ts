@@ -34,4 +34,14 @@ Object.defineProperty(Element.prototype, 'scrollTo', {
   value: () => {},
 })
 
-afterEach(() => cleanup())
+import { setLocale } from '../i18n'
+
+afterEach(() => {
+  cleanup()
+  setLocale('zh')
+  try {
+    window.localStorage?.removeItem('meetflow_lang')
+  } catch {
+    // ignore
+  }
+})

@@ -35,6 +35,7 @@ import CalendarSubscriptionModal from '../components/CalendarSubscriptionModal.v
 import type { Meeting } from '../domain/meetings'
 import FocusMode from '../components/FocusMode.vue'
 import WebhookNotifyModal from '../components/WebhookNotifyModal.vue'
+import { setLocale } from '../i18n'
 import { renderWithProviders } from './helpers'
 
 const testUser = { id: 'u1', username: 'lin', display_name: '林宇' }
@@ -351,5 +352,54 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
     expect((notesTextarea as HTMLTextAreaElement).value).toContain('@开放问题: 是否需要做历史数据迁移？')
     expect(screen.getByTestId('ai-extract-status')).toHaveTextContent('已智能提炼 2 项决策 · 2 项行动 · 1 项开放问题')
     expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('supports switching UI to English and structures English notes with @Decision:, @Action:, @Question:', async () => {
+    setLocale('en')
+    const meeting = meetingFixture()
+    apiMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/v1/meetings/m1/ingest' && init?.method === 'POST') {
+        return Promise.resolve({
+          ...meeting,
+          meeting,
+          ingested_agenda_item_id: 'a1',
+          decisions: 1,
+          actions: 1,
+          questions: 1,
+          extracted: { decisions: 1, actions: 1, questions: 1 },
+        })
+      }
+      return Promise.resolve(meeting)
+    })
+
+    renderWithProviders(AgendaDetail, {
+      props: {
+        meeting,
+        item: meeting.agenda_items[0] as any,
+        canContribute: true,
+      },
+    })
+
+    expect(screen.getByText('✨ AI Extract')).toBeInTheDocument()
+    expect(screen.getByText('Outcomes')).toBeInTheDocument()
+
+    const notesTextarea = screen.getByLabelText('Agenda Notes')
+    await fireEvent.update(
+      notesTextarea,
+      'We decided to standardize on Canonical REST API\nTodo @lin verify webhook retries\nHow should we handle rate limits?',
+    )
+
+    await fireEvent.click(screen.getByTestId('ai-extract-notes-btn'))
+
+    await waitFor(() => {
+      expect(apiMock).toHaveBeenCalledWith(
+        '/api/v1/meetings/m1/ingest',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    expect((notesTextarea as HTMLTextAreaElement).value).toContain('@Decision: We decided to standardize on Canonical REST API')
+    expect((notesTextarea as HTMLTextAreaElement).value).toContain('@Action:[open][@lin] @lin verify webhook retries')
+    expect((notesTextarea as HTMLTextAreaElement).value).toContain('@Question: How should we handle rate limits?')
+    expect(screen.getByTestId('ai-extract-status')).toHaveTextContent('Extracted 1 decisions · 1 actions · 1 open questions')
   })
 })

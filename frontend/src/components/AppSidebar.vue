@@ -10,25 +10,28 @@ import { RouterLink, useRoute } from 'vue-router'
 
 import { session } from '../auth/session'
 import { unreadCount } from '../composables/useInboxUnread'
+import { useI18n } from '../i18n'
 
 type NavigationLink = { to: string; label: string; icon: Component }
 type MenuOverrides = NonNullable<GlobalThemeOverrides['Menu']>
 
-const workspaceLinks: NavigationLink[] = [
-  { to: '/', label: '为你', icon: House },
-  { to: '/projects', label: '项目', icon: FolderKanban },
-  { to: '/meetings', label: '会议', icon: CalendarDays },
-  { to: '/actions', label: '行动项', icon: SquareCheckBig },
-  { to: '/decisions', label: '决策', icon: Gavel },
-  { to: '/inbox', label: '收件箱', icon: Inbox },
-  { to: '/ai-tasks', label: 'AI 任务', icon: Bot },
-]
+const { tr } = useI18n()
 
-const adminLinks: NavigationLink[] = [
-  { to: '/admin/users', label: '用户', icon: UsersRound },
-  { to: '/admin/plugins', label: '插件', icon: Puzzle },
-  { to: '/account', label: '设置', icon: Settings },
-]
+const workspaceLinks = computed<NavigationLink[]>(() => [
+  { to: '/', label: tr('为你', 'For You'), icon: House },
+  { to: '/projects', label: tr('项目', 'Projects'), icon: FolderKanban },
+  { to: '/meetings', label: tr('会议', 'Meetings'), icon: CalendarDays },
+  { to: '/actions', label: tr('行动项', 'Actions'), icon: SquareCheckBig },
+  { to: '/decisions', label: tr('决策', 'Decisions'), icon: Gavel },
+  { to: '/inbox', label: tr('收件箱', 'Inbox'), icon: Inbox },
+  { to: '/ai-tasks', label: tr('AI 任务', 'AI Tasks'), icon: Bot },
+])
+
+const adminLinks = computed<NavigationLink[]>(() => [
+  { to: '/admin/users', label: tr('用户', 'Users'), icon: UsersRound },
+  { to: '/admin/plugins', label: tr('插件', 'Plugins'), icon: Puzzle },
+  { to: '/account', label: tr('设置', 'Settings'), icon: Settings },
+])
 
 // NMenu paints its own inline theme variables, so the dark sidebar needs its own overrides
 // instead of the CSS variable cascade (brand colours stay in styles.css).
@@ -51,7 +54,7 @@ const route = useRoute()
 const activeKey = computed(() => {
   const path = route.path
   if (path === '/') return '/'
-  const match = [...workspaceLinks, ...adminLinks].find(
+  const match = [...workspaceLinks.value, ...adminLinks.value].find(
     (link) => link.to !== '/' && (path === link.to || path.startsWith(`${link.to}/`)),
   )
   return match?.to ?? null
@@ -64,7 +67,7 @@ function renderNavIcon(icon: Component): VNodeChild {
 }
 
 function renderLabel(option: MenuOption): VNodeChild {
-  const link = [...workspaceLinks, ...adminLinks].find((item) => item.to === option.key)
+  const link = [...workspaceLinks.value, ...adminLinks.value].find((item) => item.to === option.key)
   if (!link) return typeof option.label === 'string' ? option.label : null
   // The icon lives inside the anchor so the whole item is one link target (the existing tests
   // assert every navigation link contains its svg).
@@ -82,11 +85,11 @@ function renderLabel(option: MenuOption): VNodeChild {
 }
 
 const workspaceOptions = computed<MenuOption[]>(() =>
-  workspaceLinks.map((link) => ({ key: link.to, label: link.label })),
+  workspaceLinks.value.map((link) => ({ key: link.to, label: link.label })),
 )
 
 const adminOptions = computed<MenuOption[]>(() =>
-  adminLinks.map((link) => ({ key: link.to, label: link.label })),
+  adminLinks.value.map((link) => ({ key: link.to, label: link.label })),
 )
 </script>
 
@@ -99,9 +102,9 @@ const adminOptions = computed<MenuOption[]>(() =>
   >
     <RouterLink class="workspace-brand" to="/">
       <span class="brand-mark brand-mark-small">M</span>
-      <span><strong>MeetFlow</strong><small>团队会议工作区</small></span>
+      <span><strong>MeetFlow</strong><small>{{ tr('团队会议工作区', 'Team Workspace') }}</small></span>
     </RouterLink>
-    <nav class="sidebar-nav" aria-label="工作区导航">
+    <nav class="sidebar-nav" :aria-label="tr('工作区导航', 'Workspace navigation')">
       <NMenu
         inverted
         :options="workspaceOptions"
@@ -110,8 +113,8 @@ const adminOptions = computed<MenuOption[]>(() =>
         :render-label="renderLabel"
       />
     </nav>
-    <nav v-if="session.user?.role === 'admin'" class="sidebar-nav sidebar-admin" aria-label="管理员导航">
-      <p>管理员</p>
+    <nav v-if="session.user?.role === 'admin'" class="sidebar-nav sidebar-admin" :aria-label="tr('管理员导航', 'Admin navigation')">
+      <p>{{ tr('管理员', 'Admin') }}</p>
       <NMenu
         inverted
         :options="adminOptions"
@@ -122,3 +125,4 @@ const adminOptions = computed<MenuOption[]>(() =>
     </nav>
   </NLayoutSider>
 </template>
+

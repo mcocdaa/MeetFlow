@@ -10,7 +10,10 @@ import { parseUtcTimestamp } from '../utils/time'
 import MarkdownEditor from './MarkdownEditor.vue'
 import type { MarkdownEditorHandle } from './MarkdownEditor.vue'
 import OutcomeComposer from './OutcomeComposer.vue'
+import { useI18n } from '../i18n'
 import { Check, ChevronLeft, ChevronRight } from '@lucide/vue'
+
+const { locale, tr } = useI18n()
 
 const props = defineProps<{
   show: boolean
@@ -207,7 +210,7 @@ async function smartExtractFocusNotes() {
   extracting.value = true
   try {
     const flushed = typeof notesEditor.value?.flush === 'function' ? notesEditor.value.flush() : localNotes.value
-    const structured = smartStructureAgendaNotes(flushed, currentItem.value.title)
+    const structured = smartStructureAgendaNotes(flushed, currentItem.value.title, locale.value)
     localNotes.value = structured
     const res = await ingestMeetingNotes(props.meeting.id, {
       agenda_item_id: currentItem.value.id,
@@ -221,7 +224,11 @@ async function smartExtractFocusNotes() {
     const decisions = res.decisions ?? res.extracted?.decisions ?? 0
     const actions = res.actions ?? res.extracted?.actions ?? 0
     const questions = res.questions ?? res.extracted?.questions ?? 0
-    message.success(`已智能提炼 ${decisions} 项决策、${actions} 项行动、${questions} 项开放问题`)
+    message.success(
+      locale.value === 'en'
+        ? `Extracted ${decisions} decisions, ${actions} actions, and ${questions} open questions`
+        : `已智能提炼 ${decisions} 项决策、${actions} 项行动、${questions} 项开放问题`,
+    )
     emit('reload')
   } catch (caught) {
     message.error(errorMessage(caught, 'AI 提炼失败，请检查笔记标签格式'))
@@ -255,7 +262,11 @@ async function toggleActionStatus(action: ActionItem, targetStatus?: ActionStatu
     })
     action.status = updated.status
     action.version = updated.version
-    message.success(`行动项状态更新为: ${actionStatusLabel(nextStatus)}`)
+    message.success(
+      locale.value === 'en'
+        ? `Action status updated to: ${actionStatusLabel(nextStatus)}`
+        : `行动项状态更新为: ${actionStatusLabel(nextStatus)}`,
+    )
     emit('reload')
   } catch (caught) {
     message.error(errorMessage(caught, '更新行动项失败'))
@@ -275,6 +286,15 @@ function cycleActionStatus(action: ActionItem) {
 }
 
 function actionStatusLabel(status: ActionStatus): string {
+  if (locale.value === 'en') {
+    const enMap: Record<ActionStatus, string> = {
+      open: 'Todo',
+      in_progress: 'Doing',
+      done: 'Done',
+      canceled: 'Canceled',
+    }
+    return enMap[status] || status
+  }
   const map: Record<ActionStatus, string> = {
     open: '待办',
     in_progress: '进行中',
@@ -285,7 +305,7 @@ function actionStatusLabel(status: ActionStatus): string {
 }
 
 const noteActionTags = computed(() => {
-  const regex = /@行动:(\[[^\]]*\])*\s*([^\n\r]+)/g
+  const regex = /@(?:行动|Action|action):(\[[^\]]*\])*\s*([^\n\r]+)/g
   const matches: string[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(localNotes.value)) !== null) {
@@ -302,7 +322,7 @@ const noteActionTags = computed(() => {
       <div class="focus-bar-left">
         <div class="focus-live-badge" v-if="meeting.status === 'in_progress'">
           <span class="live-dot-pulse"></span>
-          <span class="live-time-text">{{ liveElapsed || '进行中' }}</span>
+          <span class="live-time-text">{{ liveElapsed || tr('进行中', 'Live') }}</span>
         </div>
         <div class="focus-meeting-title">
           <span class="project-pill">{{ meeting.project.name }}</span>
@@ -315,7 +335,7 @@ const noteActionTags = computed(() => {
           <span class="topic-index">{{ currentIndex + 1 }}/{{ totalItems }}</span>
           <span class="topic-title">{{ currentItem.title }}</span>
           <n-tag v-if="currentItem.presenter" size="small" :bordered="false" class="presenter-tag">
-            主讲: {{ currentItem.presenter.display_name }}
+            {{ tr('主讲:', 'Speaker:') }} {{ currentItem.presenter.display_name }}
           </n-tag>
         </div>
         <div class="focus-progress-wrapper">
@@ -335,7 +355,7 @@ const noteActionTags = computed(() => {
             type="button"
             class="icon-nav-btn"
             :disabled="currentIndex <= 0"
-            title="上一议题"
+            :title="tr('上一议题', 'Previous topic')"
             @click="selectAgenda(meeting.agenda_items[currentIndex - 1].id)"
           >
             <ChevronLeft :size="14" />
@@ -344,7 +364,7 @@ const noteActionTags = computed(() => {
             type="button"
             class="icon-nav-btn"
             :disabled="currentIndex >= totalItems - 1"
-            title="下一议题"
+            :title="tr('下一议题', 'Next topic')"
             @click="selectAgenda(meeting.agenda_items[currentIndex + 1].id)"
           >
             <ChevronRight :size="14" />
@@ -358,7 +378,7 @@ const noteActionTags = computed(() => {
           :disabled="advancing"
           @click="completeAndAdvance"
         >
-          <span>完成并下一项</span>
+          <span>{{ tr('完成并下一项', 'Complete & Next') }}</span>
           <kbd class="shortcut-key">⌘↵</kbd>
         </button>
 
@@ -369,11 +389,11 @@ const noteActionTags = computed(() => {
           :disabled="saving"
           @click="persistCurrentNotes"
         >
-          {{ saving ? '保存中…' : '保存笔记' }}
+          {{ saving ? tr('保存中…', 'Saving…') : tr('保存笔记', 'Save Notes') }}
         </button>
 
-        <button type="button" class="focus-exit-btn" @click="exitFocus" title="退出专注模式 (Esc)">
-          退出专注 <kbd>Esc</kbd>
+        <button type="button" class="focus-exit-btn" @click="exitFocus" :title="tr('退出专注模式 (Esc)', 'Exit Focus Mode (Esc)')">
+          {{ tr('退出专注', 'Exit Focus') }} <kbd>Esc</kbd>
         </button>
       </div>
     </header>
@@ -386,17 +406,20 @@ const noteActionTags = computed(() => {
           <div class="agenda-title-row" v-if="currentItem">
             <h1 class="focus-agenda-title">{{ currentItem.title }}</h1>
             <span class="focus-agenda-type">
-              {{ currentItem.agenda_type === 'decision' ? '决策议题' : currentItem.agenda_type === 'discussion' ? '讨论议题' : '信息同步' }}
+              {{ currentItem.agenda_type === 'decision' ? tr('决策议题', 'Decision') : currentItem.agenda_type === 'discussion' ? tr('讨论议题', 'Discussion') : tr('信息同步', 'Info Sync') }}
             </span>
           </div>
-          <p class="syntax-guide-pill">
+          <p v-if="locale === 'zh'" class="syntax-guide-pill">
             💡 支持在手记中直接输入 <code>@决策: 结论</code>、<code>@行动:[待办][@成员][日期] 事项</code>、<code>@开放问题: 待确认</code> 自动双向流转产出。
           </p>
+          <p v-else class="syntax-guide-pill">
+            💡 Type <code>@Decision: conclusion</code>, <code>@Action:[open][@owner][date] task</code>, or <code>@Question: item</code> to auto-sync outcomes.
+          </p>
           <div class="quick-tag-toolbar" v-if="canContribute">
-            <span class="quick-tag-label">快捷标签:</span>
-            <button type="button" class="tag-insert-btn tag-btn-decision" @click="insertTag('@决策: ')">+ 决策</button>
-            <button type="button" class="tag-insert-btn tag-btn-action" @click="insertTag('@行动:[open] ')">+ 待办行动</button>
-            <button type="button" class="tag-insert-btn tag-btn-question" @click="insertTag('@开放问题: ')">+ 开放问题</button>
+            <span class="quick-tag-label">{{ tr('快捷标签:', 'Quick Tags:') }}</span>
+            <button type="button" class="tag-insert-btn tag-btn-decision" @click="insertTag(locale === 'en' ? '@Decision: ' : '@决策: ')">{{ tr('+ 决策', '+ Decision') }}</button>
+            <button type="button" class="tag-insert-btn tag-btn-action" @click="insertTag(locale === 'en' ? '@Action:[open] ' : '@行动:[open] ')">{{ tr('+ 待办行动', '+ Action') }}</button>
+            <button type="button" class="tag-insert-btn tag-btn-question" @click="insertTag(locale === 'en' ? '@Question: ' : '@开放问题: ')">{{ tr('+ 开放问题', '+ Question') }}</button>
             <button
               type="button"
               class="tag-insert-btn tag-btn-ai"
@@ -404,7 +427,7 @@ const noteActionTags = computed(() => {
               :disabled="saving || extracting"
               @click="smartExtractFocusNotes"
             >
-              ✨ {{ extracting ? '正在提炼…' : 'AI 智能提炼' }}
+              ✨ {{ extracting ? tr('正在提炼…', 'Extracting…') : tr('AI 智能提炼', 'AI Extract') }}
             </button>
           </div>
         </div>
@@ -413,15 +436,15 @@ const noteActionTags = computed(() => {
           <MarkdownEditor
             ref="notesEditor"
             :model-value="localNotes"
-            label="议题笔记"
-            placeholder="专注于此项议题的核心讨论、事实依据与快速手记…"
+            :label="tr('议题笔记', 'Agenda Notes')"
+            :placeholder="tr('专注于此项议题的核心讨论、事实依据与快速手记…', 'Focus on key discussion points, evidence, and live notes…')"
             :disabled="!canContribute || saving || extracting"
             @update:model-value="onNotesInput"
           />
         </div>
         <div v-else class="empty-state">
-          <strong>会议暂无议题</strong>
-          <p>请在退出专注模式后添加议题。</p>
+          <strong>{{ tr('会议暂无议题', 'No agenda items') }}</strong>
+          <p>{{ tr('请在退出专注模式后添加议题。', 'Exit Focus Mode to add agenda items.') }}</p>
         </div>
       </section>
 
@@ -429,15 +452,15 @@ const noteActionTags = computed(() => {
       <aside class="focus-outcomes-pane" v-if="currentItem">
         <div class="outcomes-header">
           <div class="outcomes-title-area">
-            <h3>实时决议与待办</h3>
+            <h3>{{ tr('实时决议与待办', 'Live Outcomes') }}</h3>
             <span class="outcomes-count">
-              {{ currentItem.decisions.length + currentItem.actions.length + currentItem.open_questions.length }} 项产出
+              {{ currentItem.decisions.length + currentItem.actions.length + currentItem.open_questions.length }} {{ tr('项产出', 'outcomes') }}
             </span>
           </div>
           <div v-if="canContribute" class="quick-composer-btns">
-            <button type="button" class="tiny-btn" @click="composer = 'decision'">+ 决策</button>
-            <button type="button" class="tiny-btn" @click="composer = 'action'">+ 行动</button>
-            <button type="button" class="tiny-btn" @click="composer = 'question'">+ 问题</button>
+            <button type="button" class="tiny-btn" @click="composer = 'decision'">{{ tr('+ 决策', '+ Decision') }}</button>
+            <button type="button" class="tiny-btn" @click="composer = 'action'">{{ tr('+ 行动', '+ Action') }}</button>
+            <button type="button" class="tiny-btn" @click="composer = 'question'">{{ tr('+ 问题', '+ Question') }}</button>
           </div>
         </div>
 
@@ -462,8 +485,8 @@ const noteActionTags = computed(() => {
             @mouseleave="hoveredOutcomeId = null"
           >
             <div class="card-badge-row">
-              <span class="card-badge badge-decision">决策</span>
-              <span v-if="decision.is_derived" class="derived-badge">来自手记</span>
+              <span class="card-badge badge-decision">{{ tr('决策', 'Decision') }}</span>
+              <span v-if="decision.is_derived" class="derived-badge">{{ tr('来自手记', 'From Notes') }}</span>
             </div>
             <div class="card-title">{{ decision.title }}</div>
           </div>
@@ -488,7 +511,7 @@ const noteActionTags = computed(() => {
                   class="action-checkbox-toggle"
                   :class="[`status-${action.status}`]"
                   :disabled="!canContribute"
-                  title="点击切换完成状态"
+                  :title="tr('点击切换完成状态', 'Toggle completion')"
                   @click="toggleActionStatus(action)"
                 >
                   <span v-if="action.status === 'done'" class="check-mark-animated"><Check :size="12" :stroke-width="3" /></span>
@@ -505,7 +528,7 @@ const noteActionTags = computed(() => {
                 class="status-cycle-pill"
                 :class="[`pill-${action.status}`]"
                 :disabled="!canContribute"
-                title="点击循环状态 (待办 -> 进行中 -> 已完成)"
+                :title="tr('点击循环状态 (待办 -> 进行中 -> 已完成)', 'Click to cycle status (Todo -> Doing -> Done)')"
                 @click="cycleActionStatus(action)"
               >
                 {{ actionStatusLabel(action.status) }}
@@ -514,8 +537,8 @@ const noteActionTags = computed(() => {
 
             <div class="action-card-meta">
               <span v-if="action.owner" class="meta-tag owner-tag">@{{ action.owner.display_name }}</span>
-              <span v-if="action.due_date" class="meta-tag due-tag">截止 {{ action.due_date }}</span>
-              <span v-if="action.is_derived" class="derived-badge">手记双向映射</span>
+              <span v-if="action.due_date" class="meta-tag due-tag">{{ tr('截止', 'Due') }} {{ action.due_date }}</span>
+              <span v-if="action.is_derived" class="derived-badge">{{ tr('手记双向映射', 'Two-way Sync') }}</span>
             </div>
           </div>
 
@@ -529,8 +552,8 @@ const noteActionTags = computed(() => {
             @mouseleave="hoveredOutcomeId = null"
           >
             <div class="card-badge-row">
-              <span class="card-badge badge-question">开放问题</span>
-              <span v-if="question.is_derived" class="derived-badge">来自手记</span>
+              <span class="card-badge badge-question">{{ tr('开放问题', 'Open Question') }}</span>
+              <span v-if="question.is_derived" class="derived-badge">{{ tr('来自手记', 'From Notes') }}</span>
             </div>
             <div class="card-title">{{ question.question_markdown }}</div>
           </div>
@@ -539,7 +562,8 @@ const noteActionTags = computed(() => {
             v-if="!currentItem.decisions.length && !currentItem.actions.length && !currentItem.open_questions.length"
             class="empty-outcomes-note"
           >
-            <p>在左侧记录输入 <code>@行动: 事项内容</code>，或点击右上角按钮添加结构化决议与待办。</p>
+            <p v-if="locale === 'zh'">在左侧记录输入 <code>@行动: 事项内容</code>，或点击右上角按钮添加结构化决议与待办。</p>
+            <p v-else>Type <code>@Action: task</code> in notes on the left, or click the buttons above to add outcomes.</p>
           </div>
         </div>
       </aside>
@@ -565,7 +589,8 @@ const noteActionTags = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  gap: 16px;
+  padding: 0 20px;
   height: 60px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
@@ -577,8 +602,10 @@ const noteActionTags = computed(() => {
 .focus-bar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex: 1 1 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .focus-live-badge {
@@ -615,8 +642,9 @@ const noteActionTags = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   min-width: 0;
+  overflow: hidden;
 }
 
 .focus-meeting-title strong {
@@ -641,15 +669,19 @@ const noteActionTags = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 3px;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 320px;
 }
 
 .focus-topic-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .topic-index {
@@ -666,7 +698,7 @@ const noteActionTags = computed(() => {
 .topic-title {
   font-weight: 700;
   color: #0f172a;
-  max-width: 240px;
+  max-width: 170px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -679,7 +711,7 @@ const noteActionTags = computed(() => {
 }
 
 .focus-progress-wrapper {
-  width: 180px;
+  width: 160px;
 }
 
 .focus-bar-right {
@@ -918,24 +950,29 @@ const noteActionTags = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
 
 .outcomes-title-area h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 750;
   color: #0f172a;
+  white-space: nowrap;
 }
 
 .outcomes-count {
   font-size: 0.75rem;
   color: #64748b;
+  white-space: nowrap;
 }
 
 .quick-composer-btns {
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .tiny-btn {
@@ -946,6 +983,8 @@ const noteActionTags = computed(() => {
   color: #1e293b;
   font-size: 0.75rem;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -953,6 +992,12 @@ const noteActionTags = computed(() => {
 .tiny-btn:hover {
   background: #f1f5f9;
   border-color: #94a3b8;
+}
+
+@media (max-width: 1080px) {
+  .focus-meeting-title strong {
+    display: none;
+  }
 }
 
 .outcomes-cards-list {

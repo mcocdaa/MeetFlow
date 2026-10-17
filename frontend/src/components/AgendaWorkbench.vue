@@ -4,9 +4,11 @@ import { errorMessage } from '../utils/errors'
 
 import { api } from '../api/client'
 import type { AgendaItem, Meeting } from '../domain/meetings'
+import { useI18n } from '../i18n'
 import AgendaDetail from './AgendaDetail.vue'
 import AgendaQueue from './AgendaQueue.vue'
 
+const { tr } = useI18n()
 const props = defineProps<{
   meeting: Meeting
   canContribute: boolean
@@ -67,7 +69,7 @@ defineExpose({ flushCurrentDraft })
     <Transition name="agenda-detail" mode="out-in">
       <AgendaDetail v-if="selected" :key="selected.id" ref="detail" :meeting="meeting" :item="selected" :can-contribute="canContribute" @changed="emit('reload')" @advance="advance" />
       <div v-else class="agenda-empty-compact" data-testid="agenda-detail">
-        <div><p class="eyebrow">Current topic</p><h2>还没有议题</h2><p>从右侧队列添加本次会议的第一个议题。</p></div>
+        <div><p class="eyebrow">Current topic</p><h2>{{ tr('还没有议题', 'No agenda items yet') }}</h2><p>{{ tr('从右侧队列添加本次会议的第一个议题。', 'Add the first agenda item for this meeting from the queue on the right.') }}</p></div>
       </div>
     </Transition>
     <AgendaQueue :meeting="meeting" :can-contribute="canContribute" :selected-id="selectedId" :opening-id="openingId" :open-error="openError" @select="openAgenda" @changed="emit('reload')" />
