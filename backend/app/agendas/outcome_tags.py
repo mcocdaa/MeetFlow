@@ -37,7 +37,7 @@ def parse_action_metadata(
     raw_payload: str,
 ) -> tuple[str, ActionStatus, str | None, date | None]:
     """Parse [status][@owner][due_date] from the beginning of raw action content."""
-    text = raw_payload.strip()
+    text = raw_payload.strip().replace(r"\[", "[").replace(r"\]", "]")
     status = ActionStatus.open
     owner: str | None = None
     due_date_val: date | None = None

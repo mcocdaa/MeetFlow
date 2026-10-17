@@ -202,18 +202,18 @@ function actionButtons(row: ActionRow): VNodeChild[] {
 }
 
 const columns: DataTableColumns<ActionRow> = [
-  { title: '内容', key: 'content', minWidth: 260, ellipsis: { tooltip: true } },
-  { title: '负责人', key: 'owner', minWidth: 130, render: (row) => nameOf(row.owner_user_id) },
+  { title: '内容', key: 'content', minWidth: 160, ellipsis: { tooltip: true } },
+  { title: '负责人', key: 'owner', width: 72, render: (row) => nameOf(row.owner_user_id) },
   {
     title: '优先级',
     key: 'priority',
-    minWidth: 100,
+    width: 72,
     render: (row) => h(StatusPill, { status: row.priority, kind: 'priority' }),
   },
   {
     title: '状态',
     key: 'status',
-    minWidth: 260,
+    width: 148,
     render: (row) => h('div', { class: 'action-status-cell' }, [
       h(StatusPill, { status: row.status, kind: 'action' }),
       row.is_derived
@@ -224,7 +224,7 @@ const columns: DataTableColumns<ActionRow> = [
   {
     title: '截止日期',
     key: 'due_date',
-    minWidth: 170,
+    width: 124,
     render: (row) => {
       const lines: VNodeChild[] = [
         row.due_date
@@ -238,7 +238,7 @@ const columns: DataTableColumns<ActionRow> = [
   {
     title: '来源会议',
     key: 'meeting',
-    minWidth: 120,
+    width: 80,
     render: (row) => (row.meeting_id
       ? h(RouterLink, { to: `/meetings/${row.meeting_id}` }, { default: () => '来源会议' })
       : h('span', { class: 'muted' }, '—')),
@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
         :row-key="rowKey"
         :row-props="rowProps"
         :pagination="pagination"
-        :scroll-x="960"
+        :scroll-x="656"
         :bordered="false"
         @update:page="changePage"
       />
@@ -300,17 +300,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.action-status-cell {
-  display: flex;
+:deep(.action-status-cell) {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px;
+  white-space: nowrap;
 }
 
-.action-due-cell {
+:deep(.action-due-cell) {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  white-space: nowrap;
 }
 
 .action-due-overdue {
