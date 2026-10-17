@@ -10,7 +10,7 @@ import StatusPill from '../components/StatusPill.vue'
 import { loadUserNames, nameOf } from '../composables/useUserNameMap'
 import type { PluginJob } from '../domain/plugin-jobs'
 import { useI18n } from '../i18n'
-import { errorMessage } from '../utils/errors'
+import { errorMessage, translateBackendError } from '../utils/errors'
 import { formatDateTime } from '../utils/time'
 
 const TERMINAL_STATUSES = ['succeeded', 'failed', 'interrupted', 'canceled']
@@ -126,7 +126,7 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
 
 <template>
   <main class="workspace-page ai-tasks-page">
-    <PageHeader eyebrow="AI work" :title="tr('AI 任务', 'AI Tasks')" :summary="tr('这里保留运行状态、结果与失败恢复；生成内容会直接写入发起时的编辑器。', 'Track AI execution status, results, and recovery; generated content is applied directly to the originating editor.')" />
+    <PageHeader :eyebrow="tr('AI 协作', 'AI work')" :title="tr('AI 任务', 'AI Tasks')" :summary="tr('这里保留运行状态、结果与失败恢复；生成内容会直接写入发起时的编辑器。', 'Track AI execution status, results, and recovery; generated content is applied directly to the originating editor.')" />
     <section class="workspace-section ai-task-filters">
       <span>{{ tr('显示范围', 'Scope') }}</span>
       <n-radio-group v-model:value="includeHistory" size="small" :aria-label="tr('显示范围', 'Scope')">
@@ -152,7 +152,7 @@ onUnmounted(() => { if (poller) clearInterval(poller) })
         </header>
         <p v-if="canApplyHint(job)" class="ai-task-apply-hint">{{ tr('在发起页面应用此结果', 'Apply this result on the originating page') }}</p>
         <div v-if="job.error_message" class="ai-task-error">
-          <p>{{ job.error_message }}</p>
+          <p>{{ translateBackendError(job.error_message, job.error_code) }}</p>
         </div>
         <ul class="ai-task-meta">
           <li v-if="job.rerun_of_id">{{ tr(`重跑自任务 #${job.rerun_of_id}`, `Rerun of task #${job.rerun_of_id}`) }}</li>

@@ -1,12 +1,98 @@
 const ACTIVE_JOB_STATUSES = new Set(['queued', 'requesting'])
 const POLL_INTERVAL_MS = 3_000
 
+const EN_WORKER_ERROR_MAP = {
+  '认证或权限失败；检查管理员插件设置中的 API Key、服务地址和权限。':
+    'Authentication or permission failed; check API Key, endpoint URL, and permissions in plugin settings.',
+  'AI 服务额度不足；请充值或更换有可用额度的 API Key。':
+    'Insufficient AI service balance; please top up or replace the API Key.',
+  '找不到 AI 服务或模型；检查服务地址和模型名称。':
+    'AI service or model not found; check endpoint URL and model name.',
+  'AI 服务响应超时；请稍后重试或检查超时设置。':
+    'AI service timed out; please try again later or check timeout settings.',
+  'AI 服务限流或配额已用尽；请稍后重试并检查服务额度。':
+    'AI service rate-limited or quota exhausted; please try again later and check quota.',
+  'AI 服务返回 HTTP 状态错误。':
+    'AI service returned an HTTP status error.',
+  '无法连接 AI 服务；检查服务地址和网络。':
+    'Unable to connect to AI service; check endpoint URL and network.',
+  'AI 插件配置不完整；请联系管理员检查插件设置。':
+    'AI plugin configuration is incomplete; please check plugin settings.',
+  'AI 任务输入不符合插件要求。':
+    'AI task input does not meet plugin requirements.',
+  'AI 服务返回内容与插件格式不兼容。':
+    'AI service response is incompatible with plugin format.',
+  'AI 任务执行失败；请查看技术详情或联系管理员。':
+    'AI task execution failed; check technical details or contact an administrator.',
+  '服务重启，未重复发送 AI 请求':
+    'Server restarted; AI request was not resent',
+}
+
+const langSubscribers = new Set()
+let observersInstalled = false
+
 function isEn() {
   try {
-    return globalThis.localStorage?.getItem('meetflow_lang') === 'en'
+    if (typeof globalThis.localStorage?.getItem === 'function') {
+      const stored = globalThis.localStorage.getItem('meetflow_lang')
+      if (stored === 'en') return true
+      if (stored === 'zh') return false
+    }
   } catch {
-    return false
+    // Ignore storage errors in restricted environments.
   }
+  try {
+    const docLang = globalThis.document?.documentElement?.lang
+    if (docLang) return docLang.toLowerCase().startsWith('en')
+  } catch {
+    // Ignore DOM errors in restricted environments.
+  }
+  return false
+}
+
+function notifyLangSubscribers(eventOrRecords) {
+  let en = isEn()
+  if (eventOrRecords && typeof eventOrRecords === 'object' && 'detail' in eventOrRecords && eventOrRecords.detail?.lang) {
+    en = eventOrRecords.detail.lang === 'en'
+  } else if (Array.isArray(eventOrRecords)) {
+    const docLang = globalThis.document?.documentElement?.lang
+    if (docLang === 'en' || docLang === 'zh') {
+      en = docLang === 'en'
+    }
+  }
+  for (const sub of langSubscribers) {
+    sub.value = en
+  }
+}
+
+function ensureLangObservers() {
+  if (observersInstalled) return
+  observersInstalled = true
+  try {
+    if (typeof globalThis.addEventListener === 'function') {
+      globalThis.addEventListener('meetflow:lang-change', notifyLangSubscribers)
+      globalThis.addEventListener('storage', notifyLangSubscribers)
+    }
+    if (typeof MutationObserver !== 'undefined' && globalThis.document?.documentElement) {
+      const observer = new MutationObserver(notifyLangSubscribers)
+      observer.observe(globalThis.document.documentElement, {
+        attributes: true,
+        attributeFilter: ['lang'],
+      })
+    }
+  } catch {
+    // Ignore observer errors in restricted environments.
+  }
+}
+
+function createReactiveLangGetter(vue) {
+  ensureLangObservers()
+  if (vue && typeof vue.ref === 'function') {
+    const langSignal = vue.ref(isEn())
+    langSubscribers.add(langSignal)
+    return () => langSignal.value
+  }
+  return isEn
 }
 
 const assistantDefinitions = [
@@ -100,12 +186,17 @@ async function waitForTerminalJob(request, submittedJob) {
   return job
 }
 
-function failureMessage(jobOrError) {
+function failureMessage(jobOrError, en = isEn()) {
+  let raw = ''
   if (jobOrError && typeof jobOrError === 'object' && typeof jobOrError.error_message === 'string') {
-    return jobOrError.error_message
+    raw = jobOrError.error_message
+  } else if (jobOrError instanceof Error && jobOrError.message) {
+    raw = jobOrError.message
   }
-  if (jobOrError instanceof Error && jobOrError.message) return jobOrError.message
-  return isEn() ? 'AI generation failed, please try again later' : 'AI 生成失败，请稍后重试'
+  if (raw) {
+    return en ? (EN_WORKER_ERROR_MAP[raw] || raw) : raw
+  }
+  return en ? 'AI generation failed, please try again later' : 'AI 生成失败，请稍后重试'
 }
 
 function createAssistantComponent(pluginApi, definition) {
@@ -124,6 +215,7 @@ function createAssistantComponent(pluginApi, definition) {
     emits: ['update:modelValue', 'update:busy', 'notice'],
     setup(props, { emit }) {
       const running = ref(false)
+      const reactiveIsEn = createReactiveLangGetter(vue)
 
       const setBusy = (active, label = '') => emit('update:busy', { active, label })
       const notice = (message) => emit('notice', message)
@@ -131,7 +223,8 @@ function createAssistantComponent(pluginApi, definition) {
       async function run() {
         if (running.value) return
         running.value = true
-        const busyText = isEn() ? definition.busyLabelEn : definition.busyLabel
+        const enNow = reactiveIsEn()
+        const busyText = enNow ? definition.busyLabelEn : definition.busyLabel
         setBusy(true, busyText)
         try {
           const context = contextFor(props, definition.targetType)
@@ -146,16 +239,16 @@ function createAssistantComponent(pluginApi, definition) {
           })
           const job = await waitForTerminalJob(request, submittedJob)
           if (job.status !== 'succeeded') {
-            notice(failureMessage(job))
+            notice(failureMessage(job, reactiveIsEn()))
             return
           }
           if (typeof job.result?.markdown !== 'string') {
-            notice(isEn() ? 'AI returned no usable result' : 'AI 未返回可用结果')
+            notice(reactiveIsEn() ? 'AI returned no usable result' : 'AI 未返回可用结果')
             return
           }
           emit('update:modelValue', job.result.markdown)
         } catch (error) {
-          notice(failureMessage(error))
+          notice(failureMessage(error, reactiveIsEn()))
         } finally {
           running.value = false
           setBusy(false)
@@ -163,7 +256,7 @@ function createAssistantComponent(pluginApi, definition) {
       }
 
       return () => {
-        const en = isEn()
+        const en = reactiveIsEn()
         return h('div', { class: 'ai-work-assistant-control' }, [
           h('div', { class: 'ai-work-assistant-menu-heading' }, [
             h('span', { class: 'ai-work-assistant-menu-title' }, en ? definition.menuTitleEn : definition.menuTitle),
@@ -189,14 +282,18 @@ function createTaskExtension(pluginApi) {
   return {
     props: { job: { type: Object, required: true } },
     setup(props) {
+      const reactiveIsEn = createReactiveLangGetter(vue)
       // Keep the card quiet for jobs without a result (failed/queued): an empty
       // "查看 AI 结果" disclosure would only add noise next to the error message.
-      return () => (props.job.result?.markdown
-        ? h('details', { class: 'ai-work-assistant-task' }, [
-          h('summary', isEn() ? 'View AI Result' : '查看 AI 结果'),
-          h('pre', props.job.result.markdown),
-        ])
-        : null)
+      return () => {
+        const en = reactiveIsEn()
+        return props.job.result?.markdown
+          ? h('details', { class: 'ai-work-assistant-task' }, [
+            h('summary', en ? 'View AI Result' : '查看 AI 结果'),
+            h('pre', props.job.result.markdown),
+          ])
+          : null
+      }
     },
   }
 }

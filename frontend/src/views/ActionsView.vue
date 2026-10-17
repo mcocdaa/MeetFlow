@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Action hub</p><h1>{{ tr('行动项', 'Actions') }}</h1><p>{{ tr('会议产生的行动在这里汇总、筛选并持续跟踪。', 'Track, filter, and follow up on action items across all meetings.') }}</p></div>
+      <div><p class="eyebrow">{{ tr('行动中心', 'Action hub') }}</p><h1>{{ tr('行动项', 'Actions') }}</h1><p>{{ tr('会议产生的行动在这里汇总、筛选并持续跟踪。', 'Track, filter, and follow up on action items across all meetings.') }}</p></div>
       <span class="metric"><strong>{{ total }}</strong>{{ tr('项', ' items') }}</span>
     </header>
     <section class="workspace-section filter-panel">

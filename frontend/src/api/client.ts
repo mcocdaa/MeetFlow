@@ -1,4 +1,5 @@
 import { locale } from '../i18n'
+import { translateBackendError } from '../utils/errors'
 
 export class ApiError extends Error {
   constructor(
@@ -25,7 +26,12 @@ export function apiErrorMessage(
     && 'message' in payload.error
     && typeof payload.error.message === 'string'
   ) {
-    return payload.error.message
+    const code = 'code' in payload.error && typeof payload.error.code === 'string' ? payload.error.code : null
+    const translated = translateBackendError(payload.error.message, code)
+    if (locale.value === 'en' && /[\u4e00-\u9fff]/.test(translated) && !/[\u4e00-\u9fff]/.test(fallback)) {
+      return fallback
+    }
+    return translated
   }
   return fallback
 }

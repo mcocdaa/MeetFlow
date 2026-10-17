@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { api, apiDownload, ApiError } from '../api/client'
+import { api, apiDownload, ApiError, apiErrorMessage } from '../api/client'
+import { setLocale } from '../i18n'
+import { errorMessage, translateBackendError } from '../utils/errors'
 
 describe('api client', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    setLocale('zh')
+    vi.unstubAllGlobals()
+  })
 
   it('sends cookies and JSON content type', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
@@ -67,5 +72,22 @@ describe('api client', () => {
 
     expect(result.filename).toBe('meeting notes.md')
     expect(result.blob.size).toBe(5)
+  })
+
+  it('translates backend Chinese errors and worker diagnostics in en mode', () => {
+    setLocale('en')
+
+    expect(apiErrorMessage({ error: { code: 'invalid_credentials', message: '用户名或密码错误' } }))
+      .toBe('Incorrect username or password')
+    expect(apiErrorMessage({ error: { code: 'validation_error', message: '请求参数无效' } }))
+      .toBe('Invalid request parameters')
+    expect(apiErrorMessage({ error: { code: 'meeting_locked', message: '已结束的会议不可直接修改' } }))
+      .toBe('Meeting is locked')
+    expect(translateBackendError('认证或权限失败；检查管理员插件设置中的 API Key、服务地址和权限。', 'provider_auth_failed'))
+      .toBe('Authentication or permission failed; check API Key, endpoint URL, and permissions in plugin settings.')
+    expect(translateBackendError('插件清单无效', 'ManifestError'))
+      .toBe('Invalid plugin manifest')
+    expect(errorMessage(new Error('未知后端中文错误'), 'Sign in failed'))
+      .toBe('Sign in failed')
   })
 })

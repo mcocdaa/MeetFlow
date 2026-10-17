@@ -69,7 +69,7 @@ defineExpose({ flushCurrentDraft })
     <Transition name="agenda-detail" mode="out-in">
       <AgendaDetail v-if="selected" :key="selected.id" ref="detail" :meeting="meeting" :item="selected" :can-contribute="canContribute" @changed="emit('reload')" @advance="advance" />
       <div v-else class="agenda-empty-compact" data-testid="agenda-detail">
-        <div><p class="eyebrow">Current topic</p><h2>{{ tr('还没有议题', 'No agenda items yet') }}</h2><p>{{ tr('从右侧队列添加本次会议的第一个议题。', 'Add the first agenda item for this meeting from the queue on the right.') }}</p></div>
+        <div><p class="eyebrow">{{ tr('当前议题', 'Current topic') }}</p><h2>{{ tr('还没有议题', 'No agenda items yet') }}</h2><p>{{ tr('从右侧队列添加本次会议的第一个议题。', 'Add the first agenda item for this meeting from the queue on the right.') }}</p></div>
       </div>
     </Transition>
     <AgendaQueue :meeting="meeting" :can-contribute="canContribute" :selected-id="selectedId" :opening-id="openingId" :open-error="openError" @select="openAgenda" @changed="emit('reload')" />

@@ -68,7 +68,7 @@ onMounted(async () => {
     <section class="workspace-section project-dashboard-card">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Project state</p>
+          <p class="eyebrow">{{ tr('状态概览', 'Project state') }}</p>
           <h2>{{ tr('项目状态', 'Project State') }}</h2>
         </div>
       </div>

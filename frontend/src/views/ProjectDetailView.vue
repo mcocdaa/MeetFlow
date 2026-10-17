@@ -342,7 +342,7 @@ onMounted(load)
     <p v-if="loading" class="empty-state">{{ tr('正在加载项目工作区…', 'Loading project workspace…') }}</p>
     <p v-else-if="error && !project" class="notice notice-error">{{ error }}</p>
     <template v-else-if="project">
-      <PageHeader eyebrow="Project workspace" :title="project.name" :summary="project.summary">
+      <PageHeader :eyebrow="tr('项目工作区', 'Project workspace')" :title="project.name" :summary="project.summary">
         <template #meta>
           <div class="project-context">
             <StatusPill :status="project.status" kind="project" />

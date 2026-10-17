@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
 
 import { ApiError } from '../api/client'
+import { errorMessage } from '../utils/errors'
 
 /**
  * Shared optimistic-concurrency primitive for entities saved with `expected_version`.
@@ -42,7 +43,7 @@ export function useVersionedSave<T>(
         }
         return null
       }
-      error.value = reason instanceof Error ? reason.message : String(reason)
+      error.value = errorMessage(reason, String(reason))
       return null
     } finally {
       saving.value = false

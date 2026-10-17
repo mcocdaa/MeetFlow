@@ -139,7 +139,7 @@ onBeforeUnmount(cancelWorkBrief)
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">For you</p><h1>{{ tr('今天需要你关注的事', 'What Needs Your Attention Today') }}</h1><p>{{ tr('把跨项目的待办、评审和会议准备收拢到一个队列。', 'Bring cross-project action items, reviews, and meeting prep into one queue.') }}</p></div>
+      <div><p class="eyebrow">{{ tr('为你推荐', 'For you') }}</p><h1>{{ tr('今天需要你关注的事', 'What Needs Your Attention Today') }}</h1><p>{{ tr('把跨项目的待办、评审和会议准备收拢到一个队列。', 'Bring cross-project action items, reviews, and meeting prep into one queue.') }}</p></div>
       <div class="home-heading-actions">
         <span v-if="response" class="unread-summary">
           <n-badge :value="response.unread_count" :show="response.unread_count > 0" />
@@ -162,7 +162,7 @@ onBeforeUnmount(cancelWorkBrief)
           content-class="home-card-body"
           content-style="padding: 0"
         >
-          <div class="section-heading"><div><p class="eyebrow">Priority queue</p><h2 id="priority-queue-title">{{ tr('需要关注', 'Attention Queue') }}</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> {{ tr('项', 'items') }}</span></div>
+          <div class="section-heading"><div><p class="eyebrow">{{ tr('优先队列', 'Priority queue') }}</p><h2 id="priority-queue-title">{{ tr('需要关注', 'Attention Queue') }}</h2></div><span class="metric"><strong>{{ priorities.length }}</strong> {{ tr('项', 'items') }}</span></div>
           <div v-if="priorities.length" class="attention-list"><AttentionCard v-for="item in priorities" :key="`${item.subject_type}:${item.subject_id}`" :item="item" /></div>
           <n-empty v-else class="empty-state compact" :description="tr('目前没有需要立即处理的事项', 'No items require immediate attention')">
             <p>{{ tr('新的指派、评审和回复会出现在这里。', 'New assignments, reviews, and replies will appear here.') }}</p>
@@ -175,7 +175,7 @@ onBeforeUnmount(cancelWorkBrief)
           content-class="home-card-body"
           content-style="padding: 0"
         >
-          <div class="section-heading"><div><p class="eyebrow">Next up</p><h2 id="upcoming-meetings-title">{{ tr('近期会议', 'Upcoming Meetings') }}</h2></div><RouterLink class="text-link" to="/meetings">{{ tr('全部', 'All') }}</RouterLink></div>
+          <div class="section-heading"><div><p class="eyebrow">{{ tr('即将开始', 'Next up') }}</p><h2 id="upcoming-meetings-title">{{ tr('近期会议', 'Upcoming Meetings') }}</h2></div><RouterLink class="text-link" to="/meetings">{{ tr('全部', 'All') }}</RouterLink></div>
           <RouterLink v-for="item in meetings" :key="item.subject_id" class="upcoming-meeting" :to="`/meetings/${item.subject_id}`"><strong>{{ item.title }}</strong><span>{{ item.project.name }}</span><time v-if="item.scheduled_start">{{ formatDateTime(item.scheduled_start) }}</time></RouterLink>
           <n-empty v-if="!meetings.length" class="empty-state compact" :description="tr('未来七天没有需要你参加的会议。', 'No meetings scheduled for you in the next 7 days.')" />
         </n-card>
@@ -184,7 +184,7 @@ onBeforeUnmount(cancelWorkBrief)
       <n-card tag="section" class="workspace-section ai-work-brief-panel" content-class="home-card-body" content-style="padding: 0">
         <div class="ai-work-brief-heading">
           <div>
-            <p class="eyebrow">Work brief</p>
+            <p class="eyebrow">{{ tr('工作简报', 'Work brief') }}</p>
             <h2>{{ tr('AI 工作简报', 'AI Work Brief') }}</h2>
             <p>{{ workBriefEnabled ? tr('汇总你全部项目中的当前工作，仅供阅读。', 'Summarizes your current work across all projects for quick reading.') : tr('加载工作简报插件后，可汇总你的跨项目工作。', 'Enable the work brief plugin to summarize cross-project work.') }}</p>
             <span v-if="workBrief?.generated_at" class="brief-generated-at">{{ tr('上次生成于', 'Last generated') }} {{ formatDateTime(workBrief.generated_at) }}</span>

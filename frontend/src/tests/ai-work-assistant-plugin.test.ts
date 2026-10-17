@@ -161,3 +161,27 @@ it('does not mutate editor content when a job fails', async () => {
   expect(emitted().draft).toBeUndefined()
   expect(emitted().notice).toEqual([['模型不可用']])
 })
+
+it('re-renders mounted assistant controls reactively when language switches between zh and en', async () => {
+  const { setLocale } = await import('../i18n')
+  setLocale('zh')
+  const registered = registerAssistant()
+  renderAssistant(registered, 'meeting-summary-editor')
+
+  expect(screen.getByText('AI 协助纪要')).toBeInTheDocument()
+  expect(screen.getByText('当前编辑块')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '生成会议纪要' })).toBeInTheDocument()
+
+  setLocale('en')
+  await nextTick()
+
+  expect(screen.getByText('AI Summary Assistant')).toBeInTheDocument()
+  expect(screen.getByText('Current Block')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Generate Meeting Minutes' })).toBeInTheDocument()
+
+  setLocale('zh')
+  await nextTick()
+
+  expect(screen.getByText('AI 协助纪要')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '生成会议纪要' })).toBeInTheDocument()
+})

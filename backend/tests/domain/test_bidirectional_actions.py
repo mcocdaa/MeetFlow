@@ -84,6 +84,40 @@ def test_parse_outcome_tags_extended_syntax():
     assert actions[3].content == "传统无括号待办"
 
 
+def test_parse_outcome_tags_chinese_status_tokens():
+    md = """
+@行动:[待办][@林宇][2026-10-01] 整理压测报告
+@行动:[待开始][@乔安] 准备回滚预案
+@行动:[进行中][@林宇] 推进网关限流改造
+@行动:[已完成][@乔安][2026-09-30] 完成发布清单核验
+@行动:[已取消] 旧版接口迁移计划
+"""
+    tags = parse_outcome_tags(md)
+    assert len(tags) == 5
+
+    assert tags[0].status == ActionStatus.open
+    assert tags[0].owner_name == "林宇"
+    assert tags[0].due_date == date(2026, 10, 1)
+    assert tags[0].content == "整理压测报告"
+
+    assert tags[1].status == ActionStatus.open
+    assert tags[1].owner_name == "乔安"
+    assert tags[1].content == "准备回滚预案"
+
+    assert tags[2].status == ActionStatus.in_progress
+    assert tags[2].owner_name == "林宇"
+    assert tags[2].content == "推进网关限流改造"
+
+    assert tags[3].status == ActionStatus.done
+    assert tags[3].owner_name == "乔安"
+    assert tags[3].due_date == date(2026, 9, 30)
+    assert tags[3].content == "完成发布清单核验"
+
+    assert tags[4].status == ActionStatus.canceled
+    assert tags[4].owner_name is None
+    assert tags[4].content == "旧版接口迁移计划"
+
+
 def test_rewrite_action_in_notes():
     notes = """# Notes
 - List item

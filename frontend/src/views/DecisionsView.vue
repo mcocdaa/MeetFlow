@@ -194,7 +194,7 @@ onBeforeUnmount(() => {
 <template>
   <main class="workspace-page">
     <header class="workspace-page-heading">
-      <div><p class="eyebrow">Decision log</p><h1>{{ tr('决策日志', 'Decisions') }}</h1><p>{{ tr('跨项目查看提案、最终决策及其评审状态。', 'Browse proposals, final decisions, and review status across projects.') }}</p></div>
+      <div><p class="eyebrow">{{ tr('决策台账', 'Decision log') }}</p><h1>{{ tr('决策日志', 'Decisions') }}</h1><p>{{ tr('跨项目查看提案、最终决策及其评审状态。', 'Browse proposals, final decisions, and review status across projects.') }}</p></div>
       <span class="metric"><strong>{{ total }}</strong>{{ tr('项', ' items') }}</span>
     </header>
     <section class="workspace-section filter-panel">

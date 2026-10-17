@@ -479,7 +479,7 @@ const noteActionTags = computed(() => {
 <template>
   <div class="agenda-detail" data-testid="agenda-detail">
     <header class="agenda-detail-header">
-      <div><p class="eyebrow">Current topic</p><input v-model="draft.title" class="agenda-title-input" :aria-label="tr('议题标题', 'Agenda Title')" :readonly="!canContribute" /></div>
+      <div><p class="eyebrow">{{ tr('当前议题', 'Current topic') }}</p><input v-model="draft.title" class="agenda-title-input" :aria-label="tr('议题标题', 'Agenda Title')" :readonly="!canContribute" /></div>
       <div class="agenda-detail-status">
         <StatusPill :status="props.item.status" kind="agenda" />
         <n-tag v-if="item.carry_from_open_question_id" size="small" :bordered="false">{{ tr('来自开放问题', 'From Question') }}</n-tag>
@@ -532,7 +532,7 @@ const noteActionTags = computed(() => {
       <n-button v-if="canCopy" quaternary size="small" @click="openCopy">{{ tr('复制到其他会议', 'Copy to Meeting') }}</n-button>
     </div>
 
-    <section class="agenda-outcomes"><header class="section-heading"><div><p class="eyebrow">Outcomes</p><h2>{{ tr('本议题产出', 'Topic Outcomes') }}</h2></div><div v-if="canContribute" class="outcome-action-group" data-testid="outcome-actions"><button class="button button-small button-quiet" @click="composer = 'decision'">{{ tr('+ 决策', '+ Decision') }}</button><button class="button button-small button-quiet" @click="composer = 'action'">{{ tr('+ 行动', '+ Action') }}</button><button class="button button-small button-quiet" @click="composer = 'question'">{{ tr('+ 开放问题', '+ Question') }}</button></div></header>
+    <section class="agenda-outcomes"><header class="section-heading"><div><p class="eyebrow">{{ tr('议题产出', 'Outcomes') }}</p><h2>{{ tr('本议题产出', 'Topic Outcomes') }}</h2></div><div v-if="canContribute" class="outcome-action-group" data-testid="outcome-actions"><button class="button button-small button-quiet" @click="composer = 'decision'">{{ tr('+ 决策', '+ Decision') }}</button><button class="button button-small button-quiet" @click="composer = 'action'">{{ tr('+ 行动', '+ Action') }}</button><button class="button button-small button-quiet" @click="composer = 'question'">{{ tr('+ 开放问题', '+ Question') }}</button></div></header>
       <OutcomeComposer v-if="canContribute && composer" :mode="composer" :meeting="meeting" :item="item" @close="composer = null" @saved="emit('changed')" />
       <div class="outcome-list">
         <article
@@ -603,7 +603,7 @@ const noteActionTags = computed(() => {
     </section>
 
     <section class="agenda-attachments" data-testid="agenda-attachments">
-      <header class="section-heading"><div><p class="eyebrow">Attachments</p><h2>{{ tr('议题附件', 'Attachments') }}</h2></div></header>
+      <header class="section-heading"><div><p class="eyebrow">{{ tr('相关附件', 'Attachments') }}</p><h2>{{ tr('议题附件', 'Attachments') }}</h2></div></header>
       <AttachmentPanel target-type="agenda_item" :target-id="item.id" :attachments="attachments" :can-contribute="canContribute" @uploaded="onAttachmentUploaded" @deleted="onAttachmentDeleted" />
     </section>
 

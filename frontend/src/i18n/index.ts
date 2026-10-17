@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 export type Locale = 'zh' | 'en'
 
@@ -16,13 +16,30 @@ function readInitialLocale(): Locale {
   return 'zh'
 }
 
+function syncDocumentLocale(next: Locale): void {
+  try {
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.lang = next
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('meetflow:lang-change', { detail: { lang: next } }))
+    }
+  } catch {
+    // Ignore DOM/event errors in restricted environments.
+  }
+}
+
 export const locale = ref<Locale>(readInitialLocale())
+syncDocumentLocale(locale.value)
+
+watch(locale, (next) => {
+  syncDocumentLocale(next)
+})
 
 export const isEn = computed(() => locale.value === 'en')
 
 export function setLocale(lang: Locale): void {
   const next: Locale = lang === 'en' ? 'en' : 'zh'
-  locale.value = next
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.setItem(STORAGE_KEY, next)
@@ -30,6 +47,8 @@ export function setLocale(lang: Locale): void {
   } catch {
     // Ignore storage write errors.
   }
+  locale.value = next
+  syncDocumentLocale(next)
 }
 
 export function toggleLocale(): Locale {

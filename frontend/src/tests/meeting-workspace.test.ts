@@ -112,7 +112,7 @@ describe('meeting workspace', () => {
 
   it('keeps preparation fields on demand instead of above the active agenda', async () => {
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
     const preparation = screen.getByRole('button', { name: '准备信息' })
     expect(screen.queryByText('会议准备')).not.toBeInTheDocument()
     await fireEvent.click(preparation)
@@ -140,7 +140,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(projectFixture())
       .mockResolvedValueOnce(saved)
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
     await screen.findByText('会议准备')
@@ -181,7 +181,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(projectFixture())
       .mockResolvedValueOnce(savedPreparation)
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.update(screen.getByLabelText('会议纪要'), '尚未保存的新纪要')
     await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
@@ -199,7 +199,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(meetingFixture())
       .mockRejectedValueOnce(new Error('项目读取失败'))
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
 
@@ -214,7 +214,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(projectFixture())
       .mockRejectedValueOnce(new ApiError(409, 'meeting_locked', '已结束的会议不可直接修改'))
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.click(screen.getByRole('button', { name: '准备信息' }))
     await screen.findByText('会议准备')
@@ -235,7 +235,7 @@ describe('meeting workspace', () => {
   it('keeps a generated meeting summary local until the minutes are explicitly saved', async () => {
     registerEditorAssistant('meeting-summary-editor', SummaryAssistant)
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
     const summaryEditor = screen.getByTestId('meeting-summary-editor')
     expect(summaryEditor).toContainElement(screen.getByLabelText('会议纪要'))
     expect(within(summaryEditor).getByText('会议纪要')).toBeVisible()
@@ -258,7 +258,7 @@ describe('meeting workspace', () => {
     const summary = '确认灰度发布与回滚边界。'
     editorBuffer.value = summary
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.click(screen.getByRole('button', { name: '保存会议纪要' }))
 
@@ -270,7 +270,7 @@ describe('meeting workspace', () => {
 
   it('exposes the meeting raw notes as an accessible editor', async () => {
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     expect(screen.getByRole('textbox', { name: '整场会议原始笔记' })).toBeInTheDocument()
   })
@@ -280,7 +280,7 @@ describe('meeting workspace', () => {
     apiMock.mockResolvedValue(meetingFixture({ status: 'in_progress', started_at: '2026-07-30T06:38:44.670756' }))
 
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     expect(screen.getByText('进行 1:15')).toBeVisible()
     now.mockRestore()
@@ -300,7 +300,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(savedMeeting)
       .mockResolvedValueOnce(started)
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.update(screen.getByLabelText('议题标题'), '发布方案已确认')
     await fireEvent.update(screen.getByLabelText('会议纪要'), '迭代评审已确认')
@@ -326,7 +326,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(projectFixture())
       .mockRejectedValueOnce(new Error('议题保存失败'))
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.update(screen.getByLabelText('议题标题'), '无法保存的议题')
     await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
@@ -342,7 +342,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(projectFixture())
       .mockRejectedValueOnce(new Error('会议保存失败'))
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.update(screen.getByLabelText('会议纪要'), '无法保存的会议')
     await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
@@ -359,7 +359,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(projectFixture())
       .mockResolvedValueOnce(started)
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
 
@@ -376,7 +376,7 @@ describe('meeting workspace', () => {
       .mockResolvedValueOnce(projectFixture())
       .mockResolvedValueOnce(started)
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
 
     await fireEvent.click(screen.getByRole('button', { name: '开始会议' }))
 
@@ -408,7 +408,7 @@ describe('meeting workspace', () => {
 
   it('protects dirty meeting drafts from browser unload', async () => {
     renderWithProviders(MeetingWorkspaceView)
-    await screen.findByText('Current topic')
+    await screen.findByText('当前议题')
     await fireEvent.update(screen.getByLabelText('会议纪要'), '未保存纪要')
 
     const event = new Event('beforeunload', { cancelable: true })

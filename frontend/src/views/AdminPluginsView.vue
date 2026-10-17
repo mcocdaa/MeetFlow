@@ -22,7 +22,7 @@ import { computed, h, onMounted, reactive, ref } from 'vue'
 import { api } from '../api/client'
 import StatusPill from '../components/StatusPill.vue'
 import { useI18n } from '../i18n'
-import { errorMessage } from '../utils/errors'
+import { errorMessage, translateBackendError } from '../utils/errors'
 
 const { tr } = useI18n()
 
@@ -175,6 +175,15 @@ function secretConfigured(plugin: PluginInfo, key: string) {
   return !!value && typeof value === 'object' && 'configured' in value && (value as { configured: boolean }).configured
 }
 
+function fieldLabel(field: ConfigField): string {
+  if (field.label) return field.label
+  if (field.key === 'base_url') return tr('服务地址 (Base URL)', 'Base URL')
+  if (field.key === 'model') return tr('模型名称 (Model)', 'Model')
+  if (field.key === 'timeout_seconds') return tr('超时时间 (秒)', 'Timeout (s)')
+  if (field.key === 'api_key') return tr('API 密钥 (API Key)', 'API Key')
+  return field.key
+}
+
 function pluginDisplayName(plugin: PluginInfo): string {
   if (plugin.id === 'ai-work-assistant' && plugin.name === 'AI 工作助手') {
     return tr('AI 工作助手', 'AI Work Assistant')
@@ -194,7 +203,7 @@ function pluginDisplayDescription(plugin: PluginInfo): string {
   }
   if (plugin.id === 'meeting-export' && plugin.description?.includes('会议上下文导出')) {
     return tr(
-      plugin.description,
+      '将会议上下文导出为结构化 Markdown 或 JSON',
       'Export bounded meeting context as Markdown or JSON',
     )
   }
@@ -206,7 +215,7 @@ const eventColumns = computed<DataTableColumns<PluginEvent>>(() => {
   return [
     { title: tr('事件类型', 'Event Type'), key: 'event_type', minWidth: 200 },
     { title: tr('尝试次数', 'Attempts'), key: 'attempts', minWidth: 100 },
-    { title: tr('最后错误', 'Last Error'), key: 'last_error', minWidth: 220, render: (event) => event.last_error || '—' },
+    { title: tr('最后错误', 'Last Error'), key: 'last_error', minWidth: 220, render: (event) => event.last_error ? translateBackendError(event.last_error) : '—' },
     {
       title: tr('操作', 'Actions'),
       key: 'actions',
@@ -226,7 +235,7 @@ onMounted(() => { void load() })
 
 <template>
   <main class="page">
-    <header class="page-heading"><div><p class="eyebrow">Extensions</p><h1>{{ tr('插件管理', 'Plugin Management') }}</h1><p>{{ tr('配置由服务器管理员安装的可信扩展。代码变更与启停需要重启。', 'Configure trusted extensions installed by the server administrator. Code or state changes require a restart.') }}</p></div><span class="metric"><strong>{{ plugins.length }}</strong> {{ tr('已发现', 'Discovered') }}</span></header>
+    <header class="page-heading"><div><p class="eyebrow">{{ tr('扩展插件', 'Extensions') }}</p><h1>{{ tr('插件管理', 'Plugin Management') }}</h1><p>{{ tr('配置由服务器管理员安装的可信扩展。代码变更与启停需要重启。', 'Configure trusted extensions installed by the server administrator. Code or state changes require a restart.') }}</p></div><span class="metric"><strong>{{ plugins.length }}</strong> {{ tr('已发现', 'Discovered') }}</span></header>
     <n-alert v-if="error" type="error">{{ error }}</n-alert>
     <n-alert v-if="restartRequired" type="warning" class="restart-notice">{{ tr('插件启用状态已保存，重启后生效。', 'Plugin enabled state saved; restart required to take effect.') }}</n-alert>
     <n-grid v-if="plugins.length" class="plugin-grid" :cols="2" :x-gap="16" :y-gap="16">
@@ -246,7 +255,7 @@ onMounted(() => { void load() })
               @update:value="(value: boolean) => toggle(plugin, value)"
             />
           </div>
-          <p v-if="plugin.load_error" class="notice notice-error">{{ plugin.load_error }}</p>
+          <p v-if="plugin.load_error" class="notice notice-error">{{ translateBackendError(plugin.load_error) }}</p>
           <div v-if="plugin.capabilities" class="plugin-capabilities" :aria-label="tr('插件能力', 'Plugin capabilities')">
             <n-tag size="small" :bordered="false">API v{{ plugin.api_version ?? 1 }}</n-tag>
             <n-tag v-if="plugin.loaded" size="small" :bordered="false">{{ tr('已加载', 'Loaded') }}</n-tag>
@@ -256,34 +265,34 @@ onMounted(() => { void load() })
           </div>
           <p class="restart-note">{{ tr('状态变更：', 'State change: ') }}<span>{{ tr('重启后生效', 'Requires restart') }}</span></p>
           <n-form v-if="plugin.config_schema" class="plugin-config" label-placement="top" :show-require-mark="false" @submit.prevent>
-            <n-form-item v-for="field in plugin.config_schema.fields ?? []" :key="field.key" :label="field.label || field.key">
+            <n-form-item v-for="field in plugin.config_schema.fields ?? []" :key="field.key" :label="fieldLabel(field)">
               <n-switch
                 v-if="field.type === 'boolean'"
                 :value="Boolean(draftValue(plugin, field.key))"
-                :aria-label="field.label || field.key"
+                :aria-label="fieldLabel(field)"
                 @update:value="(value: boolean) => setDraft(plugin, field.key, value)"
               />
               <n-input-number
                 v-else-if="field.type === 'number'"
                 :value="numberDraft(plugin, field.key)"
-                :input-props="{ 'aria-label': field.label || field.key, required: field.required }"
+                :input-props="{ 'aria-label': fieldLabel(field), required: field.required }"
                 @update:value="(value: number | null) => setDraft(plugin, field.key, value)"
               />
               <n-input
                 v-else
                 :value="stringDraft(plugin, field.key)"
-                :input-props="{ 'aria-label': field.label || field.key, required: field.required }"
+                :input-props="{ 'aria-label': fieldLabel(field), required: field.required }"
                 @update:value="(value: string) => setDraft(plugin, field.key, value)"
               />
               <template #feedback><span v-if="field.description">{{ field.description }}</span></template>
             </n-form-item>
-            <n-form-item v-for="field in plugin.config_schema.secrets ?? []" :key="field.key" :label="field.label || field.key">
+            <n-form-item v-for="field in plugin.config_schema.secrets ?? []" :key="field.key" :label="fieldLabel(field)">
               <n-input
                 type="password"
                 show-password-on="click"
                 autocomplete="new-password"
                 :value="stringDraft(plugin, field.key)"
-                :input-props="{ 'aria-label': field.label || field.key, autocomplete: 'new-password' }"
+                :input-props="{ 'aria-label': fieldLabel(field), autocomplete: 'new-password' }"
                 :placeholder="secretConfigured(plugin, field.key) ? tr('留空则保持不变', 'Leave blank to keep unchanged') : tr('尚未配置', 'Not configured')"
                 @update:value="(value: string) => setDraft(plugin, field.key, value)"
               />
@@ -292,7 +301,7 @@ onMounted(() => { void load() })
                   <StatusPill status="active" :label="tr('已配置', 'Configured')" />
                   <n-popconfirm :positive-text="tr('确认清除', 'Clear')" :negative-text="tr('取消', 'Cancel')" @positive-click="clearSecret(plugin, field.key)">
                     <template #trigger>
-                      <n-button size="small" type="error" quaternary :aria-label="tr(`清除 ${field.label || field.key}`, `Clear ${field.label || field.key}`)">{{ tr('清除', 'Clear') }}</n-button>
+                      <n-button size="small" type="error" quaternary :aria-label="tr(`清除 ${fieldLabel(field)}`, `Clear ${fieldLabel(field)}`)">{{ tr('清除', 'Clear') }}</n-button>
                     </template>
                     {{ tr('确定清除已保存的敏感配置吗？', 'Clear saved secret configuration?') }}
                   </n-popconfirm>
@@ -304,7 +313,7 @@ onMounted(() => { void load() })
         </n-card>
       </n-grid-item>
     </n-grid>
-    <div v-if="unmatchedErrors.length" class="plugin-errors"><p v-for="item in unmatchedErrors" :key="`${item.plugin_id}-${item.error_type}`" class="notice notice-error">{{ item.plugin_id }} · {{ item.message }}</p></div>
+    <div v-if="unmatchedErrors.length" class="plugin-errors"><p v-for="item in unmatchedErrors" :key="`${item.plugin_id}-${item.error_type}`" class="notice notice-error">{{ item.plugin_id }} · {{ translateBackendError(item.message, item.error_type) }}</p></div>
     <section v-if="failedEvents.length" class="plugin-errors" aria-labelledby="plugin-event-errors-title">
       <h2 id="plugin-event-errors-title">{{ tr('事件失败', 'Failed Events') }}</h2>
       <n-data-table :columns="eventColumns" :data="failedEvents" :bordered="false" size="small" :scroll-x="720" />

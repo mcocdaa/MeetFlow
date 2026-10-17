@@ -66,13 +66,13 @@ def parse_action_metadata(
                 due_date_val = date.fromisoformat(token)
             except ValueError:
                 break
-        elif token_lower in ("todo", "open"):
+        elif token_lower in ("todo", "open", "待办", "待开始"):
             status = ActionStatus.open
-        elif token_lower in ("in_progress", "doing", "progress"):
+        elif token_lower in ("in_progress", "doing", "progress", "进行中"):
             status = ActionStatus.in_progress
-        elif token_lower in ("done", "completed", "finish", "finished"):
+        elif token_lower in ("done", "completed", "finish", "finished", "已完成", "完成"):
             status = ActionStatus.done
-        elif token_lower in ("canceled", "cancelled"):
+        elif token_lower in ("canceled", "cancelled", "已取消", "取消"):
             status = ActionStatus.canceled
         else:
             break
