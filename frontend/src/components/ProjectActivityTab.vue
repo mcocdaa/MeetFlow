@@ -15,7 +15,7 @@ import PluginEditorSlot from './PluginEditorSlot.vue'
 import ProjectUpdateComposer from './ProjectUpdateComposer.vue'
 import VersionConflictDialog from './VersionConflictDialog.vue'
 
-const { tr } = useI18n()
+const { tr, translateSeededText, translateNotesMarkdown } = useI18n()
 
 const props = defineProps<{ project: ProjectDetail; canContribute: boolean }>()
 const emit = defineEmits<{ reload: [] }>()
@@ -45,7 +45,8 @@ const editForm = ref({ health: 'unset' as Health, content_markdown: '' })
 const conflictServer = ref<ProjectUpdate | null>(null)
 
 function actorName(item: ProjectActivityItem) {
-  return item.actor?.display_name || item.actor?.username || tr('系统', 'System')
+  const raw = item.actor?.display_name || item.actor?.username
+  return raw ? translateSeededText(raw) : tr('系统', 'System')
 }
 
 async function loadActivity(before?: number) {
@@ -217,8 +218,7 @@ onMounted(() => {
     <NTimeline v-if="activityItems.length" class="project-activity-timeline">
       <NTimelineItem v-for="item in activityItems" :key="item.id" :time="formatDateTime(item.created_at)">
         <p class="activity-entry">
-          <strong>{{ actorName(item) }}</strong>
-          <span>{{ activityLabel(item.event_type, item.payload) }}</span>
+          <strong style="margin-right: 6px">{{ actorName(item) }}</strong><span>{{ activityLabel(item.event_type, item.payload) }}</span>
         </p>
         <div v-if="canContribute && item.subject.type === 'project_update'" class="row-actions">
           <button class="button button-quiet" type="button" :aria-label="tr(`编辑进展 ${item.subject.id}`, `Edit update ${item.subject.id}`)" @click="openUpdateEdit(item)">{{ tr('编辑', 'Edit') }}</button>
@@ -235,9 +235,9 @@ onMounted(() => {
       <header class="section-heading"><h3>{{ tr('进展记录', 'Progress History') }}</h3></header>
       <div v-if="updates.length" class="project-activity-list">
         <article v-for="item in updates" :key="item.id" class="latest-update">
-          <MarkdownView :source="item.content_markdown" />
+          <MarkdownView :source="translateNotesMarkdown(item.content_markdown)" />
           <p class="attribution">
-            {{ item.created_by?.display_name || item.created_by?.username || tr('系统', 'System') }} · {{ formatDateTime(item.created_at) }}
+            {{ item.created_by ? translateSeededText(item.created_by.display_name || item.created_by.username) : tr('系统', 'System') }} · {{ formatDateTime(item.created_at) }}
             <template v-if="item.source === 'ai_draft_applied'"> · {{ tr('AI 草稿', 'AI Draft') }}</template>
           </p>
         </article>

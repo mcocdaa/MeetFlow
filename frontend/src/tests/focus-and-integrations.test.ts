@@ -204,6 +204,14 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
     // Verify syntax guide shows @开放问题: 待确认
     expect(screen.getByText('@开放问题: 待确认')).toBeInTheDocument()
 
+    // Verify language switcher button inside Focus Mode header
+    const langBtn = screen.getByTestId('focus-lang-toggle')
+    expect(langBtn).toBeInTheDocument()
+    await fireEvent.click(langBtn)
+    expect(screen.getByText('Live Outcomes')).toBeInTheDocument()
+    await fireEvent.click(langBtn)
+    expect(screen.getByText('实时决议与待办')).toBeInTheDocument()
+
     // Test advance button
     const advanceBtn = screen.getByRole('button', { name: /完成并下一项/ })
     await fireEvent.click(advanceBtn)

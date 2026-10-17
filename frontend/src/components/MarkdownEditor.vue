@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Crepe } from '@milkdown/crepe'
+import { placeholderConfig } from '@milkdown/crepe/feature/placeholder'
+import { editorViewCtx } from '@milkdown/kit/core'
 
 export type MarkdownEditorHandle = { flush: () => string }
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
@@ -78,6 +80,26 @@ onMounted(async () => {
 
 watch(() => props.disabled, (value) => {
   if (ready) editor?.setReadonly(value)
+})
+
+watch(effectivePlaceholder, (nextText) => {
+  if (ready && editor) {
+    try {
+      editor.editor.action((ctx) => {
+        ctx.update(placeholderConfig.key, (prev) => ({
+          ...prev,
+          text: nextText,
+        }))
+        const view = ctx.get(editorViewCtx)
+        view.dispatch(view.state.tr)
+      })
+    } catch {
+      // Fallback to direct DOM attribute update below
+    }
+  }
+  root.value?.querySelectorAll('.crepe-placeholder, [data-placeholder]').forEach((el) => {
+    el.setAttribute('data-placeholder', nextText)
+  })
 })
 
 watch(() => props.modelValue, (value) => {

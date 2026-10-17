@@ -18,7 +18,7 @@ import { loadPluginFrontendModules } from './plugins/runtime'
 import { naiveThemeOverrides } from './theme/naive'
 
 const router = useRouter()
-const { locale, toggleLocale, tr } = useI18n()
+const { locale, toggleLocale, tr, translateSeededText } = useI18n()
 
 const accountOptions = computed(() => [
   { key: 'account', label: tr('账号设置', 'Account Settings') },
@@ -111,8 +111,8 @@ onBeforeUnmount(() => {
                     </NBadge>
                     <NDropdown :options="accountOptions" trigger="click" @select="onAccountSelect">
                       <button type="button" class="account-menu-trigger" :aria-label="tr('账户菜单', 'Account menu')">
-                        <AppAvatar :name="session.user.display_name" :color="session.user.avatar_color" :size="30" />
-                        <span>{{ session.user.display_name }}</span>
+                        <AppAvatar :name="translateSeededText(session.user.display_name)" :color="session.user.avatar_color" :size="30" />
+                        <span>{{ translateSeededText(session.user.display_name) }}</span>
                       </button>
                     </NDropdown>
                   </div>

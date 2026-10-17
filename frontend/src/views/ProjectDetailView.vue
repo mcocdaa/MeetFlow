@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NButton, NDropdown, NDrawer, NDrawerContent, NForm, NFormItem, NInput, NSelect, NTabPane, NTabs, NTag, useDialog } from 'naive-ui'
-import { computed, h, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, ref, watch } from 'vue'
 import StatusPill from '../components/StatusPill.vue'
 import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
@@ -30,10 +30,14 @@ import type {
 
 type Tab = 'overview' | 'meetings' | 'actions' | 'decisions' | 'questions' | 'files' | 'activity'
 
-const { tr, translateSeededText } = useI18n()
+const { locale, tr, translateSeededText } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const dialog = useDialog()
+const tabsInstRef = ref<{ syncBarPosition?: () => void } | null>(null)
+watch(locale, () => {
+  void nextTick(() => tabsInstRef.value?.syncBarPosition?.())
+})
 const project = ref<ProjectDetail | null>(null)
 const attention = ref<AttentionItem[]>([])
 const openActions = ref<ProjectActionSummary[]>([])
@@ -445,7 +449,7 @@ onMounted(load)
 
       <p v-if="error" class="notice notice-error">{{ error }}</p>
       <nav class="project-tabs" :aria-label="tr('项目内容', 'Project tabs')">
-        <NTabs :value="tab" type="line" @update:value="selectTab">
+        <NTabs ref="tabsInstRef" :key="locale" :value="tab" type="line" @update:value="selectTab">
           <NTabPane name="overview" :tab="tr('概览', 'Overview')" :tab-props="tabA11y('overview')">
             <ProjectOverview :project="project" :attention="attention" :open-actions="openActions" :can-contribute="canContribute" @schedule-meeting="openCreate('meeting')" @open-tab="selectTab" />
           </NTabPane>

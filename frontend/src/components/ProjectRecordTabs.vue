@@ -18,7 +18,7 @@ import type { ActionStatus, Decision } from '../domain/outcomes'
 import type { Page } from '../api/contracts'
 import type { ProjectActionSummary, ProjectDetail } from '../domain/projects'
 
-const { tr } = useI18n()
+const { tr, translateSeededText } = useI18n()
 
 type Tab = 'meetings' | 'actions' | 'decisions' | 'files'
 type MeetingRow = { id: string; title: string; scheduled_start: string; status: string }
@@ -53,7 +53,7 @@ const occurrenceError = ref('')
 
 const memberRefs = () => props.project.memberships.map((row) => row.user)
 const userNames = computed<Record<string, string>>(() => Object.fromEntries(
-  props.project.memberships.map((row) => [row.user.id, row.user.display_name || row.user.username]),
+  props.project.memberships.map((row) => [row.user.id, translateSeededText(row.user.display_name || row.user.username)]),
 ))
 
 function endpoint() {
@@ -89,7 +89,8 @@ function seriesSaved() {
 function ownerName(userId: string | null) {
   if (!userId) return tr('未指派', 'Unassigned')
   const row = props.project.memberships.find((item) => item.user.id === userId)
-  return row?.user.display_name || row?.user.username || tr('未指派', 'Unassigned')
+  const raw = row?.user.display_name || row?.user.username
+  return raw ? translateSeededText(raw) : tr('未指派', 'Unassigned')
 }
 
 function openActionEdit(item: ProjectActionSummary) {
@@ -155,7 +156,7 @@ async function archiveSeries(series: SeriesRow) {
 function openOccurrence(series: SeriesRow) {
   if (!props.canContribute) return
   occurrenceSeries.value = series
-  occurrenceTitle.value = `${series.title} · ${tr('临时会议', 'Ad-hoc Meeting')}`
+  occurrenceTitle.value = `${translateSeededText(series.title)} · ${tr('临时会议', 'Ad-hoc Meeting')}`
   occurrenceStart.value = ''
   occurrenceEnd.value = ''
   occurrenceError.value = ''
@@ -199,22 +200,22 @@ onMounted(load)
       </header>
       <div v-if="project.series_summaries.length" class="project-dashboard-list">
         <div v-for="series in project.series_summaries as SeriesRow[]" :key="series.id" class="compact-row series-row">
-          <RouterLink :to="`/meetings?series_id=${series.id}`"><strong>{{ series.title }}</strong><span>{{ series.recurrence_description || series.status }}</span></RouterLink>
+          <RouterLink :to="`/meetings?series_id=${series.id}`"><strong>{{ translateSeededText(series.title) }}</strong><span>{{ translateSeededText(series.recurrence_description || series.status) }}</span></RouterLink>
           <div v-if="canContribute" class="row-actions">
-            <button class="button button-quiet" type="button" :aria-label="tr(`编辑系列“${series.title}”`, `Edit series &quot;${series.title}&quot;`)" @click="openSeriesEdit(series)">{{ tr('编辑', 'Edit') }}</button>
+            <button class="button button-quiet" type="button" :aria-label="tr(`编辑系列“${translateSeededText(series.title)}”`, `Edit series &quot;${translateSeededText(series.title)}&quot;`)" @click="openSeriesEdit(series)">{{ tr('编辑', 'Edit') }}</button>
             <n-popconfirm :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="archiveSeries(series)">
               <template #trigger>
-                <button class="button button-quiet" type="button" :aria-label="tr(`归档系列“${series.title}”`, `Archive series &quot;${series.title}&quot;`)" :disabled="archivingId === series.id">{{ tr('归档', 'Archive') }}</button>
+                <button class="button button-quiet" type="button" :aria-label="tr(`归档系列“${translateSeededText(series.title)}”`, `Archive series &quot;${translateSeededText(series.title)}&quot;`)" :disabled="archivingId === series.id">{{ tr('归档', 'Archive') }}</button>
               </template>
-              {{ tr(`确定归档系列“${series.title}”吗？`, `Archive series "${series.title}"?`) }}
+              {{ tr(`确定归档系列“${translateSeededText(series.title)}”吗？`, `Archive series "${translateSeededText(series.title)}"?`) }}
             </n-popconfirm>
-            <button class="button button-quiet" type="button" :aria-label="tr(`临时添加会议“${series.title}”`, `Add ad-hoc meeting to &quot;${series.title}&quot;`)" @click="openOccurrence(series)">{{ tr('临时添加会议', 'Add Occurrence') }}</button>
+            <button class="button button-quiet" type="button" :aria-label="tr(`临时添加会议“${translateSeededText(series.title)}”`, `Add ad-hoc meeting to &quot;${translateSeededText(series.title)}&quot;`)" @click="openOccurrence(series)">{{ tr('临时添加会议', 'Add Occurrence') }}</button>
           </div>
         </div>
       </div>
       <p v-if="loading" class="muted">{{ tr('正在加载会议…', 'Loading meetings…') }}</p>
       <div class="project-record-list">
-        <RouterLink v-for="item in rows as MeetingRow[]" :key="item.id" class="project-record-row" :to="`/meetings/${item.id}`"><strong>{{ item.title }}</strong><span>{{ formatDateTime(item.scheduled_start) }} · <StatusPill :status="item.status" kind="meeting" /></span></RouterLink>
+        <RouterLink v-for="item in rows as MeetingRow[]" :key="item.id" class="project-record-row" :to="`/meetings/${item.id}`"><strong>{{ translateSeededText(item.title) }}</strong><span>{{ formatDateTime(item.scheduled_start) }} · <StatusPill :status="item.status" kind="meeting" /></span></RouterLink>
       </div>
     </template>
 
@@ -224,19 +225,19 @@ onMounted(load)
       <div class="project-record-list action-list">
         <div v-for="item in rows as ProjectActionSummary[]" :key="item.id" class="project-record-row action-row">
           <div class="action-row-main">
-            <strong>{{ item.content }}</strong>
+            <strong>{{ translateSeededText(item.content) }}</strong>
             <span><StatusPill :status="item.status" kind="action" /> · {{ ownerName(item.owner_user_id) }} · {{ item.due_date ?? tr('未设期限', 'No due date') }} · {{ priorityLabel(item.priority) }}</span>
             <span v-if="item.completed_at" class="muted">{{ tr('完成于 ', 'Completed ') }}{{ formatDateTime(item.completed_at) }}</span>
           </div>
           <div v-if="canContribute && !item.is_derived" class="row-actions">
-            <button class="button button-quiet" type="button" :aria-label="tr(`编辑行动项“${item.content}”`, `Edit action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id" @click="openActionEdit(item)">{{ tr('编辑', 'Edit') }}</button>
-            <button v-if="item.status === 'open'" class="button button-primary" type="button" :aria-label="tr(`开始行动项“${item.content}”`, `Start action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id" @click="transitionAction(item, 'in_progress')">{{ tr('开始', 'Start') }}</button>
-            <button v-if="item.status === 'in_progress'" class="button button-primary" type="button" :aria-label="tr(`完成行动项“${item.content}”`, `Complete action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id" @click="transitionAction(item, 'done')">{{ tr('完成', 'Complete') }}</button>
+            <button class="button button-quiet" type="button" :aria-label="tr(`编辑行动项“${translateSeededText(item.content)}”`, `Edit action &quot;${translateSeededText(item.content)}&quot;`)" :disabled="actionBusy === item.id" @click="openActionEdit(item)">{{ tr('编辑', 'Edit') }}</button>
+            <button v-if="item.status === 'open'" class="button button-primary" type="button" :aria-label="tr(`开始行动项“${translateSeededText(item.content)}”`, `Start action &quot;${translateSeededText(item.content)}&quot;`)" :disabled="actionBusy === item.id" @click="transitionAction(item, 'in_progress')">{{ tr('开始', 'Start') }}</button>
+            <button v-if="item.status === 'in_progress'" class="button button-primary" type="button" :aria-label="tr(`完成行动项“${translateSeededText(item.content)}”`, `Complete action &quot;${translateSeededText(item.content)}&quot;`)" :disabled="actionBusy === item.id" @click="transitionAction(item, 'done')">{{ tr('完成', 'Complete') }}</button>
             <n-popconfirm v-if="item.status === 'open' || item.status === 'in_progress'" :positive-text="tr('确认', 'Confirm')" :negative-text="tr('取消', 'Cancel')" @positive-click="transitionAction(item, 'canceled')">
               <template #trigger>
-                <button class="button button-quiet" type="button" :aria-label="tr(`取消行动项“${item.content}”`, `Cancel action &quot;${item.content}&quot;`)" :disabled="actionBusy === item.id">{{ tr('取消', 'Cancel') }}</button>
+                <button class="button button-quiet" type="button" :aria-label="tr(`取消行动项“${translateSeededText(item.content)}”`, `Cancel action &quot;${translateSeededText(item.content)}&quot;`)" :disabled="actionBusy === item.id">{{ tr('取消', 'Cancel') }}</button>
               </template>
-              {{ tr(`确定取消行动项“${item.content}”吗？`, `Cancel action item "${item.content}"?`) }}
+              {{ tr(`确定取消行动项“${translateSeededText(item.content)}”吗？`, `Cancel action item "${translateSeededText(item.content)}"?`) }}
             </n-popconfirm>
           </div>
         </div>
@@ -249,8 +250,8 @@ onMounted(load)
       <p v-if="loading" class="muted">{{ tr('正在加载决策…', 'Loading decisions…') }}</p>
       <div class="project-record-list">
         <div v-for="item in rows as Decision[]" :key="item.id" class="project-record-row decision-row">
-          <button type="button" class="decision-open" :aria-label="tr(`查看决策“${item.title}”`, `View decision &quot;${item.title}&quot;`)" @click="openDecision(item)">
-            <strong>{{ item.title }}</strong>
+          <button type="button" class="decision-open" :aria-label="tr(`查看决策“${translateSeededText(item.title)}”`, `View decision &quot;${translateSeededText(item.title)}&quot;`)" @click="openDecision(item)">
+            <strong>{{ translateSeededText(item.title) }}</strong>
             <span><StatusPill :status="item.status" kind="decision" /></span>
           </button>
           <RouterLink v-if="item.meeting_id" class="decision-source" :to="`/meetings/${item.meeting_id}`">{{ tr('来源会议', 'Source Meeting') }}</RouterLink>

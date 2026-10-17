@@ -1,4 +1,4 @@
-import { locale } from '../i18n'
+import { locale, translateSeededText } from '../i18n'
 
 type ActivityPayload = Record<string, unknown> | null | undefined
 
@@ -24,6 +24,7 @@ const ACTIVITY_TEMPLATES: Record<string, [string, string]> = {
   'meeting.canceled': ['取消了会议「{subject}」', '取消了会议'],
   'meeting.completed': ['结束了会议「{subject}」', '结束了会议'],
   'meeting.reopened': ['重新打开了会议「{subject}」', '重新打开了会议'],
+  'meeting.notes_ingested': ['提炼并同步了会议纪要「{subject}」', '在会议中完成了 AI 智能提炼'],
 
   'agenda.created': ['创建了议题「{subject}」', '创建了议题'],
   'agenda.updated': ['更新了议题「{subject}」', '更新了议题'],
@@ -82,6 +83,7 @@ const EN_ACTIVITY_TEMPLATES: Record<string, [string, string]> = {
   'meeting.canceled': ['Canceled meeting "{subject}"', 'Canceled meeting'],
   'meeting.completed': ['Completed meeting "{subject}"', 'Completed meeting'],
   'meeting.reopened': ['Reopened meeting "{subject}"', 'Reopened meeting'],
+  'meeting.notes_ingested': ['Extracted and synced meeting notes "{subject}"', 'Ran AI Smart Extract on meeting notes'],
 
   'agenda.created': ['Created agenda item "{subject}"', 'Created agenda item'],
   'agenda.updated': ['Updated agenda item "{subject}"', 'Updated agenda item'],
@@ -139,6 +141,7 @@ export function activityLabel(eventType: string, payload?: ActivityPayload): str
   const dict = locale.value === 'en' ? EN_ACTIVITY_TEMPLATES : ACTIVITY_TEMPLATES
   const template = dict[eventType]
   if (!template) return eventType
-  const subject = subjectOf(payload)
+  const rawSubject = subjectOf(payload)
+  const subject = rawSubject ? translateSeededText(rawSubject, locale.value) : null
   return (subject ? template[0] : template[1]).replace('{subject}', subject ?? '')
 }

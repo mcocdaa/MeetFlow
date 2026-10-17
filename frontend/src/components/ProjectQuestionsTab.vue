@@ -10,7 +10,7 @@ import type { ProjectDetail } from '../domain/projects'
 import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 
-const { tr } = useI18n()
+const { tr, translateSeededText } = useI18n()
 
 type MeetingOption = { id: string; title: string; scheduled_start: string; status: string; version?: number }
 
@@ -43,22 +43,23 @@ const resolveSaving = ref(false)
 const resolveError = ref('')
 
 const memberOptions = computed(() => props.project.memberships.map((row) => ({
-  label: row.user.display_name || row.user.username,
+  label: translateSeededText(row.user.display_name || row.user.username),
   value: row.user.id,
 })))
 const scheduleOptions = computed(() => scheduleMeetings.value.map((meeting) => ({
-  label: `${meeting.title} · ${meeting.scheduled_start.slice(0, 10)}`,
+  label: `${translateSeededText(meeting.title)} · ${meeting.scheduled_start.slice(0, 10)}`,
   value: meeting.id,
 })))
 const resolveDecisionOptions = computed(() => resolveDecisions.value.map((decision) => ({
-  label: decision.title,
+  label: translateSeededText(decision.title),
   value: decision.id,
 })))
 
 function ownerName(userId: string | null | undefined) {
   if (!userId) return tr('未指派', 'Unassigned')
   const row = props.project.memberships.find((item) => item.user.id === userId)
-  return row?.user.display_name || row?.user.username || tr('未指派', 'Unassigned')
+  const raw = row?.user.display_name || row?.user.username
+  return raw ? translateSeededText(raw) : tr('未指派', 'Unassigned')
 }
 
 async function load() {
@@ -242,7 +243,7 @@ onMounted(load)
     <div v-else-if="questions.length" class="project-record-list">
       <div v-for="item in questions" :key="item.id" class="project-record-row question-row">
         <div class="question-row-main">
-          <strong>{{ item.question_markdown }}</strong>
+          <strong>{{ translateSeededText(item.question_markdown) }}</strong>
           <span>
             <StatusPill :status="item.status" kind="question" />
             · {{ ownerName(item.owner_user_id) }}
@@ -259,12 +260,12 @@ onMounted(load)
           </span>
         </div>
         <div v-if="canContribute && !item.is_derived" class="row-actions">
-          <button class="button button-quiet" type="button" :aria-label="tr(`编辑开放问题“${item.question_markdown}”`, `Edit question &quot;${item.question_markdown}&quot;`)" @click="openEdit(item)">{{ tr('编辑', 'Edit') }}</button>
+          <button class="button button-quiet" type="button" :aria-label="tr(`编辑开放问题“${translateSeededText(item.question_markdown)}”`, `Edit question &quot;${translateSeededText(item.question_markdown)}&quot;`)" @click="openEdit(item)">{{ tr('编辑', 'Edit') }}</button>
           <button
             v-if="item.status === 'open' && !item.scheduled_meeting_id"
             class="button button-primary"
             type="button"
-            :aria-label="tr(`排期开放问题“${item.question_markdown}”`, `Schedule question &quot;${item.question_markdown}&quot;`)"
+            :aria-label="tr(`排期开放问题“${translateSeededText(item.question_markdown)}”`, `Schedule question &quot;${translateSeededText(item.question_markdown)}&quot;`)"
             @click="openSchedule(item)"
           >
             {{ tr('排期', 'Schedule') }}
@@ -273,7 +274,7 @@ onMounted(load)
             v-if="canResolve(item)"
             class="button button-quiet"
             type="button"
-            :aria-label="tr(`解决开放问题“${item.question_markdown}”`, `Resolve question &quot;${item.question_markdown}&quot;`)"
+            :aria-label="tr(`解决开放问题“${translateSeededText(item.question_markdown)}”`, `Resolve question &quot;${translateSeededText(item.question_markdown)}&quot;`)"
             @click="openResolve(item)"
           >
             {{ tr('解决', 'Resolve') }}

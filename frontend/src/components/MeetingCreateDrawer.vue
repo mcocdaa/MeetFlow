@@ -10,7 +10,7 @@ import { useI18n } from '../i18n'
 import { errorMessage } from '../utils/errors'
 import MeetingParticipantEditor from './MeetingParticipantEditor.vue'
 
-const { tr } = useI18n()
+const { tr, translateSeededText } = useI18n()
 
 type ProjectOption = { id: string; name: string }
 type ParticipantValue = { user_id: string; participation_role: ParticipationRole }
@@ -40,7 +40,7 @@ const form = ref({
 })
 
 const projectOptions = computed(() => props.projects.map((project) => ({
-  label: project.name,
+  label: translateSeededText(project.name),
   value: project.id,
 })))
 
