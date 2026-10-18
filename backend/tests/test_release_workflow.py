@@ -15,7 +15,7 @@ def test_release_workflow_publishes_the_public_multiarch_tag_contract():
         "Verify tag matches package version",
         "must match v$package_version from pyproject.toml",
         "git merge-base --is-ancestor",
-        "IMAGE_NAME: ghcr.io/mcocdaa/meetflow",
+        "IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/meetflow",
         "packages: write",
         "uses: docker/setup-qemu-action@v4",
         "platforms: linux/amd64,linux/arm64",
