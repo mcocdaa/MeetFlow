@@ -63,7 +63,7 @@ async function submit() {
     <section class="auth-card" aria-labelledby="login-title">
       <div class="auth-card-top">
         <div class="brand-mark">M</div>
-        <button type="button" class="lang-toggle-btn" @click="toggleLocale">{{ t('app.langToggle') }}</button>
+        <button type="button" class="lang-toggle-btn" data-action="toggle-locale" @click="toggleLocale">{{ t('app.langToggle') }}</button>
       </div>
       <p class="eyebrow">{{ tr('欢迎回来', 'Welcome back') }}</p>
       <h2 id="login-title">{{ tr('登录 MeetFlow', 'Sign in to MeetFlow') }}</h2>

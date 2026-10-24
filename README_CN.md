@@ -71,7 +71,7 @@ npm --prefix frontend ci
 
 ## 🤖 AI 纪要导入接口
 
-在「个人中心 → API 密钥」生成个人访问令牌（`mf_...`，或调用 `POST /api/v1/auth/tokens`），即可通过单次请求将外部语音转写或大模型总结原子化写入指定会议：
+在「账号设置 → 个人访问令牌」（`/account`）查看或轮换个人访问令牌（`mf_...`，或调用 `GET /api/v1/auth/api-key` 与 `POST /api/v1/auth/api-key/rotate`），即可通过单次请求将外部语音转写或大模型总结原子化写入指定会议：
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/meetings/<MEETING_ID>/ingest" \

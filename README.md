@@ -71,7 +71,7 @@ npm --prefix frontend ci
 
 ## 🤖 AI Note Ingestion API
 
-Generate a Personal Access Token (`mf_...`) in **Personal Center → API Keys** (or via `POST /api/v1/auth/tokens`) and ingest structured Markdown notes plus outcome tags in one atomic request:
+Generate a Personal Access Token (`mf_...`) in **Account Settings → Personal Access Token** (`/account`) (or via `GET /api/v1/auth/api-key` and `POST /api/v1/auth/api-key/rotate`) and ingest structured Markdown notes plus outcome tags in one atomic request:
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/meetings/<MEETING_ID>/ingest" \
