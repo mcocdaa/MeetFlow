@@ -411,6 +411,7 @@ const noteActionTags = computed(() => {
         <button
           type="button"
           class="focus-lang-btn"
+          data-action="toggle-locale"
           data-testid="focus-lang-toggle"
           :aria-label="tr('切换语言', 'Switch Language')"
           @click="toggleLocale"

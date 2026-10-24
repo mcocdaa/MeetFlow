@@ -98,6 +98,7 @@ onBeforeUnmount(() => {
                     <button
                       type="button"
                       class="lang-toggle-btn"
+                      data-action="toggle-locale"
                       data-testid="lang-toggle-btn"
                       :aria-label="locale === 'zh' ? 'Switch to English' : '切换到中文'"
                       @click="toggleLocale"
