@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=9.1.1,<10", "httpx>=0.28.1,<1", "setuptools>=84.0.0"]
+test = ["pytest>=9.2.0,<10", "httpx>=0.28.1,<1", "setuptools>=84.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["backend"]
