@@ -341,7 +341,6 @@ const noteActionTags = computed(() => {
           <span class="live-time-text">{{ liveElapsed || tr('进行中', 'Live') }}</span>
         </div>
         <div class="focus-meeting-title">
-          <span class="project-pill">{{ translateSeededText(meeting.project.name) }}</span>
           <strong>{{ translateSeededText(meeting.title) }}</strong>
         </div>
       </div>
@@ -416,7 +415,8 @@ const noteActionTags = computed(() => {
           :aria-label="tr('切换语言', 'Switch Language')"
           @click="toggleLocale"
         >
-          🌐 {{ locale === 'zh' ? 'EN' : '中文' }}
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+          <span class="lang-label">{{ locale === 'zh' ? 'EN' : '中文' }}</span>
         </button>
 
         <button type="button" class="focus-exit-btn" @click="exitFocus" :title="tr('退出专注模式 (Esc)', 'Exit Focus Mode (Esc)')">
@@ -437,10 +437,10 @@ const noteActionTags = computed(() => {
             </span>
           </div>
           <p v-if="locale === 'zh'" class="syntax-guide-pill">
-            💡 支持在手记中直接输入 <code>@决策: 结论</code>、<code>@行动:[待办][@成员][日期] 事项</code>、<code>@开放问题: 待确认</code> 自动双向流转产出。
+            支持在手记中直接输入 <code>@决策: 结论</code>、<code>@行动:[待办][@成员][日期] 事项</code>、<code>@开放问题: 待确认</code> 自动双向流转产出。
           </p>
           <p v-else class="syntax-guide-pill">
-            💡 Type <code>@Decision: conclusion</code>, <code>@Action:[open][@owner][date] task</code>, or <code>@Question: item</code> to auto-sync outcomes.
+            Type <code>@Decision: conclusion</code>, <code>@Action:[open][@owner][date] task</code>, or <code>@Question: item</code> to auto-sync outcomes.
           </p>
           <div class="quick-tag-toolbar" v-if="canContribute">
             <span class="quick-tag-label">{{ tr('快捷标签:', 'Quick Tags:') }}</span>
@@ -454,7 +454,8 @@ const noteActionTags = computed(() => {
               :disabled="saving || extracting"
               @click="smartExtractFocusNotes"
             >
-              ✨ {{ extracting ? tr('正在提炼…', 'Extracting…') : tr('AI 智能提炼', 'AI Extract') }}
+              <svg class="icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+              <span>{{ extracting ? tr('正在提炼…', 'Extracting…') : tr('AI 智能提炼', 'AI Extract') }}</span>
             </button>
           </div>
         </div>
@@ -680,17 +681,6 @@ const noteActionTags = computed(() => {
   text-overflow: ellipsis;
 }
 
-.project-pill {
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: #f1f5f9;
-  color: #475569;
-  font-size: 0.75rem;
-  font-weight: 700;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 .focus-bar-center {
   display: flex;
   flex-direction: column;
@@ -698,7 +688,7 @@ const noteActionTags = computed(() => {
   gap: 3px;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 320px;
+  max-width: 360px;
 }
 
 .focus-topic-pill {
@@ -725,7 +715,7 @@ const noteActionTags = computed(() => {
 .topic-title {
   font-weight: 700;
   color: #0f172a;
-  max-width: 170px;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -972,6 +962,9 @@ const noteActionTags = computed(() => {
 }
 
 .tag-btn-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin-left: auto;
   background: #edf7f1;
   color: #075044;
