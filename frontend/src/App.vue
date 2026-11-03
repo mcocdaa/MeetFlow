@@ -103,7 +103,8 @@ onBeforeUnmount(() => {
                       :aria-label="locale === 'zh' ? 'Switch to English' : '切换到中文'"
                       @click="toggleLocale"
                     >
-                      {{ locale === 'zh' ? '🌐 EN' : '🌐 中文' }}
+                      <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+                      <span class="lang-label">{{ locale === 'zh' ? 'EN' : '中文' }}</span>
                     </button>
                     <NBadge :value="unreadCount" :show="unreadCount > 0">
                       <button type="button" class="icon-button" :aria-label="tr('收件箱', 'Inbox')" @click="router.push('/inbox')">

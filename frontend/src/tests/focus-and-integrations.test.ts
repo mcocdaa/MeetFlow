@@ -398,7 +398,7 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
       },
     })
 
-    expect(screen.getByText('✨ AI Extract')).toBeInTheDocument()
+    expect(screen.getByText('AI Extract')).toBeInTheDocument()
     expect(screen.getByText('Outcomes')).toBeInTheDocument()
 
     const notesTextarea = screen.getByLabelText('Agenda Notes')

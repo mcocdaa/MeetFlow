@@ -61,7 +61,10 @@ async function submit() {
     <section class="auth-card" aria-labelledby="register-title">
       <div class="auth-card-top">
         <div class="brand-mark">M</div>
-        <button type="button" class="lang-toggle-btn" data-action="toggle-locale" @click="toggleLocale">{{ t('app.langToggle') }}</button>
+        <button type="button" class="lang-toggle-btn" data-action="toggle-locale" @click="toggleLocale">
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+          <span class="lang-label">{{ t('app.langToggle') }}</span>
+        </button>
       </div>
       <p class="eyebrow">{{ tr('加入共享工作区', 'Join shared workspace') }}</p>
       <h1 id="register-title">{{ tr('申请 MeetFlow 账号', 'Request MeetFlow Account') }}</h1>
