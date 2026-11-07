@@ -79,16 +79,16 @@ async function copyUrl() {
       <div class="calendar-guide-section">
         <h4>{{ tr('快速配置指南', 'Quick Setup Guide') }}</h4>
         <div class="guide-item">
-          <strong>🍎 {{ tr('Apple 日历 (Mac / iOS)', 'Apple Calendar (Mac / iOS)') }}</strong>
-          <span>{{ tr('文件 ➔ 新建日历订阅 ➔ 粘贴上方链接 ➔ 自动刷新建议选择“每小时”。', 'File ➔ New Calendar Subscription ➔ Paste URL ➔ Set Auto-refresh to Every Hour.') }}</span>
+          <strong>{{ tr('Apple 日历 (Mac / iOS)', 'Apple Calendar (Mac / iOS)') }}</strong>
+          <span>{{ tr('文件 / 新建日历订阅 / 粘贴上方链接 / 自动刷新建议选择“每小时”。', 'File / New Calendar Subscription / Paste URL / Set Auto-refresh to Every Hour.') }}</span>
         </div>
         <div class="guide-item">
-          <strong>📅 Google Calendar</strong>
-          <span>{{ tr('其他日历旁点击 “+” ➔ 通过网址添加 ➔ 粘贴链接 ➔ 添加日历。', 'Click "+" next to Other calendars ➔ From URL ➔ Paste URL ➔ Add calendar.') }}</span>
+          <strong>Google Calendar</strong>
+          <span>{{ tr('其他日历旁点击 “+” / 通过网址添加 / 粘贴链接 / 添加日历。', 'Click "+" next to Other calendars / From URL / Paste URL / Add calendar.') }}</span>
         </div>
         <div class="guide-item">
-          <strong>📧 Microsoft Outlook</strong>
-          <span>{{ tr('添加日历 ➔ 从 Web 订阅 ➔ 粘贴链接并保存。', 'Add calendar ➔ Subscribe from web ➔ Paste URL and save.') }}</span>
+          <strong>Microsoft Outlook</strong>
+          <span>{{ tr('添加日历 / 从 Web 订阅 / 粘贴链接并保存。', 'Add calendar / Subscribe from web / Paste URL and save.') }}</span>
         </div>
       </div>
     </div>
