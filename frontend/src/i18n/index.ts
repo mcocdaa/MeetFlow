@@ -231,15 +231,15 @@ export const SEEDED_ZH_TO_EN: Record<string, string> = {
   '聚焦会前准备、会中专注研讨与会后归档闭环。':
     'Focus on pre-meeting prep, live focused discussion, and post-meeting archive loop.',
   'Q3 架构演进与中英双语体验评审': 'Q3 Architecture Evolution & Bilingual UX Review',
-  '评审页内 ✨ AI 智能提炼、双向行动项状态机及中英双语无缝切换体验。':
-    'Review in-place ✨ AI Smart Extract, two-way action state machine, and seamless bilingual switching.',
-  '页内 ✨ AI 智能提炼与结构化产出': 'In-place ✨ AI Smart Extract & Structured Outcomes',
+  '评审页内 AI 智能提炼、双向行动项状态机及中英双语无缝切换体验。':
+    'Review in-place AI Smart Extract, two-way action state machine, and seamless bilingual switching.',
+  '页内 AI 智能提炼与结构化产出': 'In-place AI Smart Extract & Structured Outcomes',
   '围绕会议记录与 AI 提炼流程达成以下结论：':
     'Key conclusions on meeting notes and AI extraction workflow:',
-  '团队一致决定采用页内 ✨ AI 智能提炼直接写入当前议题记录，彻底移除冗余弹窗':
-    'Unanimously decided to use in-place ✨ AI Smart Extract directly in agenda notes, removing redundant modals',
-  '采用页内 ✨ AI 智能提炼直接写入当前议题记录，彻底移除冗余弹窗':
-    'Use in-place ✨ AI Smart Extract directly in agenda notes, removing redundant modals',
+  '团队一致决定采用页内 AI 智能提炼直接写入当前议题记录，彻底移除冗余弹窗':
+    'Unanimously decided to use in-place AI Smart Extract directly in agenda notes, removing redundant modals',
+  '采用页内 AI 智能提炼直接写入当前议题记录，彻底移除冗余弹窗':
+    'Use in-place AI Smart Extract directly in agenda notes, removing redundant modals',
   '请 @admin 完善中英双语标签 (@决策/@Decision、@行动/@Action) 解析与单元测试':
     'Please @admin refine bilingual tag (@Decision, @Action) parsing and unit tests',
   '完善中英双语标签 (@决策/@Decision、@行动/@Action) 解析与单元测试':
@@ -266,8 +266,8 @@ export const SEEDED_ZH_TO_EN: Record<string, string> = {
   '周会例行同步': 'Weekly Sync',
   '双周架构评审': 'Bi-weekly Architecture Review',
   '每周三 10:00 固定同步': 'Every Wednesday at 10:00',
-  '确认采用页内 ✨ AI 智能提炼直接写入当前议题记录，彻底移除冗余弹窗':
-    'Confirm in-place ✨ AI Smart Extract directly in agenda notes, removing redundant modals',
+  '确认采用页内 AI 智能提炼直接写入当前议题记录，彻底移除冗余弹窗':
+    'Confirm in-place AI Smart Extract directly in agenda notes, removing redundant modals',
 }
 
 export const SEEDED_EN_TO_ZH: Record<string, string> = Object.fromEntries(
@@ -279,7 +279,8 @@ const SORTED_EN_ENTRIES = Object.entries(SEEDED_EN_TO_ZH).sort((a, b) => b[0].le
 
 export function translateSeededText(text: string, lang: Locale = locale.value): string {
   if (!text) return text
-  const trimmed = text.trim()
+  const cleaned = text.replace(/\u2728\s*/g, '')
+  const trimmed = cleaned.trim()
   if (lang === 'en') {
     if (SEEDED_ZH_TO_EN[trimmed]) return SEEDED_ZH_TO_EN[trimmed]
     const discussMatch = trimmed.match(/^###\s+(.+?)\s+·\s+讨论要点$/)
@@ -310,7 +311,7 @@ export function translateSeededText(text: string, lang: Locale = locale.value): 
     if (qFallbackMatch) {
       return `Cross-module boundary details for "${translateSeededText(qFallbackMatch[1], 'en')}" pending final confirmation`
     }
-    let replaced = text
+    let replaced = cleaned
     for (const [zh, en] of SORTED_ZH_ENTRIES) {
       if (zh.length >= 4 && replaced.includes(zh)) {
         replaced = replaced.split(zh).join(en)
@@ -348,7 +349,7 @@ export function translateSeededText(text: string, lang: Locale = locale.value): 
   if (enQFallbackMatch) {
     return `「${translateSeededText(enQFallbackMatch[1], 'zh')}」跨模块边界细节待最终确认`
   }
-  let replaced = text
+  let replaced = cleaned
   for (const [en, zh] of SORTED_EN_ENTRIES) {
     if (en.length >= 6 && replaced.includes(en)) {
       replaced = replaced.split(en).join(zh)

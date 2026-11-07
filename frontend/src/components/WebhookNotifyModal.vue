@@ -80,7 +80,7 @@ async function sendNotification() {
 
       <div class="card-preview-box">
         <span class="preview-tag">{{ tr('推送内容预览', 'Card Preview') }}</span>
-        <div class="preview-title">📋 {{ tr('会议纪要：', 'Meeting Summary: ') }}{{ meeting.title }}</div>
+        <div class="preview-title">{{ tr('会议纪要：', 'Meeting Summary: ') }}{{ meeting.title }}</div>
         <div class="preview-meta">
           <span>{{ tr('状态：', 'Status: ') }}{{ meeting.status === 'completed' ? tr('已完成', 'Completed') : tr('进行中', 'In Progress') }}</span> ·
           <span>{{ tr('议题数：', 'Agendas: ') }}{{ meeting.agenda_items.length }}</span>

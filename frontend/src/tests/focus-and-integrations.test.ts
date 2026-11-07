@@ -311,7 +311,7 @@ describe('P0 Features: Bidirectional Actions, Focus Mode, Calendar & Webhooks', 
     expect(screen.getByLabelText('议题记录')).toHaveValue('正在输入的未保存笔记内容')
   })
 
-  it('structures and extracts decisions, actions, and open questions in-place via ✨ AI 智能提炼', async () => {
+  it('structures and extracts decisions, actions, and open questions in-place via AI 智能提炼', async () => {
     const meeting = meetingFixture()
     apiMock.mockImplementation((url: string, init?: RequestInit) => {
       if (url === '/api/v1/meetings/m1/ingest' && init?.method === 'POST') {
